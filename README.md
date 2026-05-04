@@ -36,6 +36,10 @@ cd ai-workspace
 
 ### 2. Create virtual environment
 ```
+Windows:
+.venv\Scripts\activate
+```
+```
 python -m venv .venv
 source .venv/bin/activate
 ```
@@ -51,18 +55,20 @@ uvicorn app:app --reload
 ```
 ---
 
-## Create environment variables
-create a `.env` file based on `.env.example`
+## Environment Variables
+Copy `.env.example` to `.env` and fill in required values before running the server.
 
 ---
 
 # Roadmap
-#### > Add PostgreSQL database integration
-#### > Implement JWT-based authentication
-#### > Add user registration system
-#### > Improve API security and rate limiting
+- Add PostgreSQL database integration
+- Implement JWT-based authentication
+- Add user registration system
+- Improve API security and rate limiting
 
-### Folder structure upgrade
+---
+
+## Folder structure upgrade
 ```
 app/
 │
