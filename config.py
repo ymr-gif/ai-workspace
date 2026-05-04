@@ -1,48 +1,89 @@
 """
 config.py
 ─────────
-Single source of truth for every environment variable and constant.
-Both auth.py and router.py import from here — nothing reads os.getenv() anywhere else.
+Central configuration for:
+- API keys
+- model routing
+- logging
+- database
+
+NOTE: All os.getenv() calls live here exclusively.
+      No other module should import os directly.
 """
+
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── NVIDIA NIM ────────────────────────────────────────────────────────────────
-NVIDIA_API_KEY: str = os.getenv("NVIDIA_API_KEY", "")
-NIM_URL: str        = "https://integrate.api.nvidia.com/v1/chat/completions"
+# ── Logging ───────────────────────────────────────────────────────────────────
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 # ── JWT ───────────────────────────────────────────────────────────────────────
-JWT_SECRET_KEY: str = os.getenv(
-    "JWT_SECRET_KEY",
-    "change-me-in-production-use-a-long-random-string",
-)
-JWT_ALGORITHM: str              = "HS256"
-JWT_EXPIRE_MINUTES: int         = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = 60
 
-# ── LLM model registry ────────────────────────────────────────────────────────
-# All slugs verified against /available-models (May 2026).
-MODELS: dict[str, str] = {
-    "llama":    "meta/llama-3.1-8b-instruct",           # fast general chat
-    "qwen":     "qwen/qwen2.5-coder-32b-instruct",      # coding / debugging
-    "nemotron": "nvidia/llama-3.1-nemotron-nano-8b-v1", # structured reasoning
-    "glm":      "z-ai/glm4.7",                          # deep analysis / long-form
+# ── NVIDIA NIM ────────────────────────────────────────────────────────────────
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
+NIM_URL = os.getenv(
+    "NIM_URL",
+    "https://integrate.api.nvidia.com/v1/chat/completions"
+)
+
+# ── Database ──────────────────────────────────────────────────────────────────
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+asyncpg://postgres:password@localhost:5432/nimrouter"
+)
+
+# ── Model routing ─────────────────────────────────────────────────────────────
+MODELS = {
+    "llama":     "nvidia/llama-3.1-nemotron-nano-8b-v1",
+    "coder":     "qwen/qwen2.5-coder-32b-instruct",
+    "reasoning": "nvidia/llama-3.1-nemotron-70b-instruct",
 }
 
-ROUTER_SYSTEM_PROMPT: str = f"""\
-You are a model-selection router.
-Given a user message, output ONLY one of these exact strings — nothing else:
-  {MODELS["llama"]}
-  {MODELS["qwen"]}
-  {MODELS["nemotron"]}
-  {MODELS["glm"]}
+# ── Reliability settings ──────────────────────────────────────────────────────
+REQUEST_TIMEOUT = 30    # seconds
+MAX_RETRIES = 2         # retries per model
+FALLBACK_ORDER = [
+    "reasoning",
+    "coder",
+    "llama",
+]
 
-Selection rules (apply in order):
-1. Coding, debugging, scripts, programming tasks              → {MODELS["qwen"]}
-2. Complex multi-step reasoning, deep analysis, long-form     → {MODELS["glm"]}
-3. Explanations, essays, structured reasoning                 → {MODELS["nemotron"]}
-4. Simple chat, greetings, casual conversation                → {MODELS["llama"]}
+# ── Router prompt ─────────────────────────────────────────────────────────────
+ROUTER_SYSTEM_PROMPT = """
+You are a routing system.
 
-Return ONLY the model name. No explanation.\
-"""
+Classify the user message and return ONLY ONE of these model IDs:
+
+- {llama}
+- {coder}
+- {reasoning}
+
+Rules:
+- Coding → coder
+- Complex reasoning → reasoning
+- Everything else → llama
+
+Return ONLY the model string.
+""".format(**MODELS)
+
+# ── Startup guards ────────────────────────────────────────────────────────────
+# These run at import time so misconfiguration fails loudly before the
+# server accepts any requests.
+
+if not NVIDIA_API_KEY:
+    raise RuntimeError(
+        "NVIDIA_API_KEY is not set. "
+        "Add it to your .env file before starting the server."
+    )
+
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is not set. "
+        "Add it to your .env file before starting the server. "
+        "Expected format: postgresql+asyncpg://user:password@host:port/dbname"
+    )

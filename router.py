@@ -1,139 +1,95 @@
 """
 router.py
 ─────────
-FastAPI application entry point.
-Responsibilities:
-  - Mount the auth router  (POST /auth/token, GET /auth/me)
-  - NIM call helpers       (_extract_content, call_nim, route_message)
-  - Protected chat route   (POST /chat)  🔒 JWT required
-  - Public system routes   (GET /health, GET /available-models)
+FastAPI entry point
 
-Run with:
-    uvicorn router:app --reload
+Responsibilities:
+- HTTP layer only
+- request_id tracking
+- authentication
+- response formatting
+
+NO heavy AI logic here (lives in service.py)
 """
 
-from fastapi import Depends, FastAPI
+from contextlib import asynccontextmanager
+import logging
+import uuid
+
+from fastapi import Depends, FastAPI, Request
 from pydantic import BaseModel
-import httpx
 
 from auth import auth_router, get_current_user
-from config import MODELS, NVIDIA_API_KEY, NIM_URL, ROUTER_SYSTEM_PROMPT
+from config import MODELS
+from db import init_db
+from service import generate_response
 
-app = FastAPI(title="NIM LLM Router")
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger("router")
 
-# Mount all /auth/* routes from auth.py
+
+# ── Lifespan (startup / shutdown) ─────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("[startup] initializing database tables...")
+    await init_db()
+    logger.info("[startup] database ready")
+    yield
+    logger.info("[shutdown] cleanup complete")
+
+
+# ── App ───────────────────────────────────────────────────────────────────────
+app = FastAPI(title="NIM LLM Router", lifespan=lifespan)
+
+
+# ── Middleware: request_id ────────────────────────────────────────────────────
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
+
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+# ── Mount auth router ─────────────────────────────────────────────────────────
 app.include_router(auth_router)
 
-# ── Pydantic schemas ──────────────────────────────────────────────────────────
+
+# ── Schemas ───────────────────────────────────────────────────────────────────
 class ChatRequest(BaseModel):
     message: str
+
 
 class ChatResponse(BaseModel):
     model_used: str
     response: str
 
-# ── NIM helpers ───────────────────────────────────────────────────────────────
-def _extract_content(data: dict) -> str | None:
-    """Try every known NIM / OpenAI response shape. Returns text or None."""
-    # Standard OpenAI shape
-    try:
-        c = data["choices"][0]["message"]["content"]
-        if c is not None:
-            return str(c)
-    except (KeyError, IndexError, TypeError):
-        pass
-    # Streaming leftover shape
-    try:
-        c = data["choices"][0]["delta"]["content"]
-        if c is not None:
-            return str(c)
-    except (KeyError, IndexError, TypeError):
-        pass
-    # Flat text field
-    if isinstance(data.get("text"), str):
-        return data["text"]
-    return None
 
-
-async def call_nim(model: str, messages: list[dict], *, max_tokens: int = 512) -> dict:
-    """POST a chat completion request to the NVIDIA NIM endpoint."""
-    headers = {
-        "Authorization": f"Bearer {NVIDIA_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": 0.7,
-        "max_tokens": max_tokens,
-    }
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(NIM_URL, headers=headers, json=payload)
-
-    if resp.status_code != 200:
-        print(f"[call_nim] {model} → HTTP {resp.status_code}: {resp.text}")
-        return {"error": resp.text, "status_code": resp.status_code}
-
-    data    = resp.json()
-    content = _extract_content(data)
-    if content is not None:
-        return {"content": content}
-
-    print(f"[call_nim] unrecognised response shape from {model}: {data}")
-    return {"error": "Unexpected response format", "raw": data}
-
-
-async def route_message(message: str) -> str:
-    """Ask llama (fast/cheap) to classify the message and return the best model slug."""
-    result = await call_nim(
-        model=MODELS["llama"],
-        messages=[
-            {"role": "system", "content": ROUTER_SYSTEM_PROMPT},
-            {"role": "user",   "content": message},
-        ],
-        max_tokens=32,
-    )
-    if "error" in result:
-        print("[router] routing call failed — falling back to llama")
-        return MODELS["llama"]
-
-    chosen = result["content"].strip()
-    if chosen not in set(MODELS.values()):
-        print(f"[router] unknown model '{chosen}' — falling back to llama")
-        return MODELS["llama"]
-
-    print(f"[router] → {chosen}")
-    return chosen
-
-# ── Protected chat route ──────────────────────────────────────────────────────
-@app.post("/chat", response_model=ChatResponse, tags=["chat"])
+# ── Routes ────────────────────────────────────────────────────────────────────
+@app.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
-    current_user: dict = Depends(get_current_user),  # 🔒 JWT required
+    request: Request,
+    current_user: dict = Depends(get_current_user),
 ):
-    print(f"[chat] user='{current_user['username']}' message='{req.message[:60]}'")
-    model  = await route_message(req.message)
-    result = await call_nim(model=model, messages=[{"role": "user", "content": req.message}])
+    rid = request.state.request_id
 
-    if "error" in result:
-        return ChatResponse(model_used=model, response=f"[ERROR] {result['error']}")
+    logger.info(f"[chat] rid={rid} user={current_user['username']}")
 
-    return ChatResponse(model_used=model, response=result["content"])
+    result = await generate_response(req.message, rid)
 
-# ── Public system routes ──────────────────────────────────────────────────────
-@app.get("/health", tags=["system"])
+    return ChatResponse(
+        model_used=result["model_used"],
+        response=result["response"],
+    )
+
+
+@app.get("/health")
 def health():
     return {"status": "ok", "models": MODELS}
-
-
-@app.get("/available-models", tags=["system"])
-async def available_models():
-    """Lists every model slug your API key can use on NIM."""
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.get(
-            "https://integrate.api.nvidia.com/v1/models",
-            headers={"Authorization": f"Bearer {NVIDIA_API_KEY}"},
-        )
-    if resp.status_code != 200:
-        return {"error": resp.text}
-    return {"models": sorted(m["id"] for m in resp.json().get("data", []))}
