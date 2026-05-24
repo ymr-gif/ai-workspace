@@ -70,23 +70,27 @@ async def generate_response(message: str, request_id: str) -> dict:
     }
 
 
-async def generate_stream(message: str, request_id: str):
-    cached = await get_cached_response(message)
-    if cached:
-        yield {"type": "token",  "content": cached["response"]}
-        yield {"type": "done",   "model": cached.get("model", "cache"), "cache_hit": True, "fallback_used": False}
-        return
+async def generate_stream(message: str, history: list[dict], request_id: str):
+    use_cache = not history
+
+    if use_cache:
+        cached = await get_cached_response(message)
+        if cached:
+            yield {"type": "token", "content": cached["response"]}
+            yield {"type": "done",  "model": cached.get("model", "cache"), "cache_hit": True, "fallback_used": False}
+            return
 
     model, _ = await route(message, request_id)
     fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
+    messages = history + [{"role": "user", "content": message}]
 
     for idx, current_model in enumerate(fallback_chain):
-        fallback_used    = idx > 0
-        accumulated      = []
-        started          = False
+        fallback_used = idx > 0
+        accumulated   = []
+        started       = False
 
         try:
-            async for chunk in call_stream(current_model, [{"role": "user", "content": message}], request_id):
+            async for chunk in call_stream(current_model, messages, request_id):
                 started = True
                 accumulated.append(chunk)
                 yield {"type": "token", "content": chunk}
@@ -103,11 +107,12 @@ async def generate_stream(message: str, request_id: str):
                 "fallback_used": fallback_used,
             }
 
-            try:
-                await set_cached_response(message, payload)
-                metrics.record_cache_write()
-            except Exception as e:
-                logger.warning("[cache] write_failed err=%s", e)
+            if use_cache:
+                try:
+                    await set_cached_response(message, payload)
+                    metrics.record_cache_write()
+                except Exception as e:
+                    logger.warning("[cache] write_failed err=%s", e)
 
             if fallback_used:
                 metrics.record_fallback()
