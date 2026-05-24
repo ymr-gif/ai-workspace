@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.security import get_current_user
+from config import MODELS
 from core.db import get_db
 from models import Conversation, Message, User
 
@@ -32,6 +33,8 @@ async def list_conversations(
             "title":          c.title,
             "updated_at":     c.updated_at.isoformat(),
             "memory_enabled": c.memory_enabled,
+            "system_prompt":  c.system_prompt  or "",
+            "locked_model":   c.locked_model   or "",
         }
         for c in convs
     ]
@@ -66,6 +69,8 @@ async def get_messages(
 
 class ConversationPatch(BaseModel):
     memory_enabled: bool | None = None
+    system_prompt:  str  | None = None   # "" clears
+    locked_model:   str  | None = None   # "" or short key ("llama"…) or full model id; "" clears
 
 
 @router.patch("/conversations/{conversation_id}")
@@ -84,11 +89,29 @@ async def patch_conversation(
     if not conv or conv.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Not found")
 
-    if body.memory_enabled is not None:
+    updated = body.model_dump(exclude_unset=True)
+
+    if "memory_enabled" in updated:
         conv.memory_enabled = body.memory_enabled
 
+    if "system_prompt" in updated:
+        conv.system_prompt = body.system_prompt.strip() or None if body.system_prompt else None
+
+    if "locked_model" in updated:
+        raw = (body.locked_model or "").strip()
+        if not raw:
+            conv.locked_model = None
+        else:
+            # accept short key ("llama") or full model id
+            conv.locked_model = MODELS.get(raw, raw) if raw in MODELS or raw in MODELS.values() else None
+
     await db.commit()
-    return {"ok": True, "memory_enabled": conv.memory_enabled}
+    return {
+        "ok":             True,
+        "memory_enabled": conv.memory_enabled,
+        "system_prompt":  conv.system_prompt  or "",
+        "locked_model":   conv.locked_model   or "",
+    }
 
 
 @router.delete("/conversations/{conversation_id}")

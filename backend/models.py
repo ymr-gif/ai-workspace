@@ -126,9 +126,11 @@ class Conversation(Base):
     user_id: Mapped[int]  = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title: Mapped[str]    = mapped_column(String(100), nullable=False)
     history_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    memory_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    memory_enabled: Mapped[bool]        = mapped_column(Boolean,      nullable=False, default=True, server_default="true")
+    system_prompt:  Mapped[str | None]  = mapped_column(Text,         nullable=True)
+    locked_model:   Mapped[str | None]  = mapped_column(String(100),  nullable=True)
+    created_at:     Mapped[datetime]    = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at:     Mapped[datetime]    = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class Message(Base):
