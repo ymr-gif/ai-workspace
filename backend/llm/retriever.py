@@ -125,7 +125,9 @@ async def retrieve_from_files(
             .order_by(FileChunk.embedding.cosine_distance(query_embedding))
             .limit(top_k)
         )
-        return list(result.scalars().all())
+        chunks = list(result.scalars().all())
+        logger.info("[retriever] retrieve_from_files files=%d chunks=%d", len(file_ids), len(chunks))
+        return chunks
     except Exception as e:
         logger.warning("[retriever] retrieve_from_files failed err=%s", e)
         return []
@@ -147,7 +149,9 @@ async def retrieve_files_sequential(
             .order_by(FileChunk.chunk_index.asc())
             .limit(top_k)
         )
-        return list(result.scalars().all())
+        chunks = list(result.scalars().all())
+        logger.info("[retriever] retrieve_files_sequential files=%d chunks=%d", len(file_ids), len(chunks))
+        return chunks
     except Exception as e:
         logger.warning("[retriever] retrieve_files_sequential failed err=%s", e)
         return []
@@ -162,7 +166,10 @@ async def get_conversation_file_ids(
             select(ConversationFile.file_id)
             .where(ConversationFile.conversation_id == conv_id)
         )
-        return list(result.scalars().all())
+        ids = list(result.scalars().all())
+        if ids:
+            logger.info("[retriever] conv=%s attached_files=%d", conv_id, len(ids))
+        return ids
     except Exception as e:
         logger.warning("[retriever] get_conversation_file_ids failed err=%s", e)
         return []
