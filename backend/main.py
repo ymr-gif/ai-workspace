@@ -372,8 +372,15 @@ async def chat_stream(
             if query_emb:
                 file_chunks = await retriever.retrieve_from_files(db, query_emb, file_ids, top_k=5)
             else:
-                # embedding unavailable — fall back to first chunks in order
                 file_chunks = await retriever.retrieve_files_sequential(db, file_ids, top_k=10)
+
+            if file_chunks:
+                for i, chunk in enumerate(file_chunks):
+                    logger.info("[file_ctx] rid=%s chunk=%d/%d preview=%s",
+                                rid, i + 1, len(file_chunks), repr(chunk[:120]))
+            else:
+                logger.warning("[file_ctx] rid=%s file_ids=%d but NO chunks retrieved — "
+                               "files may still be processing or have no embeddings", rid, len(file_ids))
 
     # ── compare mode: run all models concurrently, skip DB save ─────────────
     if req.compare:

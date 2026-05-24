@@ -399,6 +399,22 @@ compare:         bool          # run all 3 models concurrently, side-by-side SSE
   Upload alone is not enough — attachment creates the ConversationFile row that links file to conv
 - File context only injected when req.conversation_id is set (not on first message of new conv)
   Attach files to an existing conversation, not before sending the first message
+- **UNRESOLVED**: Model receives [FILE CONTEXT] chunks (confirmed via logs: attached_files=N, chunks=N)
+  but sometimes ignores file content in favor of conversation history context clues.
+  Chunks are retrieved via cosine similarity — if query doesn't match file content semantically,
+  wrong chunks may be returned. Small models (LLaMA 8B) tend to ignore injected context more.
+  Mitigation ideas for next session:
+  1. Force-include ALL chunks from attached files (ignore cosine filter) — new retrieve_all_files()
+  2. Reorder context: put [FILE CONTEXT] LAST (right before user message) so model attends to it
+  3. Add explicit system prompt: "You have access to these files: {filenames}. Reference them directly."
+  4. Use 70B model when files are attached (better instruction following)
+
+## Pending Next Session
+- [ ] Grafana dashboard for file RAG observability (file uploads, chunk counts, retrieval hits)
+- [ ] Prometheus metrics for: file_uploads_total, file_chunks_total, file_retrieval_hits_total
+- [ ] Fix model ignoring [FILE CONTEXT] — see mitigation ideas above
+- [ ] Add real-time processing status endpoint: GET /files/{id}/status (SSE or polling)
+- [ ] Frontend: show processing progress bar while file status = processing
 
 ---
 
