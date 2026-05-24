@@ -131,6 +131,28 @@ async def retrieve_from_files(
         return []
 
 
+async def retrieve_files_sequential(
+    db:       AsyncSession,
+    file_ids: list[uuid.UUID],
+    top_k:    int = 10,
+) -> list[str]:
+    """Fallback: return first top_k chunks by index when no query embedding available."""
+    if not file_ids:
+        return []
+    try:
+        result = await db.execute(
+            select(FileChunk.content)
+            .where(FileChunk.file_id.in_(file_ids))
+            .where(FileChunk.embedding.isnot(None))
+            .order_by(FileChunk.chunk_index.asc())
+            .limit(top_k)
+        )
+        return list(result.scalars().all())
+    except Exception as e:
+        logger.warning("[retriever] retrieve_files_sequential failed err=%s", e)
+        return []
+
+
 async def get_conversation_file_ids(
     db:      AsyncSession,
     conv_id: uuid.UUID,
