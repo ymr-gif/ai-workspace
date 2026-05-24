@@ -395,6 +395,10 @@ compare:         bool          # run all 3 models concurrently, side-by-side SSE
 - No integration tests — `/chat` endpoint not covered without running NIM API
 - `passlib` deprecation warning for `crypt` on Python 3.13+ — harmless on 3.11
 - Embedding latency (~100-300ms) adds to request setup time before stream starts
+- File RAG only works if file is explicitly ATTACHED to the conversation (Library tab → + button)
+  Upload alone is not enough — attachment creates the ConversationFile row that links file to conv
+- File context only injected when req.conversation_id is set (not on first message of new conv)
+  Attach files to an existing conversation, not before sending the first message
 
 ---
 
