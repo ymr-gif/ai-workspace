@@ -12,7 +12,12 @@ from llm.circuit_breaker import is_open, record_failure, record_success
 logger = logging.getLogger("nim")
 
 
-async def call(model: str, messages: list[dict], request_id: str) -> dict:
+async def call(
+    model:        str,
+    messages:     list[dict],
+    request_id:   str,
+    model_params: dict | None = None,
+) -> dict:
     if llm_client.client is None:
         raise RuntimeError("HTTP client not initialized")
     if not NVIDIA_API_KEY:
@@ -22,6 +27,7 @@ async def call(model: str, messages: list[dict], request_id: str) -> dict:
         return {"ok": False, "error": "circuit_open", "content": None, "latency_ms": 0, "model": model}
 
     start = time.monotonic()
+    body  = {"model": model, "messages": messages, **(model_params or {})}
 
     async with llm_client.semaphore:
         for attempt in range(MAX_RETRIES + 1):
@@ -32,7 +38,7 @@ async def call(model: str, messages: list[dict], request_id: str) -> dict:
                         "Authorization": f"Bearer {NVIDIA_API_KEY}",
                         "Content-Type":  "application/json",
                     },
-                    json={"model": model, "messages": messages},
+                    json=body,
                 )
 
                 if response.status_code != 200:
@@ -105,13 +111,20 @@ async def call(model: str, messages: list[dict], request_id: str) -> dict:
             "latency_ms": (time.monotonic() - start) * 1000, "model": model}
 
 
-async def call_stream(model: str, messages: list[dict], request_id: str):
+async def call_stream(
+    model:        str,
+    messages:     list[dict],
+    request_id:   str,
+    model_params: dict | None = None,
+):
     if llm_client.client is None:
         raise RuntimeError("HTTP client not initialized")
     if not NVIDIA_API_KEY:
         raise RuntimeError("Missing NVIDIA_API_KEY")
     if is_open(model):
         raise RuntimeError("circuit_open")
+
+    body = {"model": model, "messages": messages, "stream": True, **(model_params or {})}
 
     async with llm_client.semaphore:
         try:
@@ -122,7 +135,7 @@ async def call_stream(model: str, messages: list[dict], request_id: str):
                     "Authorization": f"Bearer {NVIDIA_API_KEY}",
                     "Content-Type":  "application/json",
                 },
-                json={"model": model, "messages": messages, "stream": True},
+                json=body,
             ) as response:
                 if response.status_code != 200:
                     logger.warning("[nim] stream_error model=%s status=%s", model, response.status_code)

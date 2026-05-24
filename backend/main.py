@@ -108,8 +108,24 @@ async def add_request_id(request: Request, call_next):
 
 
 class ChatRequest(BaseModel):
-    message:         str      = Field(..., min_length=1, max_length=2000)
-    conversation_id: str | None = None
+    message:         str         = Field(..., min_length=1, max_length=2000)
+    conversation_id: str | None  = None
+    model_override:  str | None  = None
+    temperature:     float | None = Field(None, ge=0.0, le=2.0)
+    max_tokens:      int | None   = Field(None, ge=1, le=4096)
+    top_p:           float | None = Field(None, ge=0.0, le=1.0)
+    compare:         bool         = False
+
+
+def _resolve_model(name: str | None) -> str | None:
+    if not name:
+        return None
+    from config import MODELS
+    if name in MODELS:
+        return MODELS[name]
+    if name in MODELS.values():
+        return name
+    return None
 
 
 class ResponseMeta(BaseModel):
@@ -292,6 +308,18 @@ async def chat_stream(
     memory_sheet    = (memory_row.content         if memory_row and memory_row.content         else "") if memory_enabled else ""
     project_summary = (memory_row.project_summary if memory_row and memory_row.project_summary else "") if memory_enabled else ""
 
+    # ── per-request model params + override ──────────────────────────────────
+    model_params: dict | None = None
+    _p: dict = {}
+    if req.temperature is not None: _p["temperature"] = req.temperature
+    if req.max_tokens  is not None: _p["max_tokens"]  = req.max_tokens
+    if req.top_p       is not None: _p["top_p"]       = req.top_p
+    if _p: model_params = _p
+
+    # priority: per-request override > conversation lock
+    effective_model = _resolve_model(req.model_override) or _resolve_model(conv.locked_model)
+    system_prompt   = conv.system_prompt or None
+
     # ── embed query once (reused for weighting + retrieval) ───────────────────
     is_ref    = retriever.is_reference_query(req.message)
     query_emb = None
@@ -337,6 +365,32 @@ async def chat_stream(
                 db, query_emb, conv.id, current_user.id
             )
 
+    # ── compare mode: run all models concurrently, skip DB save ─────────────
+    if req.compare:
+        common = service.build_context_messages(
+            memory_sheet, project_summary, retrieved, history_summary,
+            history, memory_enabled, system_prompt,
+        )
+        t_cmp = metrics.record_request_start()
+
+        async def compare_generator():
+            try:
+                async for event in service.compare_streams(req.message, common, model_params, rid):
+                    if event.get("type") == "done":
+                        event["conversation_id"] = str(conv.id)
+                    yield f"data: {_json.dumps(event)}\n\n"
+            except Exception:
+                logger.exception("[chat/stream] compare failed rid=%s", rid)
+                yield f"data: {_json.dumps({'type': 'error', 'message': 'Compare failed'})}\n\n"
+            finally:
+                metrics.record_request_end(start=t_cmp, model="compare", status="success")
+
+        return StreamingResponse(
+            compare_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     # ── save user message ─────────────────────────────────────────────────────
     user_msg = Message(conversation_id=conv.id, role="user", content=req.message)
     db.add(user_msg)
@@ -355,7 +409,11 @@ async def chat_stream(
         accumulated   = []
 
         try:
-            async for event in service.generate_stream(req.message, history, memory_sheet, project_summary, history_summary, retrieved, rid, memory_enabled=memory_enabled):
+            async for event in service.generate_stream(
+                req.message, history, memory_sheet, project_summary, history_summary, retrieved, rid,
+                memory_enabled=memory_enabled, model_override=effective_model,
+                model_params=model_params, system_prompt=system_prompt,
+            ):
                 if event["type"] == "token":
                     accumulated.append(event["content"])
                     yield f"data: {_json.dumps(event)}\n\n"

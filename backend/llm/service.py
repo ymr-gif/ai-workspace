@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 
@@ -8,6 +9,35 @@ from llm.router import route
 from llm.nim import call, call_stream
 
 logger = logging.getLogger("service")
+
+
+def build_context_messages(
+    memory_sheet:     str,
+    project_summary:  str,
+    retrieved_chunks: list[str],
+    history_summary:  str,
+    history:          list[dict],
+    memory_enabled:   bool,
+    system_prompt:    str | None = None,
+) -> list[dict]:
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    if memory_enabled:
+        if memory_sheet:
+            messages.append({"role": "system",    "content": f"[USER STATE]\n{memory_sheet}"})
+        if project_summary:
+            messages.append({"role": "user",      "content": f"[PROJECT STATE]\n{project_summary}"})
+            messages.append({"role": "assistant", "content": "Understood."})
+        if retrieved_chunks:
+            chunks_text = "\n\n".join(retrieved_chunks)
+            messages.append({"role": "user",      "content": f"[RELEVANT CONTEXT FROM EARLIER]\n{chunks_text}"})
+            messages.append({"role": "assistant", "content": "Understood."})
+        if history_summary:
+            messages.append({"role": "user",      "content": f"[EARLIER IN THIS CONVERSATION]\n{history_summary}"})
+            messages.append({"role": "assistant", "content": "Understood."})
+    messages += history
+    return messages
 
 
 async def generate_response(message: str, request_id: str) -> dict:
@@ -78,9 +108,12 @@ async def generate_stream(
     history_summary:  str,
     retrieved_chunks: list[str],
     request_id:       str,
-    memory_enabled:   bool = True,
+    memory_enabled:   bool         = True,
+    model_override:   str | None   = None,
+    model_params:     dict | None  = None,
+    system_prompt:    str | None   = None,
 ):
-    use_cache = not history
+    use_cache = not history and not model_override and not model_params and not system_prompt
 
     if use_cache:
         cached = await get_cached_response(message)
@@ -89,24 +122,16 @@ async def generate_stream(
             yield {"type": "done",  "model": cached.get("model", "cache"), "cache_hit": True, "fallback_used": False}
             return
 
-    model, _ = await route(message, request_id)
-    fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
+    if model_override:
+        fallback_chain = [model_override]
+    else:
+        model, _ = await route(message, request_id)
+        fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
 
-    messages = []
-    if memory_enabled:
-        if memory_sheet:
-            messages.append({"role": "system",    "content": f"[USER STATE]\n{memory_sheet}"})
-        if project_summary:
-            messages.append({"role": "user",      "content": f"[PROJECT STATE]\n{project_summary}"})
-            messages.append({"role": "assistant", "content": "Understood."})
-        if retrieved_chunks:
-            chunks_text = "\n\n".join(retrieved_chunks)
-            messages.append({"role": "user",      "content": f"[RELEVANT CONTEXT FROM EARLIER]\n{chunks_text}"})
-            messages.append({"role": "assistant", "content": "Understood."})
-        if history_summary:
-            messages.append({"role": "user",      "content": f"[EARLIER IN THIS CONVERSATION]\n{history_summary}"})
-            messages.append({"role": "assistant", "content": "Understood."})
-    messages += history + [{"role": "user", "content": message}]
+    messages = build_context_messages(
+        memory_sheet, project_summary, retrieved_chunks, history_summary,
+        history, memory_enabled, system_prompt,
+    ) + [{"role": "user", "content": message}]
 
     for idx, current_model in enumerate(fallback_chain):
         fallback_used = idx > 0
@@ -114,7 +139,7 @@ async def generate_stream(
         started       = False
 
         try:
-            async for chunk in call_stream(current_model, messages, request_id):
+            async for chunk in call_stream(current_model, messages, request_id, model_params):
                 started = True
                 accumulated.append(chunk)
                 yield {"type": "token", "content": chunk}
@@ -152,3 +177,36 @@ async def generate_stream(
             continue
 
     yield {"type": "error", "message": "All models failed"}
+
+
+async def compare_streams(
+    message:      str,
+    common_msgs:  list[dict],
+    model_params: dict | None,
+    request_id:   str,
+):
+    """Run all models concurrently; yield tagged token events."""
+    queue  = asyncio.Queue()
+    models = list(MODELS.values())
+
+    async def _run(model: str) -> None:
+        try:
+            msgs = common_msgs + [{"role": "user", "content": message}]
+            async for chunk in call_stream(model, msgs, request_id, model_params):
+                await queue.put({"type": "token", "content": chunk, "model": model})
+        except Exception as e:
+            logger.warning("[compare] %s failed: %s", model, e)
+        await queue.put({"__done__": model})
+
+    tasks = [asyncio.create_task(_run(m)) for m in models]
+    done  = 0
+
+    while done < len(models):
+        item = await queue.get()
+        if "__done__" in item:
+            done += 1
+        else:
+            yield item
+
+    yield {"type": "done", "compare": True, "model": "compare", "cache_hit": False, "fallback_used": False}
+    await asyncio.gather(*tasks, return_exceptions=True)
