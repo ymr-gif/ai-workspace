@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import json as _json
 import logging
 import uuid
@@ -7,12 +8,14 @@ import httpx
 from fastapi import Depends, FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from observability import metrics, events, observability
 from llm import service
 from core.redis_client import init_redis, get_redis
 import llm.client as llm_client
-from models import User
+from models import User, Conversation, Message
 from auth import auth_router, get_current_user
 from config import MODELS, REQUEST_TIMEOUT
 from core.db import init_db, get_db
@@ -32,6 +35,7 @@ from observability.prom_metrics import (
 )
 
 from api.files import router as files_router
+from api.conversations import router as conversations_router
 from core.logger import setup_logging
 
 setup_logging()
@@ -79,9 +83,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.include_router(files_router, prefix="/files")
+app.include_router(files_router,         prefix="/files")
 app.include_router(auth_router)
 app.include_router(metrics_router)
+app.include_router(conversations_router)
 
 Instrumentator().instrument(app).expose(app, endpoint="/prometheus")
 
@@ -97,7 +102,8 @@ async def add_request_id(request: Request, call_next):
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=2000)
+    message:         str      = Field(..., min_length=1, max_length=2000)
+    conversation_id: str | None = None
 
 
 class ResponseMeta(BaseModel):
@@ -231,29 +237,79 @@ async def chat(
 async def chat_stream(
     req:          ChatRequest,
     request:      Request,
-    current_user: User = Depends(get_current_user),
-    _:            None = limit(15, 60, "chat"),
+    current_user: User         = Depends(get_current_user),
+    db:           AsyncSession = Depends(get_db),
+    _:            None         = limit(15, 60, "chat"),
 ):
     rid = request.state.request_id
     logger.info("[chat/stream] rid=%s user=%s", rid, current_user.username)
 
-    t_start = metrics.record_request_start()
+    # ── resolve or create conversation ────────────────────────────────────────
+    if req.conversation_id:
+        try:
+            cid  = uuid.UUID(req.conversation_id)
+            conv = await db.get(Conversation, cid)
+            if not conv or conv.user_id != current_user.id:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid conversation_id")
+    else:
+        conv = Conversation(
+            user_id = current_user.id,
+            title   = req.message[:60].strip(),
+        )
+        db.add(conv)
+        await db.flush()
+
+    # ── load history (last 20 messages) ───────────────────────────────────────
+    result = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == conv.id)
+        .order_by(Message.created_at.asc())
+        .limit(20)
+    )
+    history = [{"role": m.role, "content": m.content} for m in result.scalars().all()]
+
+    # ── save user message ─────────────────────────────────────────────────────
+    db.add(Message(conversation_id=conv.id, role="user", content=req.message))
+    conv.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    conv_id_str = str(conv.id)
+    t_start     = metrics.record_request_start()
 
     async def event_generator():
         status        = "success"
         model_used    = "unknown"
         cache_hit     = False
         fallback_used = False
+        accumulated   = []
 
         try:
-            async for event in service.generate_stream(req.message, rid):
+            async for event in service.generate_stream(req.message, history, rid):
                 if event["type"] == "token":
+                    accumulated.append(event["content"])
                     yield f"data: {_json.dumps(event)}\n\n"
+
                 elif event["type"] == "done":
                     model_used    = event.get("model", "unknown")
                     cache_hit     = event.get("cache_hit", False)
                     fallback_used = event.get("fallback_used", False)
+
+                    try:
+                        db.add(Message(
+                            conversation_id = conv.id,
+                            role            = "assistant",
+                            content         = "".join(accumulated),
+                            model           = model_used,
+                        ))
+                        await db.commit()
+                    except Exception:
+                        logger.exception("[chat/stream] db save failed rid=%s", rid)
+
+                    event["conversation_id"] = conv_id_str
                     yield f"data: {_json.dumps(event)}\n\n"
+
                 elif event["type"] == "error":
                     status = "error"
                     yield f"data: {_json.dumps(event)}\n\n"
