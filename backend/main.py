@@ -288,8 +288,9 @@ async def chat_stream(
 
     # ── load memory + project summary (one query) ────────────────────────────
     memory_row      = await db.get(UserMemory, current_user.id)
-    memory_sheet    = memory_row.content         if memory_row and memory_row.content         else ""
-    project_summary = memory_row.project_summary if memory_row and memory_row.project_summary else ""
+    memory_enabled  = conv.memory_enabled
+    memory_sheet    = (memory_row.content         if memory_row and memory_row.content         else "") if memory_enabled else ""
+    project_summary = (memory_row.project_summary if memory_row and memory_row.project_summary else "") if memory_enabled else ""
 
     # ── embed query once (reused for weighting + retrieval) ───────────────────
     is_ref    = retriever.is_reference_query(req.message)
@@ -354,7 +355,7 @@ async def chat_stream(
         accumulated   = []
 
         try:
-            async for event in service.generate_stream(req.message, history, memory_sheet, project_summary, history_summary, retrieved, rid):
+            async for event in service.generate_stream(req.message, history, memory_sheet, project_summary, history_summary, retrieved, rid, memory_enabled=memory_enabled):
                 if event["type"] == "token":
                     accumulated.append(event["content"])
                     yield f"data: {_json.dumps(event)}\n\n"

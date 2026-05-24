@@ -126,6 +126,7 @@ class Conversation(Base):
     user_id: Mapped[int]  = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title: Mapped[str]    = mapped_column(String(100), nullable=False)
     history_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    memory_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -150,6 +151,17 @@ class MessageEmbedding(Base):
     content_snippet: Mapped[str]       = mapped_column(Text, nullable=False)
     embedding:       Mapped[list]      = mapped_column(Vector(EMBEDDING_DIM), nullable=False)
     created_at:      Mapped[datetime]  = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class UserMemoryVersion(Base):
+    __tablename__ = "user_memory_versions"
+
+    id:              Mapped[int]        = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id:         Mapped[int]        = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    version:         Mapped[int]        = mapped_column(Integer, nullable=False)
+    content:         Mapped[str]        = mapped_column(Text, nullable=False, default="")
+    project_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at:      Mapped[datetime]   = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class FileChunk(Base):

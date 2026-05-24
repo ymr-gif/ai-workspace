@@ -2,6 +2,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +27,12 @@ async def list_conversations(
     )
     convs = result.scalars().all()
     return [
-        {"id": str(c.id), "title": c.title, "updated_at": c.updated_at.isoformat()}
+        {
+            "id":             str(c.id),
+            "title":          c.title,
+            "updated_at":     c.updated_at.isoformat(),
+            "memory_enabled": c.memory_enabled,
+        }
         for c in convs
     ]
 
@@ -56,6 +62,33 @@ async def get_messages(
         {"role": m.role, "content": m.content, "model": m.model}
         for m in msgs
     ]
+
+
+class ConversationPatch(BaseModel):
+    memory_enabled: bool | None = None
+
+
+@router.patch("/conversations/{conversation_id}")
+async def patch_conversation(
+    conversation_id: str,
+    body:            ConversationPatch,
+    db:              AsyncSession = Depends(get_db),
+    current_user:    User         = Depends(get_current_user),
+):
+    try:
+        cid = uuid.UUID(conversation_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    conv = await db.get(Conversation, cid)
+    if not conv or conv.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if body.memory_enabled is not None:
+        conv.memory_enabled = body.memory_enabled
+
+    await db.commit()
+    return {"ok": True, "memory_enabled": conv.memory_enabled}
 
 
 @router.delete("/conversations/{conversation_id}")

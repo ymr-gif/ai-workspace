@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import MODELS
 from core.db import AsyncSessionLocal
-from models import Conversation, Message, UserMemory
+from models import Conversation, Message, UserMemory, UserMemoryVersion
 from llm.nim import call
 
 logger = logging.getLogger("summarizer")
@@ -152,6 +152,12 @@ Update the memory sheet. Reply with the full updated sheet or {_NO_UPDATE}.\
     now = datetime.now(timezone.utc)
 
     if row:
+        db.add(UserMemoryVersion(
+            user_id         = user_id,
+            version         = row.version,
+            content         = row.content         or "",
+            project_summary = row.project_summary or "",
+        ))
         row.content            = updated
         row.version           += 1
         row.updated_at         = now
@@ -270,14 +276,21 @@ Update the project state. Reply with the full updated state or {_NO_UPDATE}.\
     now = datetime.now(timezone.utc)
 
     if row:
+        db.add(UserMemoryVersion(
+            user_id         = user_id,
+            version         = row.version,
+            content         = row.content         or "",
+            project_summary = row.project_summary or "",
+        ))
         row.project_summary = updated
+        row.version        += 1
         row.updated_at      = now
     else:
         db.add(UserMemory(
             user_id         = user_id,
             content         = "",
             project_summary = updated,
-            version         = 0,
+            version         = 1,
             updated_at      = now,
         ))
 
