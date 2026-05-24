@@ -21,7 +21,8 @@ JWT_EXPIRE_MINUTES = _int_env("JWT_EXPIRE_MINUTES", 60)
 
 # ── NVIDIA NIM ────────────────────────────────────────────────────────────────
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
-NIM_URL        = os.getenv("NIM_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
+NIM_URL           = os.getenv("NIM_URL",           "https://integrate.api.nvidia.com/v1/chat/completions")
+NIM_EMBEDDING_URL = os.getenv("NIM_EMBEDDING_URL", "https://integrate.api.nvidia.com/v1/embeddings")
 
 # ── Database ──────────────────────────────────────────────────────────────────
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -35,6 +36,9 @@ MODELS = {
     "coder":     os.getenv("MODEL_CODER",     "deepseek-ai/deepseek-v4-flash"),
     "reasoning": os.getenv("MODEL_REASONING", "meta/llama-3.3-70b-instruct"),
 }
+
+MODEL_EMBEDDING   = os.getenv("MODEL_EMBEDDING",   "nvidia/nv-embedqa-e5-v5")
+EMBEDDING_DIM     = int(os.getenv("EMBEDDING_DIM", "1024"))
 
 # ── Reliability ───────────────────────────────────────────────────────────────
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", 30))

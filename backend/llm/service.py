@@ -70,7 +70,7 @@ async def generate_response(message: str, request_id: str) -> dict:
     }
 
 
-async def generate_stream(message: str, history: list[dict], memory_sheet: str, history_summary: str, request_id: str):
+async def generate_stream(message: str, history: list[dict], memory_sheet: str, history_summary: str, retrieved_chunks: list[str], request_id: str):
     use_cache = not history
 
     if use_cache:
@@ -86,8 +86,12 @@ async def generate_stream(message: str, history: list[dict], memory_sheet: str, 
     messages = []
     if memory_sheet:
         messages.append({"role": "system", "content": f"[USER STATE]\n{memory_sheet}"})
+    if retrieved_chunks:
+        chunks_text = "\n\n".join(retrieved_chunks)
+        messages.append({"role": "user",      "content": f"[RELEVANT CONTEXT FROM EARLIER]\n{chunks_text}"})
+        messages.append({"role": "assistant", "content": "Understood."})
     if history_summary:
-        messages.append({"role": "user", "content": f"[EARLIER IN THIS CONVERSATION]\n{history_summary}"})
+        messages.append({"role": "user",      "content": f"[EARLIER IN THIS CONVERSATION]\n{history_summary}"})
         messages.append({"role": "assistant", "content": "Understood."})
     messages += history + [{"role": "user", "content": message}]
 

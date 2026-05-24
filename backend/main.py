@@ -37,8 +37,11 @@ from observability.prom_metrics import (
 
 from api.files import router as files_router
 from api.conversations import router as conversations_router
+from api.memory import router as memory_router
 from core.logger import setup_logging
 from llm.summarizer import get_memory, update_memory, compress_history
+from llm.embeddings import embed as embed_text
+from llm import retriever
 
 setup_logging()
 
@@ -89,6 +92,7 @@ app.include_router(files_router,         prefix="/files")
 app.include_router(auth_router)
 app.include_router(metrics_router)
 app.include_router(conversations_router)
+app.include_router(memory_router)
 
 Instrumentator().instrument(app).expose(app, endpoint="/prometheus")
 
@@ -122,6 +126,21 @@ class ErrorResponse(BaseModel):
     success: bool = False
     error: dict
     meta: ResponseMeta
+
+
+async def _embed_exchange(
+    message_id:      uuid.UUID,
+    conversation_id: uuid.UUID,
+    user_text:       str,
+    assistant_text:  str,
+) -> None:
+    try:
+        exchange = f"{user_text[:300]}\n{assistant_text[:400]}"
+        emb = await embed_text(exchange, input_type="passage")
+        if emb:
+            await retriever.store_exchange(message_id, conversation_id, user_text, assistant_text, emb)
+    except Exception:
+        logger.exception("[embed_exchange] failed msg=%s", message_id)
 
 
 @app.post("/chat", response_model=SuccessResponse | ErrorResponse)
@@ -276,10 +295,19 @@ async def chat_stream(
     # ── load memory sheet ─────────────────────────────────────────────────────
     memory_sheet = await get_memory(db, current_user.id)
 
+    # ── embed query + retrieve relevant past exchanges ────────────────────────
+    retrieved = []
+    if req.conversation_id:
+        query_emb = await embed_text(req.message, input_type="query")
+        if query_emb:
+            retrieved = await retriever.retrieve(db, query_emb, conv.id)
+
     # ── save user message ─────────────────────────────────────────────────────
-    db.add(Message(conversation_id=conv.id, role="user", content=req.message))
+    user_msg = Message(conversation_id=conv.id, role="user", content=req.message)
+    db.add(user_msg)
     conv.updated_at = datetime.now(timezone.utc)
     await db.commit()
+    user_msg_id = user_msg.id
 
     conv_id_str = str(conv.id)
     t_start     = metrics.record_request_start()
@@ -292,7 +320,7 @@ async def chat_stream(
         accumulated   = []
 
         try:
-            async for event in service.generate_stream(req.message, history, memory_sheet, history_summary, rid):
+            async for event in service.generate_stream(req.message, history, memory_sheet, history_summary, retrieved, rid):
                 if event["type"] == "token":
                     accumulated.append(event["content"])
                     yield f"data: {_json.dumps(event)}\n\n"
@@ -304,13 +332,20 @@ async def chat_stream(
                     full_response = "".join(accumulated)
 
                     try:
-                        db.add(Message(
+                        asst_msg = Message(
                             conversation_id = conv.id,
                             role            = "assistant",
                             content         = full_response,
                             model           = model_used,
-                        ))
+                        )
+                        db.add(asst_msg)
                         await db.commit()
+                        asst_msg_id = asst_msg.id
+
+                        # embed exchange in background
+                        asyncio.create_task(_embed_exchange(
+                            asst_msg_id, conv.id, req.message, full_response
+                        ))
 
                         # count messages for background task triggers
                         cnt = await db.execute(
