@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+.venv/
+venv/
+
+# Git
+.git/
+.gitignore
+
+# Docker
+docker-data/
+postgres-data/
+
+# Uploaded files
+backend/storage/files/
+
+# AI models / caches
+.cache/
+huggingface/
+models/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Metrics
+prometheus_data/
+grafana_data/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Alembic cache
+backend/alembic/__pycache__/
+
+# Env
+.env
