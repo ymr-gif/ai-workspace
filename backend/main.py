@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import asyncio
 import json as _json
 import logging
 import uuid
@@ -37,6 +38,7 @@ from observability.prom_metrics import (
 from api.files import router as files_router
 from api.conversations import router as conversations_router
 from core.logger import setup_logging
+from llm.summarizer import get_memory, update_memory, compress_history
 
 setup_logging()
 
@@ -261,14 +263,18 @@ async def chat_stream(
         db.add(conv)
         await db.flush()
 
-    # ── load history (last 20 messages) ───────────────────────────────────────
-    result = await db.execute(
+    # ── load last 10 raw messages + history summary ───────────────────────────
+    hist_result = await db.execute(
         select(Message)
         .where(Message.conversation_id == conv.id)
-        .order_by(Message.created_at.asc())
-        .limit(20)
+        .order_by(Message.created_at.desc())
+        .limit(10)
     )
-    history = [{"role": m.role, "content": m.content} for m in result.scalars().all()]
+    history = [{"role": m.role, "content": m.content} for m in reversed(hist_result.scalars().all())]
+    history_summary = conv.history_summary or ""
+
+    # ── load memory sheet ─────────────────────────────────────────────────────
+    memory_sheet = await get_memory(db, current_user.id)
 
     # ── save user message ─────────────────────────────────────────────────────
     db.add(Message(conversation_id=conv.id, role="user", content=req.message))
@@ -286,7 +292,7 @@ async def chat_stream(
         accumulated   = []
 
         try:
-            async for event in service.generate_stream(req.message, history, rid):
+            async for event in service.generate_stream(req.message, history, memory_sheet, history_summary, rid):
                 if event["type"] == "token":
                     accumulated.append(event["content"])
                     yield f"data: {_json.dumps(event)}\n\n"
@@ -295,15 +301,37 @@ async def chat_stream(
                     model_used    = event.get("model", "unknown")
                     cache_hit     = event.get("cache_hit", False)
                     fallback_used = event.get("fallback_used", False)
+                    full_response = "".join(accumulated)
 
                     try:
                         db.add(Message(
                             conversation_id = conv.id,
                             role            = "assistant",
-                            content         = "".join(accumulated),
+                            content         = full_response,
                             model           = model_used,
                         ))
                         await db.commit()
+
+                        # count messages for background task triggers
+                        cnt = await db.execute(
+                            select(Message)
+                            .where(Message.conversation_id == conv.id)
+                        )
+                        all_count = len(cnt.scalars().all())
+                        asst_cnt = await db.execute(
+                            select(Message)
+                            .where(Message.conversation_id == conv.id, Message.role == "assistant")
+                        )
+                        asst_count = len(asst_cnt.scalars().all())
+
+                        # compress old history every 5 total exchanges past 10
+                        if all_count > 10 and all_count % 5 == 0:
+                            asyncio.create_task(compress_history(conv.id))
+
+                        # update memory sheet every 5 assistant messages
+                        if asst_count % 5 == 0:
+                            asyncio.create_task(update_memory(current_user.id, conv.id))
+
                     except Exception:
                         logger.exception("[chat/stream] db save failed rid=%s", rid)
 

@@ -106,12 +106,23 @@ class File(Base):
         nullable=False
     )
 
+class UserMemory(Base):
+    __tablename__ = "user_memory"
+
+    user_id:              Mapped[int]            = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    content:              Mapped[str]            = mapped_column(Text, nullable=False, default="")
+    version:              Mapped[int]            = mapped_column(Integer, nullable=False, default=0)
+    updated_at:           Mapped[datetime]       = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_summarized_at:   Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[int]  = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title: Mapped[str]    = mapped_column(String(100), nullable=False)
+    history_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
