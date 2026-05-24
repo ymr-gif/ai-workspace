@@ -6,6 +6,7 @@ Create Date: 2026-05-24
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql as pg
 from pgvector.sqlalchemy import Vector
 
@@ -17,8 +18,15 @@ depends_on    = None
 _DIM = 1024
 
 
+def _table_exists(name: str) -> bool:
+    return inspect(op.get_bind()).has_table(name)
+
+
 def upgrade():
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
+    if _table_exists("message_embeddings"):
+        return
 
     op.create_table(
         "message_embeddings",
