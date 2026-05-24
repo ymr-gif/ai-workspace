@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import time
 
@@ -102,6 +103,52 @@ async def call(model: str, messages: list[dict], request_id: str) -> dict:
 
     return {"ok": False, "error": "failed", "content": None,
             "latency_ms": (time.monotonic() - start) * 1000, "model": model}
+
+
+async def call_stream(model: str, messages: list[dict], request_id: str):
+    if llm_client.client is None:
+        raise RuntimeError("HTTP client not initialized")
+    if not NVIDIA_API_KEY:
+        raise RuntimeError("Missing NVIDIA_API_KEY")
+    if is_open(model):
+        raise RuntimeError("circuit_open")
+
+    async with llm_client.semaphore:
+        try:
+            async with llm_client.client.stream(
+                "POST",
+                NIM_URL,
+                headers={
+                    "Authorization": f"Bearer {NVIDIA_API_KEY}",
+                    "Content-Type":  "application/json",
+                },
+                json={"model": model, "messages": messages, "stream": True},
+            ) as response:
+                if response.status_code != 200:
+                    logger.warning("[nim] stream_error model=%s status=%s", model, response.status_code)
+                    await record_failure(model)
+                    return
+
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    raw = line[6:].strip()
+                    if raw == "[DONE]":
+                        break
+                    try:
+                        chunk   = json.loads(raw)
+                        content = chunk["choices"][0]["delta"].get("content") or ""
+                        if content:
+                            yield content
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
+
+                record_success(model)
+
+        except (httpx.TimeoutException, httpx.RequestError) as e:
+            logger.warning("[nim] stream_network_error model=%s err=%s", model, e)
+            await record_failure(model)
+            raise
 
 
 def _extract(data: dict) -> str | None:

@@ -5,7 +5,7 @@ from config import FALLBACK_ORDER, MODELS
 from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route
-from llm.nim import call
+from llm.nim import call, call_stream
 
 logger = logging.getLogger("service")
 
@@ -68,3 +68,58 @@ async def generate_response(message: str, request_id: str) -> dict:
         "fallback_used": True,
         "latency_ms":    (time.monotonic() - total_start) * 1000,
     }
+
+
+async def generate_stream(message: str, request_id: str):
+    cached = await get_cached_response(message)
+    if cached:
+        yield {"type": "token",  "content": cached["response"]}
+        yield {"type": "done",   "model": cached.get("model", "cache"), "cache_hit": True, "fallback_used": False}
+        return
+
+    model, _ = await route(message, request_id)
+    fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
+
+    for idx, current_model in enumerate(fallback_chain):
+        fallback_used    = idx > 0
+        accumulated      = []
+        started          = False
+
+        try:
+            async for chunk in call_stream(current_model, [{"role": "user", "content": message}], request_id):
+                started = True
+                accumulated.append(chunk)
+                yield {"type": "token", "content": chunk}
+
+            if not accumulated:
+                logger.warning("[service] empty_stream model=%s", current_model)
+                continue
+
+            full_response = "".join(accumulated)
+            payload = {
+                "response":      full_response,
+                "model":         current_model,
+                "cache_hit":     False,
+                "fallback_used": fallback_used,
+            }
+
+            try:
+                await set_cached_response(message, payload)
+                metrics.record_cache_write()
+            except Exception as e:
+                logger.warning("[cache] write_failed err=%s", e)
+
+            if fallback_used:
+                metrics.record_fallback()
+
+            yield {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used}
+            return
+
+        except Exception as e:
+            logger.warning("[service] stream_failed model=%s started=%s err=%s", current_model, started, e)
+            if started:
+                yield {"type": "error", "message": "Stream interrupted"}
+                return
+            continue
+
+    yield {"type": "error", "message": "All models failed"}

@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
+import json as _json
 import logging
 import uuid
 import httpx
 
 from fastapi import Depends, FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from observability import metrics, events, observability
@@ -224,6 +225,61 @@ async def chat(
         })
 
     return response_payload
+
+
+@app.post("/chat/stream")
+async def chat_stream(
+    req:          ChatRequest,
+    request:      Request,
+    current_user: User = Depends(get_current_user),
+    _:            None = limit(15, 60, "chat"),
+):
+    rid = request.state.request_id
+    logger.info("[chat/stream] rid=%s user=%s", rid, current_user.username)
+
+    t_start = metrics.record_request_start()
+
+    async def event_generator():
+        status        = "success"
+        model_used    = "unknown"
+        cache_hit     = False
+        fallback_used = False
+
+        try:
+            async for event in service.generate_stream(req.message, rid):
+                if event["type"] == "token":
+                    yield f"data: {_json.dumps(event)}\n\n"
+                elif event["type"] == "done":
+                    model_used    = event.get("model", "unknown")
+                    cache_hit     = event.get("cache_hit", False)
+                    fallback_used = event.get("fallback_used", False)
+                    yield f"data: {_json.dumps(event)}\n\n"
+                elif event["type"] == "error":
+                    status = "error"
+                    yield f"data: {_json.dumps(event)}\n\n"
+
+        except Exception:
+            status = "error"
+            logger.exception("[chat/stream] failed rid=%s", rid)
+            yield f"data: {_json.dumps({'type': 'error', 'message': 'Internal server error'})}\n\n"
+
+        finally:
+            latency_ms = metrics.record_request_end(
+                start=t_start, model=model_used, status=status,
+                cache_hit=cache_hit, fallback_used=fallback_used,
+            )
+            REQUEST_LATENCY.observe(latency_ms / 1000)
+            LATENCY.observe(latency_ms / 1000)
+            REQUEST_COUNT.labels(status=status).inc()
+            if status == "success" and model_used != "unknown":
+                MODEL_USAGE.labels(model=model_used).inc()
+                MODEL_LATENCY.labels(model=model_used).observe(latency_ms / 1000)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/metrics")
