@@ -10,7 +10,7 @@ from fastapi import Depends, FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from observability import metrics, events, observability
 from llm import service
@@ -120,7 +120,6 @@ class ChatRequest(BaseModel):
 def _resolve_model(name: str | None) -> str | None:
     if not name:
         return None
-    from config import MODELS
     if name in MODELS:
         return MODELS[name]
     if name in MODELS.values():
@@ -374,6 +373,7 @@ async def chat_stream(
 
     # ── compare mode: run all models concurrently, skip DB save ─────────────
     if req.compare:
+        await db.commit()  # persist new conversation if one was created
         common = service.build_context_messages(
             memory_sheet, project_summary, retrieved, history_summary,
             history, memory_enabled, system_prompt, file_chunks,
@@ -450,14 +450,15 @@ async def chat_stream(
 
                         # message counts for fallback triggers
                         cnt = await db.execute(
-                            select(Message).where(Message.conversation_id == conv.id)
+                            select(func.count()).select_from(Message)
+                            .where(Message.conversation_id == conv.id)
                         )
-                        all_count = len(cnt.scalars().all())
+                        all_count = cnt.scalar_one()
                         asst_cnt = await db.execute(
-                            select(Message)
+                            select(func.count()).select_from(Message)
                             .where(Message.conversation_id == conv.id, Message.role == "assistant")
                         )
-                        asst_count = len(asst_cnt.scalars().all())
+                        asst_count = asst_cnt.scalar_one()
 
                         # context-pressure trigger (rough token estimate)
                         ctx_tokens = _estimate_tokens(

@@ -120,7 +120,7 @@ async def generate_stream(
     system_prompt:    str | None   = None,
     file_chunks:      list[str]    = (),
 ):
-    use_cache = not history and not model_override and not model_params and not system_prompt
+    use_cache = not history and not model_override and not model_params and not system_prompt and not file_chunks
 
     if use_cache:
         cached = await get_cached_response(message)

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -133,11 +134,12 @@ async def ingest_url(
     if not text.strip():
         raise HTTPException(status_code=422, detail="Could not extract text from URL")
 
-    storage_path, size_bytes = await storage.save_text(text, f"{title[:80]}.txt")
+    safe_title = re.sub(r'[^\w\s-]', '_', title)[:80].strip() or "page"
+    storage_path, size_bytes = await storage.save_text(text, f"{safe_title}.txt")
 
     db_file = FileModel(
         user_id      = current_user.id,
-        filename     = title[:255] or url[:255],
+        filename     = (title[:255] or url[:255]).strip(),
         mime_type    = "text/plain",
         size_bytes   = size_bytes,
         storage_path = storage_path,
