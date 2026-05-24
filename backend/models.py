@@ -6,11 +6,10 @@ from sqlalchemy import (
     Text,
     ForeignKey,
     func,
-    Float
 )
 
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy.dialects.postgresql import UUID
 from pgvector.sqlalchemy import Vector
 from datetime import datetime
 import uuid
@@ -166,6 +165,14 @@ class UserMemoryVersion(Base):
     created_at:      Mapped[datetime]   = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class ConversationFile(Base):
+    __tablename__ = "conversation_files"
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), primary_key=True)
+    file_id:         Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("files.id",          ondelete="CASCADE"), primary_key=True)
+    attached_at:     Mapped[datetime]  = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class FileChunk(Base):
     __tablename__ = "file_chunks"
 
@@ -196,8 +203,8 @@ class FileChunk(Base):
         nullable=False
     )
 
-    embedding: Mapped[list[float]] = mapped_column(
-        ARRAY(Float),
+    embedding: Mapped[list] = mapped_column(
+        Vector(EMBEDDING_DIM),
         nullable=True
     )
 

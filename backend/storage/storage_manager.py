@@ -24,3 +24,14 @@ class StorageManager:
             await f.write(content)
 
         return str(storage_path), file.filename, size_bytes
+
+    async def save_text(self, text: str, filename: str) -> tuple[str, int]:
+        file_id      = str(uuid.uuid4())
+        safe_name    = f"{file_id}_{filename}"
+        storage_path = BASE_DIR / safe_name
+        content      = text.encode("utf-8")
+
+        async with aiofiles.open(storage_path, "wb") as f:
+            await f.write(content)
+
+        return str(storage_path), len(content)

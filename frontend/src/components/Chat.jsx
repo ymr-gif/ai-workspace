@@ -129,6 +129,31 @@ const s = {
   settingsTitle:  { fontWeight:700, fontSize:'0.9rem', color:'#e2e8f0' },
   settingsBody:   { padding:'1.25rem', overflowY:'auto' },
   settingsFooter: { display:'flex', justifyContent:'flex-end', gap:'0.5rem', padding:'0.75rem 1.25rem', borderTop:'1px solid #1e293b' },
+
+  // files panel
+  filePanel:     { position:'absolute', top:0, right:0, bottom:0, width:'400px', maxWidth:'92vw', background:'#0f172a', borderLeft:'1px solid #1e293b', zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.28s cubic-bezier(.4,0,.2,1)' },
+  filePanelHdr:  { padding:'1rem 1.25rem 0.75rem', borderBottom:'1px solid #1e293b', flexShrink:0 },
+  fileTitleRow:  { display:'flex', justifyContent:'space-between', alignItems:'center' },
+  fileTitle:     { fontWeight:700, fontSize:'0.95rem', color:'#e2e8f0' },
+  fileUploadRow: { display:'flex', gap:'0.4rem', padding:'0.75rem 1.25rem', borderBottom:'1px solid #1e293b', flexShrink:0, flexWrap:'wrap' },
+  urlRow:        { display:'flex', gap:'0.4rem', padding:'0 1.25rem 0.75rem', borderBottom:'1px solid #1e293b', flexShrink:0 },
+  urlInput:      { flex:1, padding:'0.3rem 0.6rem', borderRadius:'6px', border:'1px solid #334155', background:'#0f172a', color:'#f1f5f9', fontSize:'0.78rem', outline:'none' },
+  ingestBtn:     { padding:'0.3rem 0.75rem', borderRadius:'6px', background:'#0f4c3a', color:'#34d399', border:'1px solid #1e4e3a', cursor:'pointer', fontSize:'0.75rem', fontWeight:600, whiteSpace:'nowrap' },
+  wsRow:         { display:'flex', gap:'0.3rem', padding:'0.5rem 1.25rem', borderBottom:'1px solid #1e293b', flexShrink:0, flexWrap:'wrap', alignItems:'center' },
+  wsLabel:       { fontSize:'0.7rem', color:'#475569', marginRight:'0.15rem' },
+  wsPill:        { padding:'0.15rem 0.5rem', borderRadius:'12px', border:'1px solid #334155', background:'none', color:'#64748b', cursor:'pointer', fontSize:'0.7rem' },
+  wsPillActive:  { background:'#1e293b', borderColor:'#6366f1', color:'#818cf8' },
+  fileList:      { flex:1, overflowY:'auto', padding:'0.5rem 1.25rem' },
+  fileItem:      { display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 0.6rem', borderRadius:'6px', marginBottom:'4px', border:'1px solid #1e293b', background:'#0a1220' },
+  fileName:      { flex:1, minWidth:0, fontSize:'0.78rem', color:'#cbd5e1', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' },
+  fileMeta:      { fontSize:'0.65rem', color:'#475569', whiteSpace:'nowrap' },
+  statusBadge:   { fontSize:'0.62rem', padding:'0.1rem 0.35rem', borderRadius:'4px', fontWeight:600, whiteSpace:'nowrap' },
+  attachBtn:     { padding:'0.15rem 0.4rem', borderRadius:'4px', border:'1px solid #334155', background:'none', cursor:'pointer', fontSize:'0.7rem', color:'#64748b', whiteSpace:'nowrap' },
+  attachedBtn:   { background:'#1e293b', borderColor:'#6366f1', color:'#818cf8' },
+  delBtn:        { padding:'0.15rem 0.3rem', borderRadius:'4px', border:'1px solid #334155', background:'none', cursor:'pointer', fontSize:'0.7rem', color:'#ef4444' },
+  fileChipsRow:  { display:'flex', gap:'0.35rem', padding:'0 1.5rem 0.35rem', flexWrap:'wrap' },
+  fileChip:      { display:'flex', alignItems:'center', gap:'0.3rem', padding:'0.2rem 0.5rem', borderRadius:'12px', background:'#1e293b', border:'1px solid #334155', fontSize:'0.72rem', color:'#818cf8' },
+  chipX:         { cursor:'pointer', color:'#475569', fontSize:'0.8rem', lineHeight:1 },
 }
 
 function fmtDate(iso) {
@@ -220,6 +245,18 @@ export default function Chat({ token, onLogout }) {
   const [maxTokens,      setMaxTokens]      = useState(1024)
   const [topPEnabled,    setTopPEnabled]    = useState(false)
   const [topP,           setTopP]           = useState(0.9)
+
+  // files panel
+  const [filesOpen,      setFilesOpen]      = useState(false)
+  const [filesTab,       setFilesTab]       = useState('library')
+  const [libFiles,       setLibFiles]       = useState([])
+  const [attachedFiles,  setAttachedFiles]  = useState([])
+  const [workspaces,     setWorkspaces]     = useState([])
+  const [wsFilter,       setWsFilter]       = useState('')
+  const [fileUploading,  setFileUploading]  = useState(false)
+  const [urlIngest,      setUrlIngest]      = useState('')
+  const [urlIngesting,   setUrlIngesting]   = useState(false)
+  const fileInputRef = useRef(null)
 
   const bottomRef  = useRef(null)
   const nextId     = useRef(0)
@@ -336,6 +373,89 @@ export default function Chat({ token, onLogout }) {
     const file=e.target.files?.[0]; if(!file) return
     try { const json=JSON.parse(await file.text()); const r=await fetch('/api/memory/import',{method:'POST',headers:{...authHeaders,'Content-Type':'application/json'},body:JSON.stringify({content:json.content||'',project_summary:json.project_summary||''})}); if(!r.ok) return; const data=await r.json(); setMemData(data); prevMemSig.current=(data.content||'')+'|'+(data.project_summary||''); setMemFlashed(true); setTimeout(()=>setMemFlashed(false),1800) } catch{/* ignore */}
     e.target.value=''
+  }
+
+  // files
+  const loadLibFiles = useCallback(async () => {
+    const qs = wsFilter ? `?workspace_id=${encodeURIComponent(wsFilter)}` : ''
+    try {
+      const r = await fetch(`/api/files${qs}`, { headers: authHeaders })
+      if (r.ok) setLibFiles(await r.json())
+    } catch { /* ignore */ }
+  }, [token, wsFilter])
+
+  const loadWorkspaces = useCallback(async () => {
+    try {
+      const r = await fetch('/api/files/workspaces', { headers: authHeaders })
+      if (r.ok) { const d = await r.json(); setWorkspaces(d.workspaces || []) }
+    } catch { /* ignore */ }
+  }, [token])
+
+  const loadAttachedFiles = useCallback(async () => {
+    if (!activeConvId) { setAttachedFiles([]); return }
+    try {
+      const r = await fetch(`/api/conversations/${activeConvId}/files`, { headers: authHeaders })
+      if (r.ok) setAttachedFiles(await r.json())
+    } catch { /* ignore */ }
+  }, [token, activeConvId])
+
+  useEffect(() => {
+    if (!filesOpen) return
+    loadLibFiles(); loadWorkspaces(); loadAttachedFiles()
+  }, [filesOpen, wsFilter])
+
+  useEffect(() => { if (activeConvId) loadAttachedFiles() }, [activeConvId])
+
+  async function uploadFile(e) {
+    const file = e.target.files?.[0]; if (!file) return
+    setFileUploading(true)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const r = await fetch('/api/files/upload', { method:'POST', headers: authHeaders, body: fd })
+      if (r.ok) { await loadLibFiles(); await loadWorkspaces() }
+    } catch { /* ignore */ } finally { setFileUploading(false); e.target.value = '' }
+  }
+
+  async function ingestUrl() {
+    const url = urlIngest.trim(); if (!url) return
+    setUrlIngesting(true)
+    try {
+      const r = await fetch('/api/files/ingest-url', { method:'POST', headers:{...authHeaders,'Content-Type':'application/json'}, body:JSON.stringify({url}) })
+      if (r.ok) { setUrlIngest(''); await loadLibFiles() }
+    } catch { /* ignore */ } finally { setUrlIngesting(false) }
+  }
+
+  async function attachFile(fileId) {
+    if (!activeConvId) return
+    try {
+      await fetch(`/api/conversations/${activeConvId}/files`, { method:'POST', headers:{...authHeaders,'Content-Type':'application/json'}, body:JSON.stringify({file_id:fileId}) })
+      await loadAttachedFiles()
+    } catch { /* ignore */ }
+  }
+
+  async function detachFile(fileId) {
+    if (!activeConvId) return
+    try {
+      await fetch(`/api/conversations/${activeConvId}/files/${fileId}`, { method:'DELETE', headers: authHeaders })
+      await loadAttachedFiles()
+    } catch { /* ignore */ }
+  }
+
+  async function deleteFile(fileId) {
+    try {
+      await fetch(`/api/files/${fileId}`, { method:'DELETE', headers: authHeaders })
+      setAttachedFiles(prev => prev.filter(f => f.id !== fileId))
+      await loadLibFiles()
+    } catch { /* ignore */ }
+  }
+
+  const attachedIds = new Set(attachedFiles.map(f => f.id))
+
+  function statusColor(s) {
+    if (s === 'ready')      return { bg:'rgba(52,211,153,0.15)', color:'#34d399' }
+    if (s === 'processing') return { bg:'rgba(251,191,36,0.15)',  color:'#fbbf24' }
+    if (s === 'error')      return { bg:'rgba(248,113,113,0.15)', color:'#f87171' }
+    return { bg:'rgba(100,116,139,0.15)', color:'#64748b' }
   }
 
   // build request body
@@ -488,7 +608,10 @@ export default function Chat({ token, onLogout }) {
             {activeConvId && (
               <button onClick={() => setSettingsOpen(true)} style={s.hdrBtn} title="Conversation settings">⚙</button>
             )}
-            <button onClick={() => setMemOpen(true)} style={s.hdrBtn}>
+            <button onClick={() => { setFilesOpen(true); setMemOpen(false) }} style={{ ...s.hdrBtn, ...(attachedFiles.length > 0 ? { color:'#fbbf24', borderColor:'#78350f' } : {}) }}>
+              {attachedFiles.length > 0 ? `📎 ${attachedFiles.length}` : '📎'} Files
+            </button>
+            <button onClick={() => { setMemOpen(true); setFilesOpen(false) }} style={s.hdrBtn}>
               {memPending ? <span style={s.updatingDot} /> : hasMemory && <span style={s.memDot} />}
               Memory
             </button>
@@ -568,6 +691,17 @@ export default function Chat({ token, onLogout }) {
           )}
         </div>
 
+        {attachedFiles.length > 0 && (
+          <div style={s.fileChipsRow}>
+            {attachedFiles.map(f => (
+              <span key={f.id} style={s.fileChip}>
+                📄 {f.filename.length > 24 ? f.filename.slice(0,22)+'…' : f.filename}
+                <span style={s.chipX} onClick={() => detachFile(f.id)} title="Detach">✕</span>
+              </span>
+            ))}
+          </div>
+        )}
+
         <form onSubmit={send} style={s.bar}>
           <input value={input} onChange={e => setInput(e.target.value)} placeholder={compareMode ? 'Compare prompt across all models…' : 'Ask anything…'} disabled={loading} style={s.input} />
           <button type="submit" disabled={loading || !input.trim()} style={{ ...s.send, ...(compareMode ? { background:'#065f46' } : {}) }}>
@@ -577,9 +711,9 @@ export default function Chat({ token, onLogout }) {
       </div>
 
       {/* overlays */}
-      {(memOpen || settingsOpen) && (
+      {(memOpen || filesOpen || settingsOpen) && (
         <div style={{ ...s.overlay, zIndex: settingsOpen ? 19 : 10 }}
-          onClick={() => { if (settingsOpen) setSettingsOpen(false); else setMemOpen(false) }} />
+          onClick={() => { if (settingsOpen) setSettingsOpen(false); else { setMemOpen(false); setFilesOpen(false) } }} />
       )}
 
       {/* settings modal */}
@@ -612,6 +746,96 @@ export default function Chat({ token, onLogout }) {
           </div>
         </div>
       )}
+
+      {/* files panel */}
+      <div style={{ ...s.filePanel, transform: filesOpen ? 'translateX(0)' : 'translateX(100%)' }}>
+        <div style={s.filePanelHdr}>
+          <div style={s.fileTitleRow}>
+            <span style={s.fileTitle}>📎 Files & Knowledge</span>
+            <button onClick={() => setFilesOpen(false)} style={s.closeBtn}>✕</button>
+          </div>
+        </div>
+
+        <div style={s.tabBar}>
+          {['library','attached'].map(tab => (
+            <button key={tab} onClick={() => setFilesTab(tab)}
+              style={{ ...s.tabBtn, ...(filesTab === tab ? s.tabActive : {}) }}>
+              {tab === 'library' ? 'Library' : `Attached${attachedFiles.length ? ` (${attachedFiles.length})` : ''}`}
+            </button>
+          ))}
+        </div>
+
+        <div style={s.fileUploadRow}>
+          <button onClick={() => fileInputRef.current?.click()} disabled={fileUploading}
+            style={{ ...s.ingestBtn, background:'#1e1b4b', color:'#818cf8', borderColor:'#312e81' }}>
+            {fileUploading ? 'Uploading…' : '⬆ Upload'}
+          </button>
+          <input ref={fileInputRef} type="file" style={{ display:'none' }} onChange={uploadFile} />
+        </div>
+
+        <div style={s.urlRow}>
+          <input value={urlIngest} onChange={e => setUrlIngest(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && ingestUrl()}
+            placeholder="https://… ingest URL" style={s.urlInput} />
+          <button onClick={ingestUrl} disabled={urlIngesting || !urlIngest.trim()} style={s.ingestBtn}>
+            {urlIngesting ? '…' : '⬇ Fetch'}
+          </button>
+        </div>
+
+        {workspaces.length > 0 && (
+          <div style={s.wsRow}>
+            <span style={s.wsLabel}>WS:</span>
+            <button onClick={() => setWsFilter('')} style={{ ...s.wsPill, ...(wsFilter === '' ? s.wsPillActive : {}) }}>All</button>
+            {workspaces.map(ws => (
+              <button key={ws} onClick={() => setWsFilter(ws === wsFilter ? '' : ws)}
+                style={{ ...s.wsPill, ...(wsFilter === ws ? s.wsPillActive : {}) }}>
+                {ws}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div style={s.fileList}>
+          {filesTab === 'library' && (
+            libFiles.length === 0
+              ? <p style={s.emptyMem}>No files yet.<br /><span style={{ fontSize:'0.75rem' }}>Upload files or ingest a URL above.</span></p>
+              : libFiles.map(f => {
+                  const sc = statusColor(f.status)
+                  const isAttached = attachedIds.has(f.id)
+                  return (
+                    <div key={f.id} style={s.fileItem}>
+                      <span style={{ ...s.statusBadge, background:sc.bg, color:sc.color }}>{f.status}</span>
+                      <span style={s.fileName} title={f.filename}>{f.filename}</span>
+                      {activeConvId && (
+                        <button onClick={() => isAttached ? detachFile(f.id) : attachFile(f.id)}
+                          style={{ ...s.attachBtn, ...(isAttached ? s.attachedBtn : {}) }}
+                          title={isAttached ? 'Detach from conversation' : 'Attach to conversation'}>
+                          {isAttached ? '✓' : '+'}
+                        </button>
+                      )}
+                      <button onClick={() => deleteFile(f.id)} style={s.delBtn} title="Delete file">🗑</button>
+                    </div>
+                  )
+                })
+          )}
+          {filesTab === 'attached' && (
+            !activeConvId
+              ? <p style={s.emptyMem}>Open a conversation to attach files.</p>
+              : attachedFiles.length === 0
+                ? <p style={s.emptyMem}>No files attached.<br /><span style={{ fontSize:'0.75rem' }}>Switch to Library tab to attach files.</span></p>
+                : attachedFiles.map(f => {
+                    const sc = statusColor(f.status)
+                    return (
+                      <div key={f.id} style={s.fileItem}>
+                        <span style={{ ...s.statusBadge, background:sc.bg, color:sc.color }}>{f.status}</span>
+                        <span style={s.fileName} title={f.filename}>{f.filename}</span>
+                        <button onClick={() => detachFile(f.id)} style={s.attachBtn} title="Detach">✕</button>
+                      </div>
+                    )
+                  })
+          )}
+        </div>
+      </div>
 
       {/* memory panel */}
       <div style={{ ...s.memPanel, transform: panelSlide }}>
