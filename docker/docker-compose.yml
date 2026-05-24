@@ -37,7 +37,7 @@ services:
       - backend
 
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-scylla}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scylla}
