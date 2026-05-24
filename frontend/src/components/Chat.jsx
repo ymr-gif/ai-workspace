@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useTransition } from 'react'
 
 const MODEL_LABELS = {
   'meta/llama-3.1-8b-instruct':    'Llama 3.1 8B · fast',
@@ -96,6 +96,9 @@ const s = {
                whiteSpace:'nowrap' },
   memFooter: { padding:'0.75rem 1.25rem', borderTop:'1px solid #1e293b', flexShrink:0,
                fontSize:'0.7rem', color:'#334155', textAlign:'right' },
+  updatingDot: { width:'6px', height:'6px', borderRadius:'50%', background:'#34d399',
+                 animation:'pulse 1s ease-in-out infinite' },
+  flashBody: { animation:'memFlash 1.5s ease-out' },
 }
 
 function fmtDate(iso) {
@@ -146,11 +149,15 @@ export default function Chat({ token, onLogout }) {
   const [loading,       setLoading]       = useState(false)
 
   const [memOpen,    setMemOpen]    = useState(false)
-  const [memData,    setMemData]    = useState(null)   // { content, version, updated_at }
+  const [memData,    setMemData]    = useState(null)
   const [memLoading, setMemLoading] = useState(false)
+  const [memFlashed, setMemFlashed] = useState(false)
+  const [memTick,    setMemTick]    = useState(0)    // increments after each response
+  const [memPending, setMemPending] = useState(false) // background tasks may be running
 
-  const bottomRef = useRef(null)
-  const nextId    = useRef(0)
+  const bottomRef   = useRef(null)
+  const nextId      = useRef(0)
+  const prevMemSig  = useRef('')    // change detection
 
   const authHeaders = { 'Authorization': `Bearer ${token}` }
 
@@ -179,20 +186,47 @@ export default function Chat({ token, onLogout }) {
       .catch(() => {})
   }, [activeConvId])
 
-  async function fetchMemory() {
-    setMemLoading(true)
+  const pollMemory = useCallback(async (showSpinner = false) => {
+    if (showSpinner) setMemLoading(true)
     try {
       const r = await fetch('/api/memory', { headers: authHeaders })
-      if (r.ok) setMemData(await r.json())
+      if (!r.ok) return
+      const data = await r.json()
+      const sig  = (data.content || '') + '|' + (data.project_summary || '')
+      if (sig !== prevMemSig.current) {
+        prevMemSig.current = sig
+        setMemData(data)
+        setMemFlashed(true)
+        setTimeout(() => setMemFlashed(false), 1800)
+      }
     } catch { /* ignore */ }
-    finally { setMemLoading(false) }
-  }
+    finally { if (showSpinner) setMemLoading(false) }
+  }, [token])
 
-  function openMemory() {
-    setMemOpen(true)
-    fetchMemory()
-  }
+  // baseline poll every 20s while panel is open
+  useEffect(() => {
+    if (!memOpen) return
+    pollMemory(true)
+    const id = setInterval(() => pollMemory(), 20000)
+    return () => clearInterval(id)
+  }, [memOpen])
 
+  // aggressive poll (every 2s for 30s) after each response
+  useEffect(() => {
+    if (memTick === 0) return
+    setMemPending(true)
+    let count = 0
+    const id = setInterval(() => {
+      pollMemory()
+      if (++count >= 15) {
+        clearInterval(id)
+        setMemPending(false)
+      }
+    }, 2000)
+    return () => { clearInterval(id); setMemPending(false) }
+  }, [memTick])
+
+  function openMemory()  { setMemOpen(true) }
   function closeMemory() { setMemOpen(false) }
 
   function newChat() {
@@ -268,6 +302,7 @@ export default function Chat({ token, onLogout }) {
               setMessages(prev => prev.map(m =>
                 m.id === aiId ? { ...m, model: event.model, streaming: false } : m
               ))
+              setMemTick(t => t + 1)  // trigger aggressive memory poll
 
               const cid = event.conversation_id
               if (cid) {
@@ -309,7 +344,9 @@ export default function Chat({ token, onLogout }) {
   return (
     <div style={s.root}>
       <style>{`
-        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+        @keyframes blink    { 0%,100%{opacity:1} 50%{opacity:0} }
+        @keyframes pulse    { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        @keyframes memFlash { 0%{background:rgba(52,211,153,0.08)} 100%{background:transparent} }
         ::-webkit-scrollbar { width:4px }
         ::-webkit-scrollbar-track { background:transparent }
         ::-webkit-scrollbar-thumb { background:#1e293b; border-radius:2px }
@@ -343,7 +380,10 @@ export default function Chat({ token, onLogout }) {
           <span style={s.title}>NIM AI Gateway</span>
           <div style={s.headerRight}>
             <button onClick={openMemory} style={s.memBtn}>
-              {hasMemory && <span style={s.memDot} />}
+              {memPending
+                ? <span style={s.updatingDot} title="Memory updating…" />
+                : hasMemory && <span style={s.memDot} />
+              }
               Memory
             </button>
             <button onClick={onLogout} style={s.logout}>Logout</button>
@@ -405,19 +445,24 @@ export default function Chat({ token, onLogout }) {
                 </span>
               )}
             </div>
-            {memData?.updated_at && (
-              <div style={s.memMeta}>Updated {fmtDate(memData.updated_at)}</div>
-            )}
+            <div style={s.memMeta}>
+              {memPending
+                ? <span style={{ color:'#34d399' }}>updating…</span>
+                : memData?.updated_at
+                  ? `Updated ${fmtDate(memData.updated_at)}`
+                  : null
+              }
+            </div>
           </div>
           <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
-            <button onClick={fetchMemory} style={s.refreshBtn} disabled={memLoading}>
+            <button onClick={() => pollMemory(true)} style={s.refreshBtn} disabled={memLoading}>
               {memLoading ? '…' : '↻'}
             </button>
             <button onClick={closeMemory} style={s.closeBtn}>✕</button>
           </div>
         </div>
 
-        <div style={s.memBody}>
+        <div style={{ ...s.memBody, ...(memFlashed ? s.flashBody : {}) }}>
           {memLoading && !memData && (
             <p style={s.emptyMem}>Loading…</p>
           )}
