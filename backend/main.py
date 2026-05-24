@@ -368,8 +368,12 @@ async def chat_stream(
     file_chunks: list[str] = []
     if req.conversation_id:
         file_ids = await retriever.get_conversation_file_ids(db, conv.id)
-        if file_ids and query_emb:
-            file_chunks = await retriever.retrieve_from_files(db, query_emb, file_ids, top_k=5)
+        if file_ids:
+            if query_emb:
+                file_chunks = await retriever.retrieve_from_files(db, query_emb, file_ids, top_k=5)
+            else:
+                # embedding unavailable — fall back to first chunks in order
+                file_chunks = await retriever.retrieve_files_sequential(db, file_ids, top_k=10)
 
     # ── compare mode: run all models concurrently, skip DB save ─────────────
     if req.compare:
