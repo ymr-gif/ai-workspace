@@ -2,7 +2,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import MODELS
@@ -95,6 +95,8 @@ async def update_project_summary(user_id: int) -> None:
 # ── internals ─────────────────────────────────────────────────────────────────
 
 async def _update_memory(db: AsyncSession, user_id: int, conversation_id: uuid.UUID) -> None:
+    # advisory lock prevents concurrent memory updates for the same user
+    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": user_id})
     row     = await db.get(UserMemory, user_id)
     last_at = row.last_summarized_at if row else None
     current = row.content if row else ""
@@ -215,6 +217,8 @@ async def _compress_history(db: AsyncSession, conversation_id: uuid.UUID) -> Non
 
 
 async def _update_project_summary(db: AsyncSession, user_id: int) -> None:
+    # same advisory lock namespace as _update_memory to serialize all memory writes per user
+    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": user_id})
     # collect last 5 conversation summaries for this user
     result = await db.execute(
         select(Conversation.title, Conversation.history_summary)
