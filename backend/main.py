@@ -16,7 +16,7 @@ from observability import metrics, events, observability
 from llm import service
 from core.redis_client import init_redis, get_redis
 import llm.client as llm_client
-from models import User, Conversation, Message
+from models import User, Conversation, Message, UserMemory
 from auth import auth_router, get_current_user
 from config import MODELS, REQUEST_TIMEOUT
 from core.db import init_db, get_db
@@ -39,7 +39,7 @@ from api.files import router as files_router
 from api.conversations import router as conversations_router
 from api.memory import router as memory_router
 from core.logger import setup_logging
-from llm.summarizer import get_memory, update_memory, compress_history
+from llm.summarizer import get_memory, update_memory, compress_history, update_project_summary
 from llm.embeddings import embed as embed_text
 from llm import retriever
 
@@ -126,6 +126,10 @@ class ErrorResponse(BaseModel):
     success: bool = False
     error: dict
     meta: ResponseMeta
+
+
+def _estimate_tokens(*texts: str) -> int:
+    return sum(len(t) // 4 for t in texts if t)
 
 
 async def _embed_exchange(
@@ -282,25 +286,55 @@ async def chat_stream(
         db.add(conv)
         await db.flush()
 
-    # ── load last 10 raw messages + history summary ───────────────────────────
-    hist_result = await db.execute(
-        select(Message)
-        .where(Message.conversation_id == conv.id)
-        .order_by(Message.created_at.desc())
-        .limit(10)
-    )
-    history = [{"role": m.role, "content": m.content} for m in reversed(hist_result.scalars().all())]
-    history_summary = conv.history_summary or ""
+    # ── load memory + project summary (one query) ────────────────────────────
+    memory_row      = await db.get(UserMemory, current_user.id)
+    memory_sheet    = memory_row.content         if memory_row and memory_row.content         else ""
+    project_summary = memory_row.project_summary if memory_row and memory_row.project_summary else ""
 
-    # ── load memory sheet ─────────────────────────────────────────────────────
-    memory_sheet = await get_memory(db, current_user.id)
-
-    # ── embed query + retrieve relevant past exchanges ────────────────────────
-    retrieved = []
-    if req.conversation_id:
+    # ── embed query once (reused for weighting + retrieval) ───────────────────
+    is_ref    = retriever.is_reference_query(req.message)
+    query_emb = None
+    if req.conversation_id or is_ref:
         query_emb = await embed_text(req.message, input_type="query")
+
+    # ── importance-weighted history: load 30, score, keep top 10 ─────────────
+    history_summary = conv.history_summary or ""
+    if req.conversation_id:
+        cand_result = await db.execute(
+            select(Message)
+            .where(Message.conversation_id == conv.id)
+            .order_by(Message.created_at.desc())
+            .limit(30)
+        )
+        candidates = list(reversed(cand_result.scalars().all()))
+
+        relevance_map = {}
         if query_emb:
-            retrieved = await retriever.retrieve(db, query_emb, conv.id)
+            relevance_map = await retriever.get_relevance_scores(db, conv.id, query_emb)
+
+        n = len(candidates)
+        scored = []
+        for i, m in enumerate(candidates):
+            recency   = i / max(n - 1, 1)
+            relevance = relevance_map.get(m.id, 0.0)
+            scored.append((0.6 * recency + 0.4 * relevance, i, m))
+
+        scored.sort(key=lambda x: -x[0])
+        top_msgs = [m for _, _, m in scored[:10]]
+        top_msgs.sort(key=lambda m: m.created_at)
+        history = [{"role": m.role, "content": m.content} for m in top_msgs]
+    else:
+        history = []
+
+    # ── on-demand rehydration: detect reference queries ────────────────────────
+    top_k     = 8 if is_ref else 3
+    retrieved = []
+    if query_emb:
+        retrieved = await retriever.retrieve(db, query_emb, conv.id, top_k=top_k)
+        if is_ref and not retrieved:
+            retrieved = await retriever.retrieve_global(
+                db, query_emb, conv.id, current_user.id
+            )
 
     # ── save user message ─────────────────────────────────────────────────────
     user_msg = Message(conversation_id=conv.id, role="user", content=req.message)
@@ -320,7 +354,7 @@ async def chat_stream(
         accumulated   = []
 
         try:
-            async for event in service.generate_stream(req.message, history, memory_sheet, history_summary, retrieved, rid):
+            async for event in service.generate_stream(req.message, history, memory_sheet, project_summary, history_summary, retrieved, rid):
                 if event["type"] == "token":
                     accumulated.append(event["content"])
                     yield f"data: {_json.dumps(event)}\n\n"
@@ -347,10 +381,9 @@ async def chat_stream(
                             asst_msg_id, conv.id, req.message, full_response
                         ))
 
-                        # count messages for background task triggers
+                        # message counts for fallback triggers
                         cnt = await db.execute(
-                            select(Message)
-                            .where(Message.conversation_id == conv.id)
+                            select(Message).where(Message.conversation_id == conv.id)
                         )
                         all_count = len(cnt.scalars().all())
                         asst_cnt = await db.execute(
@@ -359,12 +392,20 @@ async def chat_stream(
                         )
                         asst_count = len(asst_cnt.scalars().all())
 
-                        # compress old history every 5 total exchanges past 10
-                        if all_count > 10 and all_count % 5 == 0:
-                            asyncio.create_task(compress_history(conv.id))
+                        # context-pressure trigger (rough token estimate)
+                        ctx_tokens = _estimate_tokens(
+                            memory_sheet, project_summary, history_summary,
+                            *[m["content"] for m in history],
+                            req.message, full_response,
+                        )
 
-                        # update memory sheet every 5 assistant messages
-                        if asst_count % 5 == 0:
+                        # compress + project summary: pressure > 4000t OR every 15 exchanges fallback
+                        if ctx_tokens > 4000 or (all_count > 10 and all_count % 15 == 0):
+                            asyncio.create_task(compress_history(conv.id))
+                            asyncio.create_task(update_project_summary(current_user.id))
+
+                        # update memory: pressure > 3000t OR every 10 assistant messages fallback
+                        if ctx_tokens > 3000 or asst_count % 10 == 0:
                             asyncio.create_task(update_memory(current_user.id, conv.id))
 
                     except Exception:

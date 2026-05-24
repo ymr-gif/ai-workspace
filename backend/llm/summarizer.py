@@ -42,6 +42,24 @@ Focus on: decisions made, problems solved, code written, errors fixed, context e
 Output bullet points or key:value pairs. Max 200 words. No filler, no pleasantries.\
 """
 
+_PROJECT_SYSTEM = """\
+You maintain a project-level state summary across multiple conversations.
+Output ONLY key:value pairs grouped under four headers.
+Every word must carry information — no prose, no filler.
+
+Headers (omit if empty):
+[GOALS]   — what is being built, current objectives, milestones
+[ARCH]    — architecture decisions, tech stack choices, patterns adopted
+[STATUS]  — what works, what's broken, current progress
+[PENDING] — known issues, next steps, open questions, blockers
+
+Rules:
+- Max 300 words total
+- Format each line as: key: value
+- Remove anything contradicted by newer info
+- If nothing new: reply exactly NO_UPDATE\
+"""
+
 
 # ── public API ────────────────────────────────────────────────────────────────
 
@@ -66,6 +84,14 @@ async def compress_history(conversation_id: uuid.UUID) -> None:
             logger.exception("[summarizer] compress_history failed conv=%s", conversation_id)
 
 
+async def update_project_summary(user_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        try:
+            await _update_project_summary(db, user_id)
+        except Exception:
+            logger.exception("[summarizer] update_project_summary failed user_id=%s", user_id)
+
+
 # ── internals ─────────────────────────────────────────────────────────────────
 
 async def _update_memory(db: AsyncSession, user_id: int, conversation_id: uuid.UUID) -> None:
@@ -73,7 +99,6 @@ async def _update_memory(db: AsyncSession, user_id: int, conversation_id: uuid.U
     last_at = row.last_summarized_at if row else None
     current = row.content if row else ""
 
-    # get all messages since last update
     query = (
         select(Message)
         .where(Message.conversation_id == conversation_id)
@@ -82,7 +107,7 @@ async def _update_memory(db: AsyncSession, user_id: int, conversation_id: uuid.U
     if last_at:
         query = query.where(Message.created_at > last_at)
 
-    result      = await db.execute(query)
+    result       = await db.execute(query)
     new_messages = result.scalars().all()
 
     if not new_messages:
@@ -181,3 +206,80 @@ async def _compress_history(db: AsyncSession, conversation_id: uuid.UUID) -> Non
         conv.history_summary = summary
         await db.commit()
         logger.info("[summarizer] history compressed conv=%s old_msgs=%s", conversation_id, len(old_msgs))
+
+
+async def _update_project_summary(db: AsyncSession, user_id: int) -> None:
+    # collect last 5 conversation summaries for this user
+    result = await db.execute(
+        select(Conversation.title, Conversation.history_summary)
+        .where(
+            Conversation.user_id == user_id,
+            Conversation.history_summary.isnot(None),
+        )
+        .order_by(Conversation.updated_at.desc())
+        .limit(5)
+    )
+    convs = result.all()
+
+    if not convs:
+        return
+
+    summaries = "\n\n".join(
+        f"[{c.title}]\n{c.history_summary}"
+        for c in convs
+        if c.history_summary
+    )
+
+    if not summaries.strip():
+        return
+
+    row     = await db.get(UserMemory, user_id)
+    current = row.project_summary if row and row.project_summary else ""
+
+    prompt = f"""\
+Current project state:
+{current if current else "(empty)"}
+
+Recent conversation summaries:
+{summaries}
+
+Update the project state. Reply with the full updated state or {_NO_UPDATE}.\
+"""
+
+    result = await call(
+        model      = _MODEL,
+        messages   = [
+            {"role": "system", "content": _PROJECT_SYSTEM},
+            {"role": "user",   "content": prompt},
+        ],
+        request_id = f"proj-{user_id}",
+    )
+
+    if not result.get("ok"):
+        logger.warning("[summarizer] project summary failed user_id=%s", user_id)
+        return
+
+    updated = (result.get("content") or "").strip()
+    if not updated or updated == _NO_UPDATE:
+        return
+
+    words = updated.split()
+    if len(words) > 300:
+        updated = " ".join(words[:300])
+
+    now = datetime.now(timezone.utc)
+
+    if row:
+        row.project_summary = updated
+        row.updated_at      = now
+    else:
+        db.add(UserMemory(
+            user_id         = user_id,
+            content         = "",
+            project_summary = updated,
+            version         = 0,
+            updated_at      = now,
+        ))
+
+    await db.commit()
+    logger.info("[summarizer] project summary updated user_id=%s", user_id)
