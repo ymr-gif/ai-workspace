@@ -18,7 +18,8 @@ def build_context_messages(
     history_summary:  str,
     history:          list[dict],
     memory_enabled:   bool,
-    system_prompt:    str | None = None,
+    system_prompt:    str | None   = None,
+    file_chunks:      list[str]    = (),
 ) -> list[dict]:
     messages = []
     if system_prompt:
@@ -29,6 +30,11 @@ def build_context_messages(
         if project_summary:
             messages.append({"role": "user",      "content": f"[PROJECT STATE]\n{project_summary}"})
             messages.append({"role": "assistant", "content": "Understood."})
+    if file_chunks:
+        joined = "\n\n---\n\n".join(file_chunks)
+        messages.append({"role": "user",      "content": f"[FILE CONTEXT]\n{joined}"})
+        messages.append({"role": "assistant", "content": "Understood, I will reference these documents."})
+    if memory_enabled:
         if retrieved_chunks:
             chunks_text = "\n\n".join(retrieved_chunks)
             messages.append({"role": "user",      "content": f"[RELEVANT CONTEXT FROM EARLIER]\n{chunks_text}"})
@@ -112,6 +118,7 @@ async def generate_stream(
     model_override:   str | None   = None,
     model_params:     dict | None  = None,
     system_prompt:    str | None   = None,
+    file_chunks:      list[str]    = (),
 ):
     use_cache = not history and not model_override and not model_params and not system_prompt
 
@@ -130,7 +137,7 @@ async def generate_stream(
 
     messages = build_context_messages(
         memory_sheet, project_summary, retrieved_chunks, history_summary,
-        history, memory_enabled, system_prompt,
+        history, memory_enabled, system_prompt, file_chunks,
     ) + [{"role": "user", "content": message}]
 
     for idx, current_model in enumerate(fallback_chain):

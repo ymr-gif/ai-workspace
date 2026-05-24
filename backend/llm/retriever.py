@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import AsyncSessionLocal
-from models import Conversation, MessageEmbedding
+from models import Conversation, ConversationFile, FileChunk, MessageEmbedding
 
 logger = logging.getLogger("retriever")
 
@@ -106,3 +106,41 @@ async def store_exchange(
             logger.debug("[retriever] stored embedding msg=%s", message_id)
         except Exception:
             logger.exception("[retriever] store_exchange failed msg=%s", message_id)
+
+
+async def retrieve_from_files(
+    db:              AsyncSession,
+    query_embedding: list[float],
+    file_ids:        list[uuid.UUID],
+    top_k:           int = 5,
+) -> list[str]:
+    """Retrieve top-k chunks from the given files via cosine similarity."""
+    if not file_ids:
+        return []
+    try:
+        result = await db.execute(
+            select(FileChunk.content)
+            .where(FileChunk.file_id.in_(file_ids))
+            .where(FileChunk.embedding.isnot(None))
+            .order_by(FileChunk.embedding.cosine_distance(query_embedding))
+            .limit(top_k)
+        )
+        return list(result.scalars().all())
+    except Exception as e:
+        logger.warning("[retriever] retrieve_from_files failed err=%s", e)
+        return []
+
+
+async def get_conversation_file_ids(
+    db:      AsyncSession,
+    conv_id: uuid.UUID,
+) -> list[uuid.UUID]:
+    try:
+        result = await db.execute(
+            select(ConversationFile.file_id)
+            .where(ConversationFile.conversation_id == conv_id)
+        )
+        return list(result.scalars().all())
+    except Exception as e:
+        logger.warning("[retriever] get_conversation_file_ids failed err=%s", e)
+        return []
