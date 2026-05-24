@@ -5,9 +5,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import AsyncSessionLocal
-from models import MessageEmbedding
+from models import Conversation, MessageEmbedding
 
 logger = logging.getLogger("retriever")
+
+_REFERENCE_KEYWORDS = {
+    "earlier", "before", "you said", "remember", "last time",
+    "previously", "we discussed", "you mentioned", "you told",
+    "recall", "forgot", "forget", "back to", "as we talked",
+    "you explained", "you showed", "we covered",
+}
+
+
+def is_reference_query(text: str) -> bool:
+    lower = text.lower()
+    return any(kw in lower for kw in _REFERENCE_KEYWORDS)
 
 
 async def retrieve(
@@ -27,6 +39,51 @@ async def retrieve(
     except Exception as e:
         logger.warning("[retriever] retrieve failed conv=%s err=%s", conversation_id, e)
         return []
+
+
+async def retrieve_global(
+    db: AsyncSession,
+    query_embedding: list[float],
+    exclude_conv_id: uuid.UUID,
+    user_id: int,
+    top_k: int = 5,
+) -> list[str]:
+    """Cross-conversation search for on-demand rehydration."""
+    try:
+        result = await db.execute(
+            select(MessageEmbedding.content_snippet)
+            .join(Conversation, MessageEmbedding.conversation_id == Conversation.id)
+            .where(
+                Conversation.user_id == user_id,
+                MessageEmbedding.conversation_id != exclude_conv_id,
+            )
+            .order_by(MessageEmbedding.embedding.cosine_distance(query_embedding))
+            .limit(top_k)
+        )
+        return list(result.scalars().all())
+    except Exception as e:
+        logger.warning("[retriever] retrieve_global failed user=%s err=%s", user_id, e)
+        return []
+
+
+async def get_relevance_scores(
+    db: AsyncSession,
+    conversation_id: uuid.UUID,
+    query_embedding: list[float],
+) -> dict[uuid.UUID, float]:
+    """Returns {assistant_message_id: cosine_similarity} for importance weighting."""
+    try:
+        result = await db.execute(
+            select(
+                MessageEmbedding.message_id,
+                (1.0 - MessageEmbedding.embedding.cosine_distance(query_embedding)).label("sim"),
+            )
+            .where(MessageEmbedding.conversation_id == conversation_id)
+        )
+        return {row.message_id: float(row.sim) for row in result}
+    except Exception as e:
+        logger.warning("[retriever] get_relevance_scores failed conv=%s err=%s", conversation_id, e)
+        return {}
 
 
 async def store_exchange(
