@@ -1,6 +1,6 @@
 import asyncio
 from passlib.context import CryptContext
-from db import AsyncSessionLocal, init_db
+from core.db import AsyncSessionLocal, init_db
 from models import User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -23,6 +23,6 @@ async def seed():
         ]
         db.add_all(users)
         await db.commit()
-        print("✓ Users seeded.")
+        print("Users seeded.")
 
 asyncio.run(seed())

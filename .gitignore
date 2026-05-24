@@ -1,4 +1,33 @@
+# Environment
 .env
+.env.local
+
+# Python
 .venv/
+venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+
+# Node
+node_modules/
+dist/
+build/
+.cache/
+
+# Storage (user uploads)
+backend/storage/files/
+
+# Logs
+*.log
+
+# DB / editor
+*.sqlite3
+.DS_Store
+.idea/
+.vscode/
+
+# Alembic cache
+backend/alembic/versions/__pycache__/
