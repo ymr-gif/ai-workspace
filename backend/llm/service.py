@@ -70,7 +70,7 @@ async def generate_response(message: str, request_id: str) -> dict:
     }
 
 
-async def generate_stream(message: str, history: list[dict], request_id: str):
+async def generate_stream(message: str, history: list[dict], memory_sheet: str, history_summary: str, request_id: str):
     use_cache = not history
 
     if use_cache:
@@ -82,7 +82,14 @@ async def generate_stream(message: str, history: list[dict], request_id: str):
 
     model, _ = await route(message, request_id)
     fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
-    messages = history + [{"role": "user", "content": message}]
+
+    messages = []
+    if memory_sheet:
+        messages.append({"role": "system", "content": f"[USER STATE]\n{memory_sheet}"})
+    if history_summary:
+        messages.append({"role": "user", "content": f"[EARLIER IN THIS CONVERSATION]\n{history_summary}"})
+        messages.append({"role": "assistant", "content": "Understood."})
+    messages += history + [{"role": "user", "content": message}]
 
     for idx, current_model in enumerate(fallback_chain):
         fallback_used = idx > 0
