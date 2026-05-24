@@ -75,9 +75,10 @@ def chunk_text(text: str) -> list[str]:
         chunk = text[start:end].strip()
         if chunk:
             chunks.append(chunk)
-        start = end - CHUNK_OVERLAP
-        if start >= end:
-            start = end
+        next_start = end - CHUNK_OVERLAP
+        if next_start <= start:
+            break
+        start = next_start
     return chunks
 
 
@@ -152,7 +153,6 @@ async def _process(db, file_id: uuid.UUID, storage_path: str, mime_type: str) ->
             ))
             saved += 1
 
-    await db.commit()
     row.upload_status = "ready"
     await db.commit()
     logger.info("[processor] done file_id=%s chunks=%d/%d", file_id, saved, len(chunks))
