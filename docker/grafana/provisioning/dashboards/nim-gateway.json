@@ -170,6 +170,102 @@
           { "matcher": { "id": "byName", "options": "circuit trips" }, "properties": [{ "id": "color", "value": { "fixedColor": "red",    "mode": "fixed" } }] }
         ]
       }
+    },
+
+    {
+      "id": 11, "type": "row", "title": "File Knowledge Base",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 28 },
+      "collapsed": false
+    },
+
+    {
+      "id": 12, "type": "stat", "title": "Files Uploaded (total)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 29 },
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "file_uploads_total",
+        "legendFormat": "Uploads"
+      }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }, "color": { "mode": "thresholds" } } }
+    },
+
+    {
+      "id": 13, "type": "stat", "title": "Files Deleted (total)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 29 },
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "file_deletes_total",
+        "legendFormat": "Deletes"
+      }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "orange", "value": null }] }, "color": { "mode": "thresholds" } } }
+    },
+
+    {
+      "id": 14, "type": "stat", "title": "Chunks Embedded (total)",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 29 },
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "file_chunks_total",
+        "legendFormat": "Chunks"
+      }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] }, "color": { "mode": "thresholds" } } }
+    },
+
+    {
+      "id": 15, "type": "stat", "title": "AI File Tool Calls (total)",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 29 },
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "sum(file_tool_calls_total)",
+        "legendFormat": "Tool Calls"
+      }],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "color": { "mode": "thresholds" } } }
+    },
+
+    {
+      "id": 16, "type": "timeseries", "title": "File Uploads & Deletes (rate/min)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 33 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(file_uploads_total[1m]) * 60",
+          "legendFormat": "uploads/min"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(file_deletes_total[1m]) * 60",
+          "legendFormat": "deletes/min"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(file_chunks_total[1m]) * 60",
+          "legendFormat": "chunks embedded/min"
+        }
+      ],
+      "options": { "tooltip": { "mode": "multi" } },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "uploads/min" },         "properties": [{ "id": "color", "value": { "fixedColor": "#818cf8", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "deletes/min" },         "properties": [{ "id": "color", "value": { "fixedColor": "#f87171", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "chunks embedded/min" }, "properties": [{ "id": "color", "value": { "fixedColor": "#34d399", "mode": "fixed" } }] }
+        ]
+      }
+    },
+
+    {
+      "id": 17, "type": "timeseries", "title": "AI Tool Calls by Tool (rate/min)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 33 },
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "sum by(tool) (rate(file_tool_calls_total[1m])) * 60",
+        "legendFormat": "{{tool}}"
+      }],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } } }
     }
 
   ]
