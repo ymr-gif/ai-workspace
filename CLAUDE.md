@@ -55,6 +55,7 @@ ai-api/
 │   │                              ToolCallLog
 │   │                              Message has: prompt_tokens, completion_tokens, total_tokens, cost_usd
 │   │                              User has: is_active (checked in get_current_user — blocks immediately)
+│   │                              User has: cost_limit_usd (Float, nullable — NULL = no cap)
 │   ├── create_user.py          ← seeds admin/user accounts
 │   ├── alembic.ini
 │   ├── requirements.txt
@@ -70,8 +71,11 @@ ai-api/
 │   │   ├── 009_file_versions.py   ← file_versions table
 │   │   ├── 010_tool_call_log.py   ← tool_call_logs table (id, user_id, conversation_id,
 │   │   │                              tool_name, args JSONB, result_preview, created_at)
-│   │   └── 011_token_usage.py     ← adds prompt_tokens, completion_tokens, total_tokens,
-│   │                                  cost_usd (Float) to messages table
+│   │   ├── 011_token_usage.py     ← adds prompt_tokens, completion_tokens, total_tokens,
+│   │   │                              cost_usd (Float) to messages table
+│   │   ├── 012_cost_caps.py       ← adds cost_limit_usd (Float, nullable) to users table
+│   │   └── 013_hybrid_search.py   ← pg_trgm extension; content_tsv tsvector GENERATED ALWAYS
+│   │                                  AS STORED + GIN index on file_chunks and message_embeddings
 │   ├── auth/
 │   │   ├── router.py           ← /auth/token, /register, /me
 │   │   ├── security.py         ← JWT, bcrypt, get_current_user, require_role
@@ -87,6 +91,9 @@ ai-api/
 │   │   ├── nim.py              ← call() + call_stream() → NIM API
 │   │   │                          call_stream() accumulates tool_call deltas in pending dict,
 │   │   │                          yields {"__tool_calls__": [...]} on finish_reason=="tool_calls"
+│   │   │                          yields {"__usage__": {prompt_tokens, completion_tokens, total_tokens}}
+│   │   │                          stream_options:{include_usage:true} sent on every request
+│   │   │                          call() extracts usage from response, returns under "usage" key
 │   │   │                          Both accept tools=list|None; include tool_choice:"auto" when set
 │   │   ├── tools.py            ← TOOL_SCHEMAS (9 tools) + execute_tool() dispatcher
 │   │   │                          ASK_USER_PREFIX = "__ASK_USER__:"
@@ -103,6 +110,9 @@ ai-api/
 │   │   │                          retrieve_from_files(), retrieve_files_sequential(),
 │   │   │                          get_conversation_file_ids(),
 │   │   │                          get_conversation_files() → (list[UUID], list[str]) names+ids
+│   │   │                          _rrf_merge() — Reciprocal Rank Fusion (k=60) for hybrid results
+│   │   │                          All retrieve*() accept query_text="" for BM25 side of hybrid
+│   │   │                          _FETCH_N=20 candidates per side; graceful fallback to pure vector
 │   │   ├── summarizer.py       ← update_memory(), compress_history(), update_project_summary()
 │   │   └── __init__.py
 │   ├── cache/
@@ -147,7 +157,9 @@ ai-api/
 │   │   ├── conversations.py    ← conversation routes; messages endpoint returns token fields
 │   │   │                          (prompt_tokens, completion_tokens, total_tokens, cost_usd)
 │   │   ├── memory.py           ← memory routes
-│   │   ├── system.py           ← /health, /metrics + ResponseMeta/SuccessResponse/ErrorResponse
+│   │   ├── system.py           ← /health (async — pings NIM, embedding, Redis concurrently; returns
+│   │   │                          per-check {status, latency_ms}; overall "ok"|"degraded"), /metrics
+│   │   │                          ResponseMeta/SuccessResponse/ErrorResponse
 │   │   ├── tool_logs.py        ← GET /tool-calls?limit=&conversation_id= — ToolCallLog query
 │   │   ├── admin.py            ← admin-only (require_role("admin")):
 │   │   │                          GET /admin/users — all users + aggregate token usage + cost
@@ -255,6 +267,7 @@ ai-api/
 | GET | `/admin/users` | JWT (admin) | all users + aggregate usage |
 | GET | `/admin/users/{id}/usage` | JWT (admin) | per-conversation breakdown for user |
 | PATCH | `/admin/users/{id}/active` | JWT (admin) | toggle is_active; blocks existing tokens immediately |
+| PATCH | `/admin/users/{id}/cost-limit` | JWT (admin) | set cost_limit_usd (null removes cap) |
 | GET | `/metrics/overview` | none | Redis Streams stats |
 | GET | `/metrics/models` | none | per-model breakdown |
 | GET | `/metrics/latency` | none | latency percentiles |
@@ -397,11 +410,13 @@ NOTE: FILE CONTEXT is placed last (right before user message) intentionally — 
 ### History Compression
 - Compresses `all_msgs[:-10]` → max 200 words
 
-### Retrieval-Augmented Memory (pgvector)
+### Retrieval-Augmented Memory (pgvector + BM25)
 - `MessageEmbedding`: one row per exchange
 - HNSW `vector_cosine_ops`, 1024d
 - Normal: top_k=3 from current conv; reference queries: top_k=8
 - If reference returns nothing: `retrieve_global()` searches all user convs
+- **Hybrid search**: vector + BM25 (`websearch_to_tsquery`) merged via RRF (k=60)
+- `content_tsv` generated column on `message_embeddings` — GIN index, always in sync
 
 ### Importance Weighting
 - Last 30 messages scored: `0.6×recency + 0.4×cosine_similarity`, keep top 10
@@ -449,6 +464,13 @@ NOTE: FILE CONTEXT is placed last (right before user message) intentionally — 
 - Pushes `data: {id, status, progress?}\n\n` — `progress` (0.0–1.0) only present during "processing"
 - Terminates automatically when status reaches `ready` or `error`
 - Frontend: per-file `fetch` with `AbortController` stored in `statusStreamsRef`; streams opened for processing files when panel is open, all aborted on panel close
+
+### Hybrid File Retrieval (`llm/retriever.py`)
+- `retrieve_from_files()` runs vector + BM25 in parallel, merges with RRF
+- `content_tsv` generated column on `file_chunks` — GIN index, zero maintenance
+- BM25 uses `websearch_to_tsquery('english', query)` — safe with natural language input
+- Falls back to pure vector if BM25 returns nothing (stop words, empty query terms)
+- `query_text=req.message` passed from `api/chat.py` into all retriever calls
 
 ### Observability (`observability/file_metrics.py`)
 - `file_uploads_total` Counter — incremented in POST /files/upload
@@ -583,8 +605,9 @@ Covers: `p`, `h1-h4`, `code` (inline + block `pre`), `ul/ol/li`, `blockquote`, `
 ### Token Tracking
 - Stored on every assistant `Message`: `prompt_tokens`, `completion_tokens`, `total_tokens`, `cost_usd`
 - Calculated in `api/chat.py` on "done" event (streaming path):
-  - `prompt_tokens` = chars÷4 of all context (memory + history + file chunks + message)
-  - `completion_tokens` = chars÷4 of full_response
+  - **Real counts**: NIM returns `usage` field via `stream_options:{include_usage:true}`; propagated as
+    `{"__usage__": {...}}` chunk through `nim.py` → `service.py` → "done" event
+  - **Fallback**: if NIM returns no usage, falls back to chars÷4 estimate
   - `cost_usd` = tokens × `MODEL_PRICING[model]` rates
 - Pre-migration messages have NULL token fields — expected
 
@@ -598,10 +621,12 @@ Rates in $/1M tokens — verify at build.nvidia.com/explore/llm:
 
 ### Admin Endpoints (`api/admin.py`)
 - Require `role="admin"` — uses `require_role("admin")` from `auth/security.py`
-- `GET /admin/users` — list all users with: id, username, role, is_active, message_count, prompt/completion/total tokens, cost_usd
+- `GET /admin/users` — list all users with: id, username, role, is_active, cost_limit_usd, message_count, prompt/completion/total tokens, cost_usd
 - `GET /admin/users/{id}/usage` — per-conversation breakdown for user
 - `PATCH /admin/users/{id}/active` — toggle is_active; self-disable blocked
+- `PATCH /admin/users/{id}/cost-limit` — body `{cost_limit_usd: float|null}`; null removes cap; rejects negative values
 - Disable effect: immediate — `get_current_user` checks `is_active` on every request
+- Cost cap effect: checked at start of every `POST /chat/stream`; returns 402 when total spend ≥ limit
 
 ### User Self-Service (`api/usage.py`)
 - `GET /usage` — own aggregate: message_count, prompt/completion/total tokens, cost_usd
@@ -657,11 +682,12 @@ Rates in $/1M tokens — verify at build.nvidia.com/explore/llm:
 - `_needs_file_tools` is keyword-based — may miss implicit file requests (e.g. "look at my notes")
 - Token counts on existing messages (pre-migration 011) are NULL — only new messages have data
 - Token pricing hardcoded in `config.py:MODEL_PRICING` — verify rates at build.nvidia.com/explore/llm
-- Token estimates use chars÷4 (rough); real counts require tiktoken or NIM usage field
 - Processing progress (Redis `proc_progress:*`) shows 0.0 briefly before first chunk embeds
 - DOCX table extraction appends tables after all paragraphs (not interleaved by document order)
 - Prometheus counters reset on container restart — rate panels (23-24) lose history; stat panels (19-22) are unaffected (PostgreSQL)
 - `$ Usage` panel shows current user only; no admin view in frontend (admin must use `/admin/users` API directly)
+- Cost cap check uses total historical spend — no monthly/rolling window reset
+- BM25 hybrid search uses `english` text search config — non-English content will have degraded BM25 results
 
 ---
 
@@ -681,17 +707,15 @@ Suggestions only — not committed. Ask for specs before implementing any.
 - **Admin frontend panel** — table of users + usage + enable/disable toggle; currently API-only
 
 ### RAG / Memory
-- **Real token counting** — replace chars÷4 with `tiktoken` or NIM's usage field from API response
-- **Hybrid search (BM25 + vector)** — full-text fallback when vector similarity is low; needs `pg_trgm` or `tsvector`
 - **File deduplication** — SHA256 before storage; skip re-embed if hash exists
 - **Re-embed on model change** — if `MODEL_EMBEDDING` changes, old chunks are stale; migration tool needed
 - **Per-conversation memory** — separate memory sheet per conversation, not just per user
 - **Graph memory** — entities + relationships extracted from conversations; richer than flat key-value
 
 ### Token / Cost
-- **Per-user cost caps** — `User.cost_limit_usd`; check on every request, return 402 when exceeded
 - **Budget dashboard** — Grafana panels per user (needs PostgreSQL queries with user_id group-by)
 - **Monthly rollup** — aggregate table for historical cost analysis beyond Prometheus window
+- **Cost cap rolling window** — currently all-time spend; monthly reset would be more practical
 
 ### Observability / Admin
 - **User activity timeline** — admin view: last N messages per user with timestamps + models
@@ -700,10 +724,8 @@ Suggestions only — not committed. Ask for specs before implementing any.
 - **Usage CSV export** — `GET /admin/export/usage.csv`; admin-only
 
 ### Infrastructure / Reliability
-- **Real token counts from NIM** — parse `usage` field from non-streaming response; streaming requires accumulation
 - **pgBouncer** — connection pooling for high-concurrency deployments
 - **Prometheus remote write** — persist metrics across restarts; heavy but fixes rate panel reset issue
-- **Health check improvements** — `/health` currently minimal; add NIM API ping, embedding ping, Redis ping
 - **Automated backup verification** — weekly restore test to temp DB; alert on failure
 
 ### Security (lowest priority — system is home/LAN-deployed)

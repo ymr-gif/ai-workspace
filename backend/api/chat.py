@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
-from config import MODEL_PRICING, MODELS
+from config import MODEL_PRICING, MODEL_VISION, MODELS
 from core.db import get_db
 from llm import retriever, service
 from llm.embeddings import embed as embed_text
@@ -30,13 +30,15 @@ logger = logging.getLogger("chat")
 
 
 class ChatRequest(BaseModel):
-    message:         str          = Field(..., min_length=1, max_length=2000)
-    conversation_id: str | None   = None
-    model_override:  str | None   = None
-    temperature:     float | None = Field(None, ge=0.0, le=2.0)
-    max_tokens:      int | None   = Field(None, ge=1, le=4096)
-    top_p:           float | None = Field(None, ge=0.0, le=1.0)
-    compare:         bool         = False
+    message:          str          = Field(..., min_length=1, max_length=2000)
+    conversation_id:  str | None   = None
+    model_override:   str | None   = None
+    temperature:      float | None = Field(None, ge=0.0, le=2.0)
+    max_tokens:       int | None   = Field(None, ge=1, le=4096)
+    top_p:            float | None = Field(None, ge=0.0, le=1.0)
+    compare:          bool         = False
+    image_b64:        str | None   = Field(None, max_length=2_097_152)  # ~1.5 MB limit
+    image_mime_type:  str | None   = None   # "image/jpeg" | "image/png" | "image/webp"
 
 
 def _resolve_model(name: str | None) -> str | None:
@@ -133,9 +135,9 @@ async def _build_stream_context(
     top_k     = 8 if is_ref else 3
     retrieved: list[str] = []
     if query_emb:
-        retrieved = await retriever.retrieve(db, query_emb, conv.id, top_k=top_k)
+        retrieved = await retriever.retrieve(db, query_emb, conv.id, top_k=top_k, query_text=req.message)
         if is_ref and not retrieved:
-            retrieved = await retriever.retrieve_global(db, query_emb, conv.id, current_user.id)
+            retrieved = await retriever.retrieve_global(db, query_emb, conv.id, current_user.id, query_text=req.message)
 
     file_chunks: list[str] = []
     file_names:  list[str] = []
@@ -144,7 +146,7 @@ async def _build_stream_context(
         file_ids, file_names = await retriever.get_conversation_files(db, conv.id)
         if file_ids:
             if query_emb:
-                file_chunks = await retriever.retrieve_from_files(db, query_emb, file_ids, top_k=5)
+                file_chunks = await retriever.retrieve_from_files(db, query_emb, file_ids, top_k=5, query_text=req.message)
             else:
                 file_chunks = await retriever.retrieve_files_sequential(db, file_ids, top_k=10)
             if file_chunks:
@@ -165,6 +167,22 @@ async def _build_stream_context(
         "file_names":      file_names,
         "file_ids":        file_ids,
     }
+
+
+async def _check_cost_cap(user: User, db: AsyncSession) -> None:
+    if user.cost_limit_usd is None:
+        return
+    row = await db.execute(
+        select(func.coalesce(func.sum(Message.cost_usd), 0.0).label("total"))
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .where(Conversation.user_id == user.id, Message.role == "assistant")
+    )
+    total = float(row.scalar_one() or 0.0)
+    if total >= user.cost_limit_usd:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Cost cap reached (${total:.6f} / ${user.cost_limit_usd:.6f}). Contact admin.",
+        )
 
 
 def _extract_model_params(req: ChatRequest) -> dict | None:
@@ -237,6 +255,8 @@ async def chat_stream(
     rid  = request.state.request_id
     logger.info("[chat/stream] rid=%s user=%s", rid, current_user.username)
 
+    await _check_cost_cap(current_user, db)
+
     conv         = await _resolve_conversation(req, current_user, db)
     ctx          = await _build_stream_context(req, conv, current_user, db, rid)
     model_params = _extract_model_params(req)
@@ -294,6 +314,7 @@ async def chat_stream(
                 file_chunks=ctx["file_chunks"], file_names=ctx["file_names"],
                 file_ids=ctx["file_ids"], conv_id=conv.id,
                 user_id=current_user.id, db=db,
+                image_b64=req.image_b64, image_mime_type=req.image_mime_type,
             ):
                 if event["type"] == "token":
                     accumulated.append(event["content"])
@@ -309,16 +330,22 @@ async def chat_stream(
                     full_response = "".join(accumulated)
 
                     try:
-                        pricing           = MODEL_PRICING.get(model_used, {})
-                        prompt_tokens     = _estimate_tokens(
-                            ctx["memory_sheet"], ctx["project_summary"],
-                            ctx["history_summary"],
-                            *[m["content"] for m in ctx["history"]],
-                            req.message,
-                        )
-                        completion_tokens = len(full_response) // 4
-                        total_tokens      = prompt_tokens + completion_tokens
-                        cost_usd          = (
+                        pricing  = MODEL_PRICING.get(model_used, {})
+                        nim_usage = event.get("usage")
+                        if nim_usage and isinstance(nim_usage, dict):
+                            prompt_tokens     = nim_usage.get("prompt_tokens", 0)
+                            completion_tokens = nim_usage.get("completion_tokens", 0)
+                            total_tokens      = nim_usage.get("total_tokens", prompt_tokens + completion_tokens)
+                        else:
+                            prompt_tokens     = _estimate_tokens(
+                                ctx["memory_sheet"], ctx["project_summary"],
+                                ctx["history_summary"],
+                                *[m["content"] for m in ctx["history"]],
+                                req.message,
+                            )
+                            completion_tokens = len(full_response) // 4
+                            total_tokens      = prompt_tokens + completion_tokens
+                        cost_usd = (
                             prompt_tokens     / 1_000_000 * pricing.get("input",  0.0) +
                             completion_tokens / 1_000_000 * pricing.get("output", 0.0)
                         )

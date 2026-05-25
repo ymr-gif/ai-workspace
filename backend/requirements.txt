@@ -63,3 +63,7 @@ PyYAML==6.0.3
 packaging==26.2
 python-dateutil==2.9.0.post0
 websockets==16.0
+
+# ── scheduling ────────────────────────────────────────────────────────────────
+apscheduler>=3.10.0
+croniter>=2.0.0

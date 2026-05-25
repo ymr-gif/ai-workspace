@@ -1,7 +1,7 @@
 import logging
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import AsyncSessionLocal
@@ -16,51 +16,147 @@ _REFERENCE_KEYWORDS = {
     "you explained", "you showed", "we covered",
 }
 
+_RRF_K    = 60   # RRF constant — higher = less rank-sensitive
+_FETCH_N  = 20   # candidates per side before merge
 
-def is_reference_query(text: str) -> bool:
-    lower = text.lower()
+
+def is_reference_query(text_: str) -> bool:
+    lower = text_.lower()
     return any(kw in lower for kw in _REFERENCE_KEYWORDS)
 
 
+def _rrf_merge(
+    vector_rows: list[tuple],
+    bm25_rows:   list[tuple],
+    top_k:       int,
+) -> list[str]:
+    """Reciprocal Rank Fusion: combine (id, content) lists from both sources."""
+    scores:   dict = {}
+    contents: dict = {}
+    for rank, (rid, content) in enumerate(vector_rows):
+        scores[rid]   = scores.get(rid, 0.0) + 1.0 / (_RRF_K + rank + 1)
+        contents[rid] = content
+    for rank, (rid, content) in enumerate(bm25_rows):
+        scores[rid]   = scores.get(rid, 0.0) + 1.0 / (_RRF_K + rank + 1)
+        contents[rid] = content
+    sorted_ids = sorted(scores, key=lambda x: -scores[x])
+    return [contents[i] for i in sorted_ids[:top_k]]
+
+
+async def _bm25_file_chunks(
+    db:       AsyncSession,
+    file_ids: list[uuid.UUID],
+    query:    str,
+    limit:    int,
+) -> list[tuple]:
+    result = await db.execute(
+        select(FileChunk.id, FileChunk.content)
+        .where(FileChunk.file_id.in_(file_ids))
+        .where(text("content_tsv @@ websearch_to_tsquery('english', :q)"))
+        .order_by(text("ts_rank(content_tsv, websearch_to_tsquery('english', :q)) DESC"))
+        .limit(limit)
+        .params(q=query)
+    )
+    return [(r.id, r.content) for r in result.all()]
+
+
+async def _bm25_message_embeddings(
+    db:    AsyncSession,
+    where: list,
+    query: str,
+    limit: int,
+) -> list[tuple]:
+    result = await db.execute(
+        select(MessageEmbedding.id, MessageEmbedding.content_snippet)
+        .where(*where)
+        .where(text("content_tsv @@ websearch_to_tsquery('english', :q)"))
+        .order_by(text("ts_rank(content_tsv, websearch_to_tsquery('english', :q)) DESC"))
+        .limit(limit)
+        .params(q=query)
+    )
+    return [(r.id, r.content_snippet) for r in result.all()]
+
+
 async def retrieve(
-    db: AsyncSession,
+    db:              AsyncSession,
     query_embedding: list[float],
     conversation_id: uuid.UUID,
-    top_k: int = 3,
+    top_k:           int = 3,
+    query_text:      str = "",
 ) -> list[str]:
     try:
-        result = await db.execute(
-            select(MessageEmbedding.content_snippet)
+        vec_result = await db.execute(
+            select(MessageEmbedding.id, MessageEmbedding.content_snippet)
             .where(MessageEmbedding.conversation_id == conversation_id)
             .order_by(MessageEmbedding.embedding.cosine_distance(query_embedding))
-            .limit(top_k)
+            .limit(_FETCH_N)
         )
-        return list(result.scalars().all())
+        vector_rows = [(r.id, r.content_snippet) for r in vec_result.all()]
+
+        bm25_rows: list[tuple] = []
+        if query_text.strip():
+            try:
+                bm25_rows = await _bm25_message_embeddings(
+                    db,
+                    [MessageEmbedding.conversation_id == conversation_id],
+                    query_text,
+                    _FETCH_N,
+                )
+            except Exception as e:
+                logger.warning("[retriever] bm25 retrieve failed conv=%s err=%s", conversation_id, e)
+
+        if bm25_rows:
+            return _rrf_merge(vector_rows, bm25_rows, top_k)
+        return [c for _, c in vector_rows[:top_k]]
+
     except Exception as e:
         logger.warning("[retriever] retrieve failed conv=%s err=%s", conversation_id, e)
         return []
 
 
 async def retrieve_global(
-    db: AsyncSession,
+    db:              AsyncSession,
     query_embedding: list[float],
     exclude_conv_id: uuid.UUID,
-    user_id: int,
-    top_k: int = 5,
+    user_id:         int,
+    top_k:           int = 5,
+    query_text:      str = "",
 ) -> list[str]:
-    """Cross-conversation search for on-demand rehydration."""
     try:
-        result = await db.execute(
-            select(MessageEmbedding.content_snippet)
+        vec_result = await db.execute(
+            select(MessageEmbedding.id, MessageEmbedding.content_snippet)
             .join(Conversation, MessageEmbedding.conversation_id == Conversation.id)
             .where(
                 Conversation.user_id == user_id,
                 MessageEmbedding.conversation_id != exclude_conv_id,
             )
             .order_by(MessageEmbedding.embedding.cosine_distance(query_embedding))
-            .limit(top_k)
+            .limit(_FETCH_N)
         )
-        return list(result.scalars().all())
+        vector_rows = [(r.id, r.content_snippet) for r in vec_result.all()]
+
+        bm25_rows: list[tuple] = []
+        if query_text.strip():
+            try:
+                bm25_rows = await _bm25_message_embeddings(
+                    db,
+                    [
+                        MessageEmbedding.conversation_id.in_(
+                            select(Conversation.id)
+                            .where(Conversation.user_id == user_id)
+                            .where(Conversation.id != exclude_conv_id)
+                        )
+                    ],
+                    query_text,
+                    _FETCH_N,
+                )
+            except Exception as e:
+                logger.warning("[retriever] bm25 retrieve_global failed user=%s err=%s", user_id, e)
+
+        if bm25_rows:
+            return _rrf_merge(vector_rows, bm25_rows, top_k)
+        return [c for _, c in vector_rows[:top_k]]
+
     except Exception as e:
         logger.warning("[retriever] retrieve_global failed user=%s err=%s", user_id, e)
         return []
@@ -71,7 +167,6 @@ async def get_relevance_scores(
     conversation_id: uuid.UUID,
     query_embedding: list[float],
 ) -> dict[uuid.UUID, float]:
-    """Returns {assistant_message_id: cosine_similarity} for importance weighting."""
     try:
         result = await db.execute(
             select(
@@ -113,20 +208,34 @@ async def retrieve_from_files(
     query_embedding: list[float],
     file_ids:        list[uuid.UUID],
     top_k:           int = 5,
+    query_text:      str = "",
 ) -> list[str]:
-    """Retrieve top-k chunks from the given files via cosine similarity."""
     if not file_ids:
         return []
     try:
-        result = await db.execute(
-            select(FileChunk.content)
+        vec_result = await db.execute(
+            select(FileChunk.id, FileChunk.content)
             .where(FileChunk.file_id.in_(file_ids))
             .where(FileChunk.embedding.isnot(None))
             .order_by(FileChunk.embedding.cosine_distance(query_embedding))
-            .limit(top_k)
+            .limit(_FETCH_N)
         )
-        chunks = list(result.scalars().all())
-        logger.info("[retriever] retrieve_from_files files=%d chunks=%d", len(file_ids), len(chunks))
+        vector_rows = [(r.id, r.content) for r in vec_result.all()]
+
+        bm25_rows: list[tuple] = []
+        if query_text.strip():
+            try:
+                bm25_rows = await _bm25_file_chunks(db, file_ids, query_text, _FETCH_N)
+            except Exception as e:
+                logger.warning("[retriever] bm25 file search failed err=%s", e)
+
+        if bm25_rows:
+            chunks = _rrf_merge(vector_rows, bm25_rows, top_k)
+        else:
+            chunks = [c for _, c in vector_rows[:top_k]]
+
+        logger.info("[retriever] retrieve_from_files files=%d vector=%d bm25=%d merged=%d",
+                    len(file_ids), len(vector_rows), len(bm25_rows), len(chunks))
         return chunks
     except Exception as e:
         logger.warning("[retriever] retrieve_from_files failed err=%s", e)
@@ -138,7 +247,6 @@ async def retrieve_files_sequential(
     file_ids: list[uuid.UUID],
     top_k:    int = 10,
 ) -> list[str]:
-    """Fallback: return first top_k chunks by index when no query embedding available."""
     if not file_ids:
         return []
     try:
@@ -179,14 +287,13 @@ async def get_conversation_files(
     db:      AsyncSession,
     conv_id: uuid.UUID,
 ) -> tuple[list[uuid.UUID], list[str]]:
-    """Returns (file_ids, filenames) for files attached to this conversation."""
     try:
         result = await db.execute(
             select(FileModel.id, FileModel.filename)
             .join(ConversationFile, ConversationFile.file_id == FileModel.id)
             .where(ConversationFile.conversation_id == conv_id)
         )
-        rows = result.all()
+        rows  = result.all()
         ids   = [r.id       for r in rows]
         names = [r.filename for r in rows]
         if ids:

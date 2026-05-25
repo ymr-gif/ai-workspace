@@ -38,6 +38,7 @@ MODELS = {
 }
 
 MODEL_EMBEDDING   = os.getenv("MODEL_EMBEDDING",   "nvidia/nv-embedqa-e5-v5")
+MODEL_VISION      = os.getenv("MODEL_VISION",      "meta/llama-3.2-90b-vision-instruct")
 EMBEDDING_DIM     = int(os.getenv("EMBEDDING_DIM", "1024"))
 
 # ── Reliability ───────────────────────────────────────────────────────────────
@@ -81,9 +82,10 @@ ROUTER_SYSTEM_PROMPT = (
 # ── Model pricing — verify at build.nvidia.com/explore/llm ───────────────────
 # $/1M tokens: input and output rates
 MODEL_PRICING: dict[str, dict[str, float]] = {
-    "meta/llama-3.1-8b-instruct":   {"input": 0.10, "output": 0.10},
-    "deepseek-ai/deepseek-v4-flash": {"input": 0.20, "output": 0.60},
-    "meta/llama-3.3-70b-instruct":   {"input": 0.77, "output": 0.77},
+    "meta/llama-3.1-8b-instruct":             {"input": 0.10, "output": 0.10},
+    "deepseek-ai/deepseek-v4-flash":           {"input": 0.20, "output": 0.60},
+    "meta/llama-3.3-70b-instruct":             {"input": 0.77, "output": 0.77},
+    "meta/llama-3.2-90b-vision-instruct":      {"input": 0.16, "output": 0.16},
 }
 
 # ── Startup guards ────────────────────────────────────────────────────────────

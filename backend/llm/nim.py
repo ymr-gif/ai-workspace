@@ -67,6 +67,7 @@ async def call(
 
                 data               = response.json()
                 content, tool_calls = _extract(data)
+                usage              = data.get("usage")  # real token counts from NIM
 
                 logger.info({"event": "nim_raw_response", "request_id": request_id, "model": model})
 
@@ -77,6 +78,7 @@ async def call(
                         "error":      None,
                         "content":    None,
                         "tool_calls": tool_calls,
+                        "usage":      usage,
                         "latency_ms": (time.monotonic() - start) * 1000,
                         "model":      model,
                     }
@@ -94,6 +96,7 @@ async def call(
                         "error":      "bad_format",
                         "content":    None,
                         "tool_calls": None,
+                        "usage":      None,
                         "latency_ms": (time.monotonic() - start) * 1000,
                         "model":      model,
                     }
@@ -104,6 +107,7 @@ async def call(
                     "error":      None,
                     "content":    content.strip(),
                     "tool_calls": None,
+                    "usage":      usage,
                     "latency_ms": (time.monotonic() - start) * 1000,
                     "model":      model,
                 }
@@ -142,7 +146,8 @@ async def call_stream(
     if is_open(model):
         raise RuntimeError("circuit_open")
 
-    body = {"model": model, "messages": messages, "stream": True, **(model_params or {})}
+    body = {"model": model, "messages": messages, "stream": True,
+            "stream_options": {"include_usage": True}, **(model_params or {})}
     if tools:
         body["tools"]       = tools
         body["tool_choice"] = "auto"
@@ -173,9 +178,20 @@ async def call_stream(
                         break
                     try:
                         chunk         = json.loads(raw)
+
+                        # Usage-only chunk (stream_options.include_usage)
+                        usage = chunk.get("usage")
+                        if usage and isinstance(usage, dict) and not chunk.get("choices"):
+                            yield {"__usage__": usage}
+                            continue
+
                         choice        = chunk["choices"][0]
                         delta         = choice.get("delta", {})
                         finish_reason = choice.get("finish_reason")
+
+                        # Emit usage if attached to the final choice chunk
+                        if usage and isinstance(usage, dict):
+                            yield {"__usage__": usage}
 
                         content = delta.get("content") or ""
                         if content:

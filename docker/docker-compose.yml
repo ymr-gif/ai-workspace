@@ -80,6 +80,25 @@ services:
     networks:
       - backend
 
+  scheduler:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    command: python -m services.scheduler_worker
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-scylla}:${POSTGRES_PASSWORD:-scylla}@postgres:5432/${POSTGRES_DB:-nimrouter}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../backend/storage:/app/backend/storage
+    networks:
+      - backend
+
   prometheus:
     image: prom/prometheus:latest
     ports:
