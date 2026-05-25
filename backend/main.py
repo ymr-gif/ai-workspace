@@ -389,7 +389,7 @@ async def chat_stream(
         await db.commit()  # persist new conversation if one was created
         common = service.build_context_messages(
             memory_sheet, project_summary, retrieved, history_summary,
-            history, memory_enabled, system_prompt, file_chunks, file_names,
+            history, memory_enabled, system_prompt, file_chunks, file_names, file_ids,
         )
         t_cmp = metrics.record_request_start()
 

@@ -26,14 +26,18 @@ def build_context_messages(
     system_prompt:    str | None   = None,
     file_chunks:      list[str]    = (),
     file_names:       list[str]    = (),
+    file_ids:         list         = (),
 ) -> list[dict]:
     messages = []
 
-    # System prompt — append file notice if files attached
+    # System prompt — append file notice with IDs if files attached
     if file_names:
-        names_str   = ", ".join(file_names)
-        file_notice = f"The user has attached these files: {names_str}. Answer using their content directly when relevant."
-        base        = system_prompt.rstrip() + "\n\n" + file_notice if system_prompt else file_notice
+        if file_ids:
+            files_list  = "\n".join(f"  - {name} (id={fid})" for name, fid in zip(file_names, file_ids))
+            file_notice = f"The user has attached these files:\n{files_list}\nUse read_file(file_id=<id>) to read their content. Use write_file to edit. Use list_files if unsure of IDs."
+        else:
+            file_notice = f"The user has attached these files: {', '.join(file_names)}. Use file tools to read or edit them."
+        base = system_prompt.rstrip() + "\n\n" + file_notice if system_prompt else file_notice
         messages.append({"role": "system", "content": base})
     elif system_prompt:
         messages.append({"role": "system", "content": system_prompt})
@@ -164,7 +168,7 @@ async def generate_stream(
 
     base_messages = build_context_messages(
         memory_sheet, project_summary, retrieved_chunks, history_summary,
-        history, memory_enabled, system_prompt, file_chunks, file_names,
+        history, memory_enabled, system_prompt, file_chunks, file_names, file_ids,
     ) + [{"role": "user", "content": message}]
 
     for idx, current_model in enumerate(fallback_chain):
