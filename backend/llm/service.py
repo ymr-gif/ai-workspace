@@ -36,8 +36,11 @@ def build_context_messages(
             files_list  = "\n".join(f"  - {name} (id={fid})" for name, fid in zip(file_names, file_ids))
             file_notice = (
                 f"The user has attached these files:\n{files_list}\n"
-                "Use read_file(file_id=<id>) to read content. Use write_file to edit. "
-                "After write_file or create_file succeeds, respond to the user immediately — do NOT read the file back to verify."
+                "Rules for file tools:\n"
+                "- To READ a file: call read_file(file_id=<id>)\n"
+                "- To ADD, EDIT, or MODIFY file content: call read_file first, then call write_file with the COMPLETE updated content (not just the new part)\n"
+                "- To CREATE a new file: call create_file(name=..., content=...)\n"
+                "- After write_file or create_file succeeds, respond to the user immediately — do NOT call read_file again to verify"
             )
         else:
             file_notice = f"The user has attached these files: {', '.join(file_names)}. Use file tools to read or edit them."
