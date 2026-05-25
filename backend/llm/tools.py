@@ -42,7 +42,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": "Overwrite a file with new content. Use for editing or updating files.",
+            "description": "Overwrite a file with new content. You MUST call this to save any changes — outputting text alone does not modify the file.",
             "parameters": {
                 "type": "object",
                 "properties": {
