@@ -1,12 +1,17 @@
 import asyncio
+import json
 import logging
 import time
+import uuid
 
 from config import FALLBACK_ORDER, MODELS
 from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route
 from llm.nim import call, call_stream
+from llm.tools import TOOL_SCHEMAS, execute_tool
+
+MAX_TOOL_ITERATIONS = 5
 
 logger = logging.getLogger("service")
 
@@ -126,12 +131,16 @@ async def generate_stream(
     history_summary:  str,
     retrieved_chunks: list[str],
     request_id:       str,
-    memory_enabled:   bool         = True,
-    model_override:   str | None   = None,
-    model_params:     dict | None  = None,
-    system_prompt:    str | None   = None,
-    file_chunks:      list[str]    = (),
-    file_names:       list[str]    = (),
+    memory_enabled:   bool              = True,
+    model_override:   str | None        = None,
+    model_params:     dict | None       = None,
+    system_prompt:    str | None        = None,
+    file_chunks:      list[str]         = (),
+    file_names:       list[str]         = (),
+    file_ids:         list              = (),
+    conv_id:          uuid.UUID | None  = None,
+    user_id:          int | None        = None,
+    db                                  = None,
 ):
     use_cache = not history and not model_override and not model_params and not system_prompt and not file_chunks
 
@@ -142,31 +151,69 @@ async def generate_stream(
             yield {"type": "done",  "model": cached.get("model", "cache"), "cache_hit": True, "fallback_used": False}
             return
 
-    if model_override:
+    # Force 70B when files attached — only 70B reliably supports tool calling
+    if file_ids and not model_override:
+        fallback_chain = [MODELS["reasoning"]]
+    elif model_override:
         fallback_chain = [model_override]
     else:
         model, _ = await route(message, request_id)
         fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
 
-    messages = build_context_messages(
+    tools = TOOL_SCHEMAS if (file_ids and db is not None) else None
+
+    base_messages = build_context_messages(
         memory_sheet, project_summary, retrieved_chunks, history_summary,
         history, memory_enabled, system_prompt, file_chunks, file_names,
     ) + [{"role": "user", "content": message}]
 
     for idx, current_model in enumerate(fallback_chain):
-        fallback_used = idx > 0
-        accumulated   = []
-        started       = False
+        fallback_used  = idx > 0
+        tool_messages  = list(base_messages)  # per-model copy, extended by tool results
+        model_done     = False
 
-        try:
-            async for chunk in call_stream(current_model, messages, request_id, model_params):
-                started = True
-                accumulated.append(chunk)
-                yield {"type": "token", "content": chunk}
+        for _tool_iter in range(MAX_TOOL_ITERATIONS):
+            accumulated      = []
+            started          = False
+            tool_calls_done  = None
+            stream_broke     = False
+
+            try:
+                async for chunk in call_stream(current_model, tool_messages, request_id, model_params, tools):
+                    if isinstance(chunk, dict) and "__tool_calls__" in chunk:
+                        tool_calls_done = chunk["__tool_calls__"]
+                    elif isinstance(chunk, str):
+                        started = True
+                        accumulated.append(chunk)
+                        yield {"type": "token", "content": chunk}
+            except Exception as e:
+                logger.warning("[service] stream_failed model=%s started=%s err=%s", current_model, started, e)
+                if started:
+                    yield {"type": "error", "message": "Stream interrupted"}
+                    return
+                stream_broke = True
+                break
+
+            if stream_broke:
+                break
+
+            if tool_calls_done:
+                for tc in tool_calls_done:
+                    fn_name = tc["function"]["name"]
+                    try:
+                        args = json.loads(tc["function"]["arguments"])
+                    except Exception:
+                        args = {}
+                    yield {"type": "tool_call", "name": fn_name, "args": args}
+                    result = await execute_tool(fn_name, args, db, user_id, conv_id)
+                    yield {"type": "tool_result", "name": fn_name, "content": result[:500]}
+                    tool_messages.append({"role": "assistant", "tool_calls": [tc]})
+                    tool_messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
+                continue  # next tool iteration
 
             if not accumulated:
                 logger.warning("[service] empty_stream model=%s", current_model)
-                continue
+                break  # try next fallback model
 
             full_response = "".join(accumulated)
             payload = {
@@ -175,26 +222,26 @@ async def generate_stream(
                 "cache_hit":     False,
                 "fallback_used": fallback_used,
             }
-
             if use_cache:
                 try:
                     await set_cached_response(message, payload)
                     metrics.record_cache_write()
                 except Exception as e:
                     logger.warning("[cache] write_failed err=%s", e)
-
             if fallback_used:
                 metrics.record_fallback()
 
             yield {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used}
+            model_done = True
+            break
+
+        else:
+            # exhausted MAX_TOOL_ITERATIONS without a text response
+            yield {"type": "error", "message": "Tool loop limit reached"}
             return
 
-        except Exception as e:
-            logger.warning("[service] stream_failed model=%s started=%s err=%s", current_model, started, e)
-            if started:
-                yield {"type": "error", "message": "Stream interrupted"}
-                return
-            continue
+        if model_done:
+            return
 
     yield {"type": "error", "message": "All models failed"}
 

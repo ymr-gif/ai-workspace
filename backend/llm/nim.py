@@ -16,7 +16,8 @@ async def call(
     model:        str,
     messages:     list[dict],
     request_id:   str,
-    model_params: dict | None = None,
+    model_params: dict | None  = None,
+    tools:        list | None  = None,
 ) -> dict:
     if llm_client.client is None:
         raise RuntimeError("HTTP client not initialized")
@@ -24,10 +25,13 @@ async def call(
         raise RuntimeError("Missing NVIDIA_API_KEY")
 
     if is_open(model):
-        return {"ok": False, "error": "circuit_open", "content": None, "latency_ms": 0, "model": model}
+        return {"ok": False, "error": "circuit_open", "content": None, "tool_calls": None, "latency_ms": 0, "model": model}
 
     start = time.monotonic()
     body  = {"model": model, "messages": messages, **(model_params or {})}
+    if tools:
+        body["tools"]       = tools
+        body["tool_choice"] = "auto"
 
     async with llm_client.semaphore:
         for attempt in range(MAX_RETRIES + 1):
@@ -61,10 +65,21 @@ async def call(
                         "model":      model,
                     }
 
-                data    = response.json()
-                content = _extract(data)
+                data               = response.json()
+                content, tool_calls = _extract(data)
 
                 logger.info({"event": "nim_raw_response", "request_id": request_id, "model": model})
+
+                if tool_calls:
+                    record_success(model)
+                    return {
+                        "ok":         True,
+                        "error":      None,
+                        "content":    None,
+                        "tool_calls": tool_calls,
+                        "latency_ms": (time.monotonic() - start) * 1000,
+                        "model":      model,
+                    }
 
                 if not isinstance(content, str) or not content.strip():
                     logger.warning({
@@ -78,6 +93,7 @@ async def call(
                         "ok":         False,
                         "error":      "bad_format",
                         "content":    None,
+                        "tool_calls": None,
                         "latency_ms": (time.monotonic() - start) * 1000,
                         "model":      model,
                     }
@@ -87,6 +103,7 @@ async def call(
                     "ok":         True,
                     "error":      None,
                     "content":    content.strip(),
+                    "tool_calls": None,
                     "latency_ms": (time.monotonic() - start) * 1000,
                     "model":      model,
                 }
@@ -107,7 +124,7 @@ async def call(
 
             await asyncio.sleep(0.5 * (attempt + 1))
 
-    return {"ok": False, "error": "failed", "content": None,
+    return {"ok": False, "error": "failed", "content": None, "tool_calls": None,
             "latency_ms": (time.monotonic() - start) * 1000, "model": model}
 
 
@@ -116,6 +133,7 @@ async def call_stream(
     messages:     list[dict],
     request_id:   str,
     model_params: dict | None = None,
+    tools:        list | None = None,
 ):
     if llm_client.client is None:
         raise RuntimeError("HTTP client not initialized")
@@ -125,6 +143,9 @@ async def call_stream(
         raise RuntimeError("circuit_open")
 
     body = {"model": model, "messages": messages, "stream": True, **(model_params or {})}
+    if tools:
+        body["tools"]       = tools
+        body["tool_choice"] = "auto"
 
     async with llm_client.semaphore:
         try:
@@ -142,6 +163,8 @@ async def call_stream(
                     await record_failure(model)
                     return
 
+                pending: dict[int, dict] = {}  # index → {id, name, arguments}
+
                 async for line in response.aiter_lines():
                     if not line.startswith("data: "):
                         continue
@@ -149,10 +172,41 @@ async def call_stream(
                     if raw == "[DONE]":
                         break
                     try:
-                        chunk   = json.loads(raw)
-                        content = chunk["choices"][0]["delta"].get("content") or ""
+                        chunk         = json.loads(raw)
+                        choice        = chunk["choices"][0]
+                        delta         = choice.get("delta", {})
+                        finish_reason = choice.get("finish_reason")
+
+                        content = delta.get("content") or ""
                         if content:
                             yield content
+
+                        for tc in delta.get("tool_calls", []):
+                            idx = tc.get("index", 0)
+                            if idx not in pending:
+                                pending[idx] = {"id": "", "name": "", "arguments": ""}
+                            if tc.get("id"):
+                                pending[idx]["id"] = tc["id"]
+                            fn = tc.get("function", {})
+                            if fn.get("name"):
+                                pending[idx]["name"] += fn["name"]
+                            if fn.get("arguments"):
+                                pending[idx]["arguments"] += fn["arguments"]
+
+                        if finish_reason == "tool_calls" and pending:
+                            tool_calls = []
+                            for i in sorted(pending):
+                                p = pending[i]
+                                tool_calls.append({
+                                    "id":   p["id"],
+                                    "type": "function",
+                                    "function": {
+                                        "name":      p["name"],
+                                        "arguments": p["arguments"],
+                                    },
+                                })
+                            yield {"__tool_calls__": tool_calls}
+
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
 
@@ -164,34 +218,39 @@ async def call_stream(
             raise
 
 
-def _extract(data: dict) -> str | None:
+def _extract(data: dict) -> tuple[str | None, list | None]:
+    """Returns (content, tool_calls). Exactly one will be non-None on success."""
     try:
         choices = data.get("choices")
         if choices and isinstance(choices, list):
             first   = choices[0]
             message = first.get("message", {})
-            content = message.get("content")
 
+            tool_calls = message.get("tool_calls")
+            if tool_calls:
+                return None, tool_calls
+
+            content = message.get("content")
             if isinstance(content, str) and content.strip():
-                return content.strip()
+                return content.strip(), None
 
             if isinstance(content, list) and content:
                 part = content[0]
                 if isinstance(part, dict):
                     text = part.get("text")
                     if isinstance(text, str) and text.strip():
-                        return text.strip()
+                        return text.strip(), None
 
             delta = first.get("delta", {})
             delta_content = delta.get("content")
             if isinstance(delta_content, str) and delta_content.strip():
-                return delta_content.strip()
+                return delta_content.strip(), None
 
         text = data.get("text")
         if isinstance(text, str) and text.strip():
-            return text.strip()
+            return text.strip(), None
 
     except Exception as e:
         logger.exception("[extract] failed err=%s", e)
 
-    return None
+    return None, None
