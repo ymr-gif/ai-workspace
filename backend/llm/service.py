@@ -11,7 +11,7 @@ from llm.router import route
 from llm.nim import call, call_stream
 from llm.tools import TOOL_SCHEMAS, execute_tool
 
-MAX_TOOL_ITERATIONS = 5
+MAX_TOOL_ITERATIONS = 10
 
 logger = logging.getLogger("service")
 
@@ -34,7 +34,11 @@ def build_context_messages(
     if file_names:
         if file_ids:
             files_list  = "\n".join(f"  - {name} (id={fid})" for name, fid in zip(file_names, file_ids))
-            file_notice = f"The user has attached these files:\n{files_list}\nUse read_file(file_id=<id>) to read their content. Use write_file to edit. Use list_files if unsure of IDs."
+            file_notice = (
+                f"The user has attached these files:\n{files_list}\n"
+                "Use read_file(file_id=<id>) to read content. Use write_file to edit. "
+                "After write_file or create_file succeeds, respond to the user immediately — do NOT read the file back to verify."
+            )
         else:
             file_notice = f"The user has attached these files: {', '.join(file_names)}. Use file tools to read or edit them."
         base = system_prompt.rstrip() + "\n\n" + file_notice if system_prompt else file_notice
