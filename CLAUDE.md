@@ -56,6 +56,7 @@ ai-api/
 │   │                              Message has: prompt_tokens, completion_tokens, total_tokens, cost_usd
 │   │                              User has: is_active (checked in get_current_user — blocks immediately)
 │   │                              User has: cost_limit_usd (Float, nullable — NULL = no cap)
+│   │                              File has: sha256_hash (String 64, nullable, indexed) — dedup key
 │   ├── create_user.py          ← seeds admin/user accounts
 │   ├── alembic.ini
 │   ├── requirements.txt
@@ -74,8 +75,12 @@ ai-api/
 │   │   ├── 011_token_usage.py     ← adds prompt_tokens, completion_tokens, total_tokens,
 │   │   │                              cost_usd (Float) to messages table
 │   │   ├── 012_cost_caps.py       ← adds cost_limit_usd (Float, nullable) to users table
-│   │   └── 013_hybrid_search.py   ← pg_trgm extension; content_tsv tsvector GENERATED ALWAYS
-│   │                                  AS STORED + GIN index on file_chunks and message_embeddings
+│   │   ├── 013_hybrid_search.py   ← pg_trgm extension; content_tsv tsvector GENERATED ALWAYS
+│   │   │                              AS STORED + GIN index on file_chunks and message_embeddings
+│   │   ├── 014_prompt_templates.py ← prompt_templates table
+│   │   ├── 015_scheduled_prompts.py ← scheduled_prompts + scheduled_prompt_runs tables
+│   │   └── 016_file_dedup.py      ← adds sha256_hash (String 64) + index ix_files_user_sha256
+│   │                                  on files table for deduplication
 │   ├── auth/
 │   │   ├── router.py           ← /auth/token, /register, /me
 │   │   ├── security.py         ← JWT, bcrypt, get_current_user, require_role
@@ -122,6 +127,9 @@ ai-api/
 │   │   └── __init__.py
 │   ├── core/
 │   │   ├── db.py               ← engine, get_db, init_db
+│   │   │                          pool_size=5, max_overflow=10, pool_pre_ping=False
+│   │   │                          connect_args={"prepared_statement_cache_size": 0} — required for
+│   │   │                          pgBouncer transaction mode (prepared stmts can't cross connections)
 │   │   ├── redis_client.py     ← singleton async Redis
 │   │   ├── logger.py           ← setup_logging(), JSON or plain formatter
 │   │   └── __init__.py
@@ -143,17 +151,32 @@ ai-api/
 │   │                              record_tokens(model, prompt, completion, cost) — called on every
 │   │                              assistant message save in api/chat.py
 │   ├── api/
-│   │   ├── chat.py             ← /chat, /chat/stream + helpers:
-│   │   │                          ChatRequest, _resolve_model(), _estimate_tokens(),
-│   │   │                          _embed_exchange(), _resolve_conversation(),
-│   │   │                          _build_stream_context(), _extract_model_params()
-│   │   │                          On "done": calculates prompt/completion tokens, cost_usd,
-│   │   │                          saves to Message, fires record_tokens(), injects token
-│   │   │                          fields into SSE "done" event for frontend immediate display
-│   │   ├── files.py            ← all file routes + SSE status stream
-│   │   │                          GET /{id}/status/stream — SSE; polls DB + Redis every 0.8s,
-│   │   │                          pushes {id, status, progress?} events, terminates on ready/error
-│   │   │                          progress (0.0–1.0) from Redis key proc_progress:{file_id}
+│   │   ├── chat/               ← package; main.py: from api.chat import router
+│   │   │   ├── __init__.py     ← exports router
+│   │   │   ├── schemas.py      ← ChatRequest (message, conversation_id, model_override,
+│   │   │   │                      temperature, max_tokens, top_p, compare,
+│   │   │   │                      image_b64, image_mime_type)
+│   │   │   ├── helpers.py      ← _resolve_model, _estimate_tokens, _embed_exchange,
+│   │   │   │                      _resolve_conversation, _build_stream_context,
+│   │   │   │                      _check_cost_cap, _extract_model_params,
+│   │   │   │                      _calculate_tokens_and_cost
+│   │   │   │                      _build_stream_context: embed_text started as asyncio.create_task
+│   │   │   │                      concurrently with history DB query (saves 100-300ms per request)
+│   │   │   │                      get_relevance_scores: filters to candidate_ids (not full conv scan)
+│   │   │   └── router.py       ← /chat + /chat/stream handlers; on "done": saves Message with
+│   │   │                          token fields, fires record_tokens(), fires _embed_exchange task,
+│   │   │                          triggers memory compression if thresholds exceeded
+│   │   ├── files/              ← package; main.py: from api.files import router (prefix="/files")
+│   │   │   ├── __init__.py     ← base router from router.py + includes sub-routers
+│   │   │   ├── utils.py        ← _file_dict(), _get_file_or_404(), logger, storage, MAX_FILE_SIZE
+│   │   │   ├── router.py       ← upload, list, delete, content, status (one-shot), download,
+│   │   │   │                      rename, put_content; upload: sha256 dedup check before DB insert
+│   │   │   │                      rate limited: upload 20/60s, ingest 10/60s per user
+│   │   │   ├── ingest.py       ← /ingest-url; sha256 dedup check on extracted text
+│   │   │   ├── workspaces.py   ← /workspaces, /{id}/workspace
+│   │   │   ├── versions.py     ← /{id}/versions, /{id}/versions/{vid}, restore
+│   │   │   └── stream.py       ← /{id}/status/stream — SSE; polls DB + Redis every 0.8s,
+│   │   │                          pushes {id, status, progress?}, terminates on ready/error
 │   │   ├── conversations.py    ← conversation routes; messages endpoint returns token fields
 │   │   │                          (prompt_tokens, completion_tokens, total_tokens, cost_usd)
 │   │   ├── memory.py           ← memory routes
@@ -177,8 +200,10 @@ ai-api/
 │   │   │                            overlap tail sentence-aligned via regex lookbehind
 │   │   │                          _extract_docx(): paragraphs + tables (merged-cell dedup via id(cell._tc))
 │   │   │                          _extract_excel(): openpyxl, per-sheet markdown tables, empty rows skipped
+│   │   │                          Chunk embedding: asyncio.gather(*[embed(c) for c in chunks]) — all
+│   │   │                            chunks embedded concurrently (bounded by MAX_CONCURRENT_REQUESTS)
 │   │   │                          Processing progress: sets Redis proc_progress:{file_id} (0.0→1.0)
-│   │   │                            after each chunk embedded; key deleted on completion, TTL=300s
+│   │   │                            after each chunk; key deleted on completion, TTL=300s
 │   │   └── file_service.py     ← save_version(db, file_id) — snapshot before any mutation
 │   │                              write_content(db, user_id, file_id, content) → str
 │   │                              append_content(db, user_id, file_id, content) → str
@@ -187,7 +212,9 @@ ai-api/
 │   │                              patch_content(db, user_id, file_id, old, new) → str
 │   │                              restore_version(db, user_id, file_id, version_id) → str|None
 │   ├── storage/
-│   │   └── storage_manager.py  ← save_file() reads in 1MB chunks (not file.read() all-at-once)
+│   │   └── storage_manager.py  ← save_file() reads in 1MB chunks, computes SHA256 while streaming
+│   │                              returns (path, filename, size_bytes, sha256_hex) — 4-tuple
+│   │                              save_text() returns (path, size_bytes, sha256_hex) — 3-tuple
 │   │                              peak memory for 50MB upload: 1MB not 50MB
 │   └── tests/
 │       ├── test.py             ← 21 pytest unit tests
@@ -426,11 +453,19 @@ NOTE: FILE CONTEXT is placed last (right before user message) intentionally — 
 ## Files & Knowledge
 
 ### Upload Pipeline
-1. POST /files/upload → `storage/files/` (1MB chunked read) → `process_file_async` background task
-2. `extract_text()` → `chunk_text()` → embed each → save FileChunk rows
-3. Status: `uploaded` → `processing` → `ready` (or `error`)
-4. `record_chunks(saved)` called after embedding
-5. Supported: PDF (pypdf), DOCX (python-docx + tables), Excel XLSX/XLS (openpyxl), plain text/code/markdown
+1. POST /files/upload → compute SHA256 while streaming to disk
+2. Check `files` table for existing `(user_id, sha256_hash)` — if found, delete temp file, return existing record with `"duplicate": true`
+3. Otherwise: save to `storage/files/` → create DB record → `process_file_async` background task
+4. `extract_text()` → `chunk_text()` → `asyncio.gather` all chunk embeddings concurrently → save FileChunk rows
+5. Status: `uploaded` → `processing` → `ready` (or `error`)
+6. `record_chunks(saved)` called after embedding
+7. Supported: PDF (pypdf), DOCX (python-docx + tables), Excel XLSX/XLS (openpyxl), plain text/code/markdown
+
+### File Deduplication
+- SHA256 hash computed during `save_file()` / `save_text()` streaming — no extra read pass
+- Dedup scope: per-user (different users can have same file independently)
+- Duplicate response includes `"duplicate": true` + existing file record
+- Applies to both `/files/upload` and `/files/ingest-url`
 
 ### Chunking (`services/processor.py`)
 - CHUNK_SIZE=1600 chars, CHUNK_OVERLAP=200
@@ -451,7 +486,7 @@ NOTE: FILE CONTEXT is placed last (right before user message) intentionally — 
 - Frontend: Versions tab in file viewer modal, Restore button per version
 
 ### File Service (`services/file_service.py`)
-- Central logic for all file mutations — tools.py and api/files.py both call this
+- Central logic for all file mutations — tools.py and api/files/router.py both call this
 - `write_content`: save_version → write → delete chunks → commit → re-embed
 - `append_content`: save_version → open "a" → `\n\n` separator → delete chunks → commit → re-embed
 - `patch_content`: read → fuzzy_replace → if not found: error → save_version → write → re-embed
@@ -470,7 +505,8 @@ NOTE: FILE CONTEXT is placed last (right before user message) intentionally — 
 - `content_tsv` generated column on `file_chunks` — GIN index, zero maintenance
 - BM25 uses `websearch_to_tsquery('english', query)` — safe with natural language input
 - Falls back to pure vector if BM25 returns nothing (stop words, empty query terms)
-- `query_text=req.message` passed from `api/chat.py` into all retriever calls
+- `query_text=req.message` passed from `api/chat/helpers.py` into all retriever calls
+- `get_relevance_scores()` accepts optional `message_ids` list — filters to candidate set only (avoids full conv scan)
 
 ### Observability (`observability/file_metrics.py`)
 - `file_uploads_total` Counter — incremented in POST /files/upload
@@ -589,7 +625,9 @@ Covers: `p`, `h1-h4`, `code` (inline + block `pre`), `ul/ol/li`, `blockquote`, `
 | Circuit breaker cooldown | 30s | `llm/circuit_breaker.py` |
 | Request timeout | 30s | `REQUEST_TIMEOUT` env |
 | Max concurrent requests | 10 (cap 50) | `MAX_CONCURRENT_REQUESTS` env |
-| Rate limit (chat) | 15 req / 60s per user | `api/chat.py` |
+| Rate limit (chat) | 15 req / 60s per user | `api/chat/router.py` |
+| Rate limit (upload) | 20 req / 60s per user | `api/files/router.py` |
+| Rate limit (ingest-url) | 10 req / 60s per user | `api/files/ingest.py` |
 | Cache bypass | history / model_override / model_params / system_prompt / file_chunks | `service.py` |
 | Embedding timeout | 15s | `llm/embeddings.py` |
 | Memory write lock | pg_advisory_xact_lock(user_id) | `summarizer.py` |
@@ -604,7 +642,7 @@ Covers: `p`, `h1-h4`, `code` (inline + block `pre`), `ul/ol/li`, `blockquote`, `
 
 ### Token Tracking
 - Stored on every assistant `Message`: `prompt_tokens`, `completion_tokens`, `total_tokens`, `cost_usd`
-- Calculated in `api/chat.py` on "done" event (streaming path):
+- Calculated in `api/chat/router.py` on "done" event (streaming path):
   - **Real counts**: NIM returns `usage` field via `stream_options:{include_usage:true}`; propagated as
     `{"__usage__": {...}}` chunk through `nim.py` → `service.py` → "done" event
   - **Fallback**: if NIM returns no usage, falls back to chars÷4 estimate
@@ -637,19 +675,19 @@ Rates in $/1M tokens — verify at build.nvidia.com/explore/llm:
 ## Prometheus Metrics
 | Metric | Type | Labels | Recorded in |
 |--------|------|--------|-------------|
-| `api_requests_total` | Counter | `status` | `api/chat.py` |
-| `api_errors_total` | Counter | `type` | `api/chat.py` |
+| `api_requests_total` | Counter | `status` | `api/chat/router.py` |
+| `api_errors_total` | Counter | `type` | `api/chat/router.py` |
 | `cache_hits_total` | Counter | — | `cache.py` |
 | `cache_misses_total` | Counter | — | `cache.py` |
 | `cache_writes_total` | Counter | — | `cache.py` |
-| `model_usage_total` | Counter | `model` | `api/chat.py` |
-| `model_latency_seconds` | Histogram | `model` | `api/chat.py` |
-| `request_latency_seconds` | Histogram | — | `api/chat.py` |
-| `ai_request_latency_seconds` | Histogram | — | `api/chat.py` |
+| `model_usage_total` | Counter | `model` | `api/chat/router.py` |
+| `model_latency_seconds` | Histogram | `model` | `api/chat/router.py` |
+| `request_latency_seconds` | Histogram | — | `api/chat/router.py` |
+| `ai_request_latency_seconds` | Histogram | — | `api/chat/router.py` |
 | `fallback_total` | Counter | — | `service.py` |
 | `circuit_breaker_trips_total` | Counter | — | `metrics.py` |
-| `file_uploads_total` | Counter | — | `api/files.py` |
-| `file_deletes_total` | Counter | — | `api/files.py` |
+| `file_uploads_total` | Counter | — | `api/files/router.py` |
+| `file_deletes_total` | Counter | — | `api/files/router.py` |
 | `file_chunks_total` | Counter | — | `services/processor.py` |
 | `file_tool_calls_total` | Counter | `tool` | `services/file_service.py` |
 | `tokens_prompt_total` | Counter | `model` | `observability/token_metrics.py` |
@@ -664,11 +702,18 @@ Rates in $/1M tokens — verify at build.nvidia.com/explore/llm:
 |---------|------|-------|
 | api | 8000 | FastAPI, uvicorn |
 | frontend | 3000 | nginx serving React build |
-| postgres | 5432 | `pgvector/pgvector:pg16` |
-| redis | 6379 | internal only |
+| pgbouncer | — | `edoburu/pgbouncer`; transaction mode; 200 max clients, 20 server conns; AUTH_TYPE=plain |
+| postgres | — | `pgvector/pgvector:pg16`; internal only (api/scheduler connect via pgbouncer) |
+| redis | — | internal only |
 | prometheus | 9090 | scrapes api:8000/metrics every 5s |
 | grafana | 3001 | admin/admin, auto-provisioned 24-panel dashboard |
 | metrics-worker | — | `python -m observability.metrics_worker` |
+| scheduler | — | `python -m services.scheduler_worker`; APScheduler cron runner |
+
+**pgBouncer notes:**
+- `AUTH_TYPE=plain` required — pg16 uses scram-sha-256; pgBouncer needs plaintext password to compute SCRAM for backend auth. `md5` or `trust` do not work.
+- api and scheduler DATABASE_URL point to `pgbouncer:5432`, not `postgres:5432`
+- SQLAlchemy `prepared_statement_cache_size=0` required for transaction mode
 
 ---
 
@@ -707,7 +752,6 @@ Suggestions only — not committed. Ask for specs before implementing any.
 - **Admin frontend panel** — table of users + usage + enable/disable toggle; currently API-only
 
 ### RAG / Memory
-- **File deduplication** — SHA256 before storage; skip re-embed if hash exists
 - **Re-embed on model change** — if `MODEL_EMBEDDING` changes, old chunks are stale; migration tool needed
 - **Per-conversation memory** — separate memory sheet per conversation, not just per user
 - **Graph memory** — entities + relationships extracted from conversations; richer than flat key-value
@@ -724,12 +768,10 @@ Suggestions only — not committed. Ask for specs before implementing any.
 - **Usage CSV export** — `GET /admin/export/usage.csv`; admin-only
 
 ### Infrastructure / Reliability
-- **pgBouncer** — connection pooling for high-concurrency deployments
 - **Prometheus remote write** — persist metrics across restarts; heavy but fixes rate panel reset issue
 - **Automated backup verification** — weekly restore test to temp DB; alert on failure
 
 ### Security (lowest priority — system is home/LAN-deployed)
-- **Per-endpoint rate limits** — currently only `/chat` is limited; `/files/upload` and `/files/ingest-url` unprotected
 - **Prompt injection detection** — heuristic or classifier before passing user input to model
 - **API key auth** — alternative to JWT for programmatic/script access; `User.api_key` column
 - **CORS lockdown** — currently open; restrict to known frontend origin in production

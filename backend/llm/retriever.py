@@ -163,18 +163,22 @@ async def retrieve_global(
 
 
 async def get_relevance_scores(
-    db: AsyncSession,
+    db:              AsyncSession,
     conversation_id: uuid.UUID,
     query_embedding: list[float],
+    message_ids:     list | None = None,
 ) -> dict[uuid.UUID, float]:
     try:
-        result = await db.execute(
+        q = (
             select(
                 MessageEmbedding.message_id,
                 (1.0 - MessageEmbedding.embedding.cosine_distance(query_embedding)).label("sim"),
             )
             .where(MessageEmbedding.conversation_id == conversation_id)
         )
+        if message_ids:
+            q = q.where(MessageEmbedding.message_id.in_(message_ids))
+        result = await db.execute(q)
         return {row.message_id: float(row.sim) for row in result}
     except Exception as e:
         logger.warning("[retriever] get_relevance_scores failed conv=%s err=%s", conversation_id, e)

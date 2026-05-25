@@ -107,6 +107,12 @@ class File(Base):
         index=True
     )
 
+    sha256_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
