@@ -19,7 +19,11 @@ class Base(DeclarativeBase):
 async_engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_pre_ping=True,
+    pool_pre_ping=False,
+    pool_size=5,
+    max_overflow=10,
+    # pgBouncer transaction mode does not support prepared statements
+    connect_args={"prepared_statement_cache_size": 0},
 )
 
 AsyncSessionLocal = async_sessionmaker(

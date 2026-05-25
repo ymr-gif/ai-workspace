@@ -8,14 +8,14 @@ services:
     restart: unless-stopped
     init: true
     depends_on:
-      postgres:
-        condition: service_healthy
+      pgbouncer:
+        condition: service_started
       redis:
         condition: service_healthy
     env_file:
       - ../.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-scylla}:${POSTGRES_PASSWORD:-scylla}@postgres:5432/${POSTGRES_DB:-nimrouter}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-scylla}:${POSTGRES_PASSWORD:-scylla}@pgbouncer:5432/${POSTGRES_DB:-nimrouter}
       REDIS_URL: redis://redis:6379
     ports:
       - "8000:8000"
@@ -33,6 +33,24 @@ services:
       - "3000:80"
     depends_on:
       - api
+    networks:
+      - backend
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_USER: ${POSTGRES_USER:-scylla}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-scylla}
+      DB_HOST: postgres
+      DB_NAME: ${POSTGRES_DB:-nimrouter}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 20
+      AUTH_TYPE: plain
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
       - backend
 
@@ -89,11 +107,11 @@ services:
     env_file:
       - ../.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-scylla}:${POSTGRES_PASSWORD:-scylla}@postgres:5432/${POSTGRES_DB:-nimrouter}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-scylla}:${POSTGRES_PASSWORD:-scylla}@pgbouncer:5432/${POSTGRES_DB:-nimrouter}
       REDIS_URL: redis://redis:6379
     depends_on:
-      postgres:
-        condition: service_healthy
+      pgbouncer:
+        condition: service_started
     volumes:
       - ../backend/storage:/app/backend/storage
     networks:

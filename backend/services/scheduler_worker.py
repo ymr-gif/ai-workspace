@@ -51,7 +51,7 @@ async def execute_scheduled_prompt(
             ts       = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             filename = f"{s.name}_{ts}.txt".replace(" ", "_")
 
-            storage_path, size_bytes = await _storage.save_text(content, filename)
+            storage_path, size_bytes, sha256 = await _storage.save_text(content, filename)
 
             file_record = FileModel(
                 user_id      = s.user_id,
@@ -60,6 +60,7 @@ async def execute_scheduled_prompt(
                 size_bytes   = size_bytes,
                 storage_path = storage_path,
                 upload_status= "uploaded",
+                sha256_hash  = sha256,
             )
             db.add(file_record)
             await db.flush()

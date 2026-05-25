@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import uuid
@@ -246,8 +247,10 @@ async def _process(db, file_id: uuid.UUID, storage_path: str, mime_type: str) ->
     except Exception:
         pass
 
-    for i, chunk in enumerate(chunks):
-        emb = await embed(chunk, input_type="passage")
+    # Embed all chunks concurrently (bounded by MAX_CONCURRENT_REQUESTS semaphore in llm/client.py)
+    embeddings = await asyncio.gather(*[embed(c, input_type="passage") for c in chunks])
+
+    for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
         if emb:
             db.add(FileChunk(
                 file_id     = file_id,
