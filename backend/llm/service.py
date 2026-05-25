@@ -37,10 +37,11 @@ def build_context_messages(
             file_notice = (
                 f"The user has attached these files:\n{files_list}\n"
                 "Rules for file tools:\n"
-                "- To READ a file: call read_file(file_id=<id>)\n"
-                "- To ADD, EDIT, or MODIFY file content: call read_file first, then call write_file with the COMPLETE updated content (not just the new part)\n"
-                "- To CREATE a new file: call create_file(name=..., content=...)\n"
-                "- After write_file or create_file succeeds, respond to the user immediately — do NOT call read_file again to verify"
+                "- To ADD content (new paragraph, section, notes): use append_to_file — safest, never loses existing content\n"
+                "- To EDIT a specific passage: use read_file first, then patch_file(old_text=<exact passage>, new_text=<replacement>)\n"
+                "- To REWRITE the whole file: use write_file with the COMPLETE new content\n"
+                "- To CREATE a new file: use create_file\n"
+                "- After any write/append/patch/create succeeds, respond to the user immediately — do NOT read the file back to verify"
             )
         else:
             file_notice = f"The user has attached these files: {', '.join(file_names)}. Use file tools to read or edit them."

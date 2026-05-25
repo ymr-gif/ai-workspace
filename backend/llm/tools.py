@@ -71,6 +71,37 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "append_to_file",
+            "description": "Append text to the end of a file without touching existing content. Use this instead of write_file when adding new content (paragraphs, sections, notes).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_id": {"type": "string", "description": "UUID of the file to append to."},
+                    "content": {"type": "string", "description": "Text to append at the end of the file."},
+                },
+                "required": ["file_id", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "patch_file",
+            "description": "Replace a specific passage in a file with new text. Safer than write_file — only changes the matched section, preserves everything else. Use when editing or rewriting a specific part.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_id":  {"type": "string", "description": "UUID of the file to patch."},
+                    "old_text": {"type": "string", "description": "Exact text to find and replace (must match the file exactly)."},
+                    "new_text": {"type": "string", "description": "Replacement text."},
+                },
+                "required": ["file_id", "old_text", "new_text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_in_file",
             "description": "Semantic search within a specific file. Returns top matching passages.",
             "parameters": {
@@ -102,6 +133,10 @@ async def execute_tool(
             return await _write_file(db, user_id, uuid.UUID(args["file_id"]), args["content"])
         if name == "create_file":
             return await _create_file(db, user_id, conv_id, args["name"], args["content"])
+        if name == "append_to_file":
+            return await _append_to_file(db, user_id, uuid.UUID(args["file_id"]), args["content"])
+        if name == "patch_file":
+            return await _patch_file(db, user_id, uuid.UUID(args["file_id"]), args["old_text"], args["new_text"])
         if name == "search_in_file":
             return await _search_in_file(db, user_id, uuid.UUID(args["file_id"]), args["query"])
         return f"Unknown tool: {name}"
@@ -190,6 +225,53 @@ async def _create_file(
     except Exception as e:
         logger.warning("[tools] create_file failed name=%s err=%s", name, e)
         return f"Error creating file: {e}"
+
+
+async def _append_to_file(db: AsyncSession, user_id: int, file_id: uuid.UUID, content: str) -> str:
+    f = await db.get(FileModel, file_id)
+    if not f or f.user_id != user_id:
+        return "Error: file not found or access denied."
+    try:
+        with open(f.storage_path, "a", encoding="utf-8") as fh:
+            fh.write(("\n\n" if content and not content.startswith("\n") else "") + content)
+        await db.execute(delete(FileChunk).where(FileChunk.file_id == file_id))
+        f.upload_status = "uploaded"
+        await db.commit()
+        asyncio.create_task(process_file_async(file_id, f.storage_path, f.mime_type))
+        logger.info("[tools] append_to_file file_id=%s chars=%d reprocessing", file_id, len(content))
+        return f"Appended {len(content):,} chars to file. Re-embedding in background."
+    except Exception as e:
+        logger.warning("[tools] append_to_file failed file_id=%s err=%s", file_id, e)
+        return f"Error appending to file: {e}"
+
+
+async def _patch_file(
+    db:       AsyncSession,
+    user_id:  int,
+    file_id:  uuid.UUID,
+    old_text: str,
+    new_text: str,
+) -> str:
+    f = await db.get(FileModel, file_id)
+    if not f or f.user_id != user_id:
+        return "Error: file not found or access denied."
+    try:
+        with open(f.storage_path, "r", encoding="utf-8", errors="replace") as fh:
+            current = fh.read()
+        if old_text not in current:
+            return "Error: old_text not found in file. Use read_file to get the exact text, then retry."
+        updated = current.replace(old_text, new_text, 1)
+        with open(f.storage_path, "w", encoding="utf-8") as fh:
+            fh.write(updated)
+        await db.execute(delete(FileChunk).where(FileChunk.file_id == file_id))
+        f.upload_status = "uploaded"
+        await db.commit()
+        asyncio.create_task(process_file_async(file_id, f.storage_path, f.mime_type))
+        logger.info("[tools] patch_file file_id=%s old_len=%d new_len=%d", file_id, len(old_text), len(new_text))
+        return f"Patched: replaced {len(old_text):,} chars with {len(new_text):,} chars. Re-embedding in background."
+    except Exception as e:
+        logger.warning("[tools] patch_file failed file_id=%s err=%s", file_id, e)
+        return f"Error patching file: {e}"
 
 
 async def _search_in_file(
