@@ -1,0 +1,171 @@
+"""Standalone scheduler worker — runs APScheduler jobs for ScheduledPrompt rows."""
+import asyncio
+import logging
+import uuid
+from datetime import datetime, timezone
+
+import httpx
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from croniter import croniter
+from sqlalchemy import select
+
+import llm.client as llm_client
+from config import MODELS, REQUEST_TIMEOUT
+from core.db import AsyncSessionLocal, init_db
+from core.logger import setup_logging
+from llm.nim import call as nim_call
+from models import File as FileModel, ScheduledPrompt, ScheduledPromptRun
+from services.processor import process_file_async
+from storage.storage_manager import StorageManager
+
+setup_logging()
+logger = logging.getLogger("scheduler")
+
+_storage = StorageManager()
+
+
+async def execute_scheduled_prompt(
+    schedule_id: uuid.UUID,
+    run_id:      uuid.UUID,
+) -> None:
+    """Run a single scheduled prompt and persist the result as a File."""
+    async with AsyncSessionLocal() as db:
+        s   = await db.get(ScheduledPrompt, schedule_id)
+        run = await db.get(ScheduledPromptRun, run_id)
+        if not s or not run:
+            return
+
+        try:
+            model = s.model_override or MODELS["llama"]
+            result = await nim_call(
+                model    = model,
+                messages = [{"role": "user", "content": s.prompt}],
+                request_id = str(run_id),
+            )
+
+            if not result.get("ok"):
+                raise RuntimeError(result.get("error", "NIM call failed"))
+
+            content  = result["content"]
+            ts       = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            filename = f"{s.name}_{ts}.txt".replace(" ", "_")
+
+            storage_path, size_bytes = await _storage.save_text(content, filename)
+
+            file_record = FileModel(
+                user_id      = s.user_id,
+                filename     = filename,
+                mime_type    = "text/plain",
+                size_bytes   = size_bytes,
+                storage_path = storage_path,
+                upload_status= "uploaded",
+            )
+            db.add(file_record)
+            await db.flush()
+
+            asyncio.create_task(process_file_async(file_record.id, storage_path, "text/plain"))
+
+            run.status         = "success"
+            run.completed_at   = datetime.now(timezone.utc)
+            run.output_file_id = file_record.id
+            s.last_run_at      = run.completed_at
+            s.next_run_at      = croniter(s.cron_expr, run.completed_at).get_next(datetime)
+            await db.commit()
+            logger.info("[scheduler] run=%s schedule=%s status=success file=%s", run_id, schedule_id, file_record.id)
+
+        except Exception as e:
+            logger.exception("[scheduler] run=%s schedule=%s failed", run_id, schedule_id)
+            run.status       = "error"
+            run.error        = str(e)[:2000]
+            run.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+
+
+async def _fire(schedule_id: uuid.UUID) -> None:
+    """APScheduler callback — creates a run record then delegates to execute_."""
+    async with AsyncSessionLocal() as db:
+        s = await db.get(ScheduledPrompt, schedule_id)
+        if not s or not s.is_active:
+            return
+        run = ScheduledPromptRun(
+            scheduled_prompt_id = schedule_id,
+            started_at          = datetime.now(timezone.utc),
+            status              = "running",
+        )
+        db.add(run)
+        await db.commit()
+        run_id = run.id
+
+    asyncio.create_task(execute_scheduled_prompt(schedule_id, run_id))
+
+
+async def sync_schedules(scheduler: AsyncIOScheduler) -> None:
+    """Load all active schedules from DB, add/remove APScheduler jobs to match."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ScheduledPrompt).where(ScheduledPrompt.is_active == True)
+        )
+        schedules = result.scalars().all()
+
+    active_ids = {str(s.id) for s in schedules}
+    existing   = {job.id for job in scheduler.get_jobs()}
+
+    # Remove stale jobs
+    for job_id in existing - active_ids:
+        scheduler.remove_job(job_id)
+        logger.info("[scheduler] removed job %s", job_id)
+
+    # Add new jobs
+    for s in schedules:
+        sid = str(s.id)
+        if sid not in existing:
+            try:
+                trigger = CronTrigger.from_crontab(s.cron_expr, timezone="UTC")
+                scheduler.add_job(
+                    _fire,
+                    trigger = trigger,
+                    id      = sid,
+                    args    = [s.id],
+                    replace_existing = True,
+                )
+                logger.info("[scheduler] scheduled job %s cron=%s", sid, s.cron_expr)
+            except Exception as e:
+                logger.warning("[scheduler] invalid cron for %s: %s", sid, e)
+
+    logger.info("[scheduler] synced — active=%d scheduled=%d", len(schedules), len(scheduler.get_jobs()))
+
+
+async def main() -> None:
+    logger.info("[scheduler] starting up")
+    await init_db()
+
+    llm_client.client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
+    logger.info("[scheduler] http client ready")
+
+    scheduler = AsyncIOScheduler(timezone="UTC")
+    await sync_schedules(scheduler)
+
+    # Re-sync every 5 minutes to pick up new/modified/deleted schedules
+    scheduler.add_job(
+        lambda: asyncio.create_task(sync_schedules(scheduler)),
+        "interval",
+        minutes = 5,
+        id      = "__sync__",
+    )
+
+    scheduler.start()
+    logger.info("[scheduler] running")
+
+    try:
+        while True:
+            await asyncio.sleep(60)
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("[scheduler] shutting down")
+        scheduler.shutdown(wait=False)
+        if llm_client.client:
+            await llm_client.client.aclose()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

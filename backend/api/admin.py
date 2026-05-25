@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,7 @@ def _user_row(u, stats: dict) -> dict:
         "username":          u.username,
         "role":              u.role,
         "is_active":         u.is_active,
+        "cost_limit_usd":    u.cost_limit_usd,
         "created_at":        u.created_at.isoformat(),
         "message_count":     stats.get("message_count", 0),
         "prompt_tokens":     stats.get("prompt_tokens",     0),
@@ -121,3 +123,24 @@ async def toggle_user_active(
     user.is_active = not user.is_active
     await db.commit()
     return {"id": user.id, "username": user.username, "is_active": user.is_active}
+
+
+class CostLimitRequest(BaseModel):
+    cost_limit_usd: float | None  # None removes the cap
+
+
+@router.patch("/users/{user_id}/cost-limit")
+async def set_cost_limit(
+    user_id: int,
+    body:    CostLimitRequest,
+    db:      AsyncSession = Depends(get_db),
+    _:       User         = Depends(require_role("admin")),
+):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if body.cost_limit_usd is not None and body.cost_limit_usd < 0:
+        raise HTTPException(status_code=400, detail="cost_limit_usd must be >= 0")
+    user.cost_limit_usd = body.cost_limit_usd
+    await db.commit()
+    return {"id": user.id, "username": user.username, "cost_limit_usd": user.cost_limit_usd}

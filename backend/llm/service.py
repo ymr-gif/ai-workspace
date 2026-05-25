@@ -4,7 +4,7 @@ import logging
 import time
 import uuid
 
-from config import FALLBACK_ORDER, MODELS
+from config import FALLBACK_ORDER, MODEL_VISION, MODELS
 from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route
@@ -169,8 +169,13 @@ async def generate_stream(
     conv_id:          uuid.UUID | None  = None,
     user_id:          int | None        = None,
     db                                  = None,
+    image_b64:        str | None        = None,
+    image_mime_type:  str | None        = None,
 ):
-    use_cache = not history and not model_override and not model_params and not system_prompt and not file_chunks
+    use_cache = (
+        not history and not model_override and not model_params
+        and not system_prompt and not file_chunks and not image_b64
+    )
 
     if use_cache:
         cached = await get_cached_response(message)
@@ -179,8 +184,10 @@ async def generate_stream(
             yield {"type": "done",  "model": cached.get("model", "cache"), "cache_hit": True, "fallback_used": False}
             return
 
-    # Force 70B when files attached — only 70B reliably supports tool calling
-    if file_ids and not model_override:
+    # Model selection priority: image → file tools → explicit override → router
+    if image_b64:
+        fallback_chain = [MODEL_VISION]
+    elif file_ids and not model_override:
         fallback_chain = [MODELS["reasoning"]]
     elif model_override:
         fallback_chain = [model_override]
@@ -190,10 +197,20 @@ async def generate_stream(
 
     tools = TOOL_SCHEMAS if (file_ids and db is not None and _needs_file_tools(message)) else None
 
+    # Build multimodal user message when image present
+    if image_b64 and image_mime_type:
+        user_content = [
+            {"type": "text", "text": message},
+            {"type": "image_url", "image_url": {"url": f"data:{image_mime_type};base64,{image_b64}"}},
+        ]
+        user_msg = {"role": "user", "content": user_content}
+    else:
+        user_msg = {"role": "user", "content": message}
+
     base_messages = build_context_messages(
         memory_sheet, project_summary, retrieved_chunks, history_summary,
         history, memory_enabled, system_prompt, file_chunks, file_names, file_ids,
-    ) + [{"role": "user", "content": message}]
+    ) + [user_msg]
 
     for idx, current_model in enumerate(fallback_chain):
         fallback_used  = idx > 0
@@ -206,11 +223,14 @@ async def generate_stream(
             started          = False
             tool_calls_done  = None
             stream_broke     = False
+            nim_usage        = None
 
             try:
                 async for chunk in call_stream(current_model, tool_messages, request_id, model_params, tools):
                     if isinstance(chunk, dict) and "__tool_calls__" in chunk:
                         tool_calls_done = chunk["__tool_calls__"]
+                    elif isinstance(chunk, dict) and "__usage__" in chunk:
+                        nim_usage = chunk["__usage__"]
                     elif isinstance(chunk, str):
                         started = True
                         accumulated.append(chunk)
@@ -247,7 +267,10 @@ async def generate_stream(
                     if result.startswith(ASK_USER_PREFIX):
                         question = result[len(ASK_USER_PREFIX):]
                         yield {"type": "ask_user", "question": question}
-                        yield {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used}
+                        done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used}
+                        if nim_usage:
+                            done_ev["usage"] = nim_usage
+                        yield done_ev
                         ask_user_triggered = True
                         break
 
@@ -279,7 +302,10 @@ async def generate_stream(
             if fallback_used:
                 metrics.record_fallback()
 
-            yield {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used}
+            done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used}
+            if nim_usage:
+                done_ev["usage"] = nim_usage
+            yield done_ev
             model_done = True
             break
 
