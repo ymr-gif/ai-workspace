@@ -365,8 +365,9 @@ async def chat_stream(
             )
 
     # ── file-grounded context ─────────────────────────────────────────────────
-    file_chunks: list[str] = []
-    file_names:  list[str] = []
+    file_chunks: list[str]  = []
+    file_names:  list[str]  = []
+    file_ids:    list       = []
     if req.conversation_id:
         file_ids, file_names = await retriever.get_conversation_files(db, conv.id)
         if file_ids:
@@ -433,9 +434,14 @@ async def chat_stream(
                 memory_enabled=memory_enabled, model_override=effective_model,
                 model_params=model_params, system_prompt=system_prompt,
                 file_chunks=file_chunks, file_names=file_names,
+                file_ids=file_ids, conv_id=conv.id,
+                user_id=current_user.id, db=db,
             ):
                 if event["type"] == "token":
                     accumulated.append(event["content"])
+                    yield f"data: {_json.dumps(event)}\n\n"
+
+                elif event["type"] in ("tool_call", "tool_result"):
                     yield f"data: {_json.dumps(event)}\n\n"
 
                 elif event["type"] == "done":

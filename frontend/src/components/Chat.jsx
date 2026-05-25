@@ -48,6 +48,8 @@ const s = {
   userBubble:  { alignSelf:'flex-end', background:'#6366f1' },
   aiBubble:    { alignSelf:'flex-start', background:'#1e293b', border:'1px solid #334155' },
   errBubble:   { alignSelf:'flex-start', background:'#450a0a', border:'1px solid #991b1b', color:'#fca5a5' },
+  toolPill:    { display:'inline-flex', alignItems:'center', gap:'4px', fontSize:'0.72rem', color:'#94a3b8', background:'#0f172a', border:'1px solid #1e293b', borderRadius:'6px', padding:'2px 8px', marginBottom:'4px', cursor:'pointer' },
+  toolResult:  { fontSize:'0.72rem', color:'#64748b', background:'#0f172a', borderRadius:'4px', padding:'6px 8px', marginBottom:'6px', whiteSpace:'pre-wrap', wordBreak:'break-word', maxHeight:'120px', overflowY:'auto' },
   text:        { margin:0, whiteSpace:'pre-wrap', wordBreak:'break-word' },
   cursor:      { display:'inline-block', width:'2px', height:'1em', background:'#94a3b8', marginLeft:'2px', verticalAlign:'text-bottom', animation:'blink 1s step-end infinite' },
   tag:         { display:'block', marginTop:'0.35rem', fontSize:'0.7rem', color:'#64748b' },
@@ -546,6 +548,16 @@ export default function Chat({ token, onLogout }) {
                   return [{ id: cid, title: text.slice(0, 60), updated_at: new Date().toISOString(), memory_enabled: true, system_prompt: '', locked_model: '' }, ...prev]
                 })
               }
+            } else if (event.type === 'tool_call') {
+              setMessages(prev => prev.map(m => m.id === aiId
+                ? { ...m, toolCalls: [...(m.toolCalls || []), { name: event.name, args: event.args, result: null }] }
+                : m))
+            } else if (event.type === 'tool_result') {
+              setMessages(prev => prev.map(m => m.id === aiId
+                ? { ...m, toolCalls: (m.toolCalls || []).map((tc, i) =>
+                    i === (m.toolCalls.length - 1) ? { ...tc, result: event.content } : tc
+                  )}
+                : m))
             } else if (event.type === 'error') {
               setMessages(prev => prev.map(m => m.id === aiId ? { ...m, role: 'err', text: event.message || 'Error', streaming: false } : m))
             }
@@ -656,6 +668,16 @@ export default function Chat({ token, onLogout }) {
             }
             return (
               <div key={m.id} style={{ ...s.bubble, ...(m.role === 'user' ? s.userBubble : m.role === 'err' ? s.errBubble : s.aiBubble) }}>
+                {m.toolCalls && m.toolCalls.map((tc, i) => (
+                  <div key={i}>
+                    <div style={s.toolPill} onClick={() => setMessages(prev => prev.map(msg => msg.id === m.id
+                      ? { ...msg, toolCalls: msg.toolCalls.map((t, j) => j === i ? { ...t, expanded: !t.expanded } : t) }
+                      : msg))}>
+                      ⚙ {tc.name}{tc.result == null ? '…' : (tc.expanded ? ' ▲' : ' ▼')}
+                    </div>
+                    {tc.expanded && tc.result != null && <div style={s.toolResult}>{tc.result}</div>}
+                  </div>
+                ))}
                 <p style={s.text}>{m.text}{m.streaming && <span style={s.cursor} />}</p>
                 {m.model && !m.streaming && <span style={s.tag}>{MODEL_LABELS[m.model] || m.model} · {MODEL_SUBLABELS[m.model] || ''}</span>}
               </div>
