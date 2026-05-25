@@ -9,11 +9,24 @@ from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route
 from llm.nim import call, call_stream
-from llm.tools import TOOL_SCHEMAS, execute_tool
+from llm.tools import TOOL_SCHEMAS, execute_tool, ASK_USER_PREFIX
 
 MAX_TOOL_ITERATIONS = 10
 
 logger = logging.getLogger("service")
+
+_FILE_OP_KEYWORDS = frozenset({
+    "read", "write", "edit", "update", "create", "append", "patch",
+    "search", "find", "fix", "change", "modify", "file", "document",
+    "documents", "content", "add", "remove", "delete", "replace",
+    "rewrite", "summarize", "analyse", "analyze", "open", "insert",
+    "correct", "improve", "refactor", "rename", "review", "check",
+})
+
+
+def _needs_file_tools(message: str) -> bool:
+    tokens = set(message.lower().split())
+    return bool(tokens & _FILE_OP_KEYWORDS)
 
 
 def build_context_messages(
@@ -37,11 +50,14 @@ def build_context_messages(
             file_notice = (
                 f"The user has attached these files:\n{files_list}\n"
                 "Rules for file tools:\n"
+                "- ONLY use tools when the user explicitly asks to read, edit, write, search, or create files.\n"
+                "- For conversational messages, acknowledgments, or questions not about file content: respond normally with NO tool calls.\n"
                 "- To ADD content (new paragraph, section, notes): use append_to_file — safest, never loses existing content\n"
                 "- To EDIT a specific passage: use read_file first, then patch_file(old_text=<exact passage>, new_text=<replacement>)\n"
                 "- To REWRITE the whole file: use write_file with the COMPLETE new content\n"
                 "- To CREATE a new file: use create_file\n"
-                "- After any write/append/patch/create succeeds, respond to the user immediately — do NOT read the file back to verify"
+                "- After any write/append/patch/create succeeds, respond to the user immediately — do NOT read the file back to verify\n"
+                "- Never call the same tool more than twice in a single turn"
             )
         else:
             file_notice = f"The user has attached these files: {', '.join(file_names)}. Use file tools to read or edit them."
@@ -172,7 +188,7 @@ async def generate_stream(
         model, _ = await route(message, request_id)
         fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
 
-    tools = TOOL_SCHEMAS if (file_ids and db is not None) else None
+    tools = TOOL_SCHEMAS if (file_ids and db is not None and _needs_file_tools(message)) else None
 
     base_messages = build_context_messages(
         memory_sheet, project_summary, retrieved_chunks, history_summary,
@@ -183,6 +199,7 @@ async def generate_stream(
         fallback_used  = idx > 0
         tool_messages  = list(base_messages)  # per-model copy, extended by tool results
         model_done     = False
+        tool_call_counts: dict[str, int] = {}  # guard against same-tool repetition
 
         for _tool_iter in range(MAX_TOOL_ITERATIONS):
             accumulated      = []
@@ -210,17 +227,36 @@ async def generate_stream(
                 break
 
             if tool_calls_done:
+                ask_user_triggered = False
                 for tc in tool_calls_done:
                     fn_name = tc["function"]["name"]
                     try:
                         args = json.loads(tc["function"]["arguments"])
                     except Exception:
                         args = {}
+
+                    tool_call_counts[fn_name] = tool_call_counts.get(fn_name, 0) + 1
+                    if tool_call_counts[fn_name] > 3:
+                        logger.warning("[service] tool_loop_guard: %s called %d times, aborting", fn_name, tool_call_counts[fn_name])
+                        yield {"type": "error", "message": f"Tool loop detected: {fn_name} called too many times"}
+                        return
+
                     yield {"type": "tool_call", "name": fn_name, "args": args}
                     result = await execute_tool(fn_name, args, db, user_id, conv_id)
+
+                    if result.startswith(ASK_USER_PREFIX):
+                        question = result[len(ASK_USER_PREFIX):]
+                        yield {"type": "ask_user", "question": question}
+                        yield {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used}
+                        ask_user_triggered = True
+                        break
+
                     yield {"type": "tool_result", "name": fn_name, "content": result[:500]}
                     tool_messages.append({"role": "assistant", "tool_calls": [tc]})
                     tool_messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
+
+                if ask_user_triggered:
+                    return
                 continue  # next tool iteration
 
             if not accumulated:

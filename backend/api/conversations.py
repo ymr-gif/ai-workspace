@@ -62,7 +62,15 @@ async def get_messages(
     )
     msgs = result.scalars().all()
     return [
-        {"role": m.role, "content": m.content, "model": m.model}
+        {
+            "role":              m.role,
+            "content":           m.content,
+            "model":             m.model,
+            "prompt_tokens":     m.prompt_tokens,
+            "completion_tokens": m.completion_tokens,
+            "total_tokens":      m.total_tokens,
+            "cost_usd":          m.cost_usd,
+        }
         for m in msgs
     ]
 

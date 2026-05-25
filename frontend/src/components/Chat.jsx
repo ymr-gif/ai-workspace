@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 const MODEL_KEYS = {
   llama:     'meta/llama-3.1-8b-instruct',
@@ -149,6 +151,24 @@ const s = {
   settingsBody:   { padding:'1.25rem', overflowY:'auto' },
   settingsFooter: { display:'flex', justifyContent:'flex-end', gap:'0.5rem', padding:'0.75rem 1.25rem', borderTop:'1px solid #1e293b' },
 
+  // ask_user card
+  askCard:       { display:'flex', gap:'0.6rem', alignItems:'flex-start', background:'rgba(251,191,36,0.08)', border:'1px solid rgba(251,191,36,0.25)', borderRadius:'8px', padding:'0.65rem 0.85rem', marginTop:'0.5rem' },
+  askIcon:       { fontSize:'1rem', flexShrink:0, marginTop:'1px' },
+  askLabel:      { fontSize:'0.7rem', color:'#fbbf24', fontWeight:600, marginBottom:'0.2rem', letterSpacing:'0.04em' },
+  askQuestion:   { fontSize:'0.85rem', color:'#fde68a', lineHeight:1.5 },
+
+  // tool log panel
+  toolLogPanel:  { position:'absolute', top:0, right:0, bottom:0, width:'480px', maxWidth:'95vw', background:'#0f172a', borderLeft:'1px solid #1e293b', zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.28s cubic-bezier(.4,0,.2,1)' },
+  toolLogHdr:    { padding:'1rem 1.25rem 0.75rem', borderBottom:'1px solid #1e293b', flexShrink:0, display:'flex', justifyContent:'space-between', alignItems:'center' },
+  toolLogTitle:  { fontWeight:700, fontSize:'0.95rem', color:'#e2e8f0' },
+  toolLogBody:   { flex:1, overflowY:'auto', padding:'0.75rem 1.25rem' },
+  toolLogRow:    { display:'flex', flexDirection:'column', gap:'2px', padding:'0.5rem 0.6rem', borderRadius:'6px', marginBottom:'4px', border:'1px solid #1e293b', background:'#0a1220', fontSize:'0.78rem' },
+  toolLogMeta:   { display:'flex', gap:'0.5rem', alignItems:'center' },
+  toolLogName:   { color:'#818cf8', fontWeight:600, fontSize:'0.75rem' },
+  toolLogTime:   { color:'#475569', fontSize:'0.7rem' },
+  toolLogArgs:   { color:'#64748b', fontSize:'0.7rem', fontFamily:'monospace', whiteSpace:'pre-wrap', wordBreak:'break-all', maxHeight:'48px', overflow:'hidden' },
+  toolLogResult: { color:'#94a3b8', fontSize:'0.72rem', whiteSpace:'pre-wrap', wordBreak:'break-word', maxHeight:'60px', overflow:'hidden' },
+
   // files panel
   filePanel:     { position:'absolute', top:0, right:0, bottom:0, width:'400px', maxWidth:'92vw', background:'#0f172a', borderLeft:'1px solid #1e293b', zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.28s cubic-bezier(.4,0,.2,1)' },
   filePanelHdr:  { padding:'1rem 1.25rem 0.75rem', borderBottom:'1px solid #1e293b', flexShrink:0 },
@@ -173,6 +193,16 @@ const s = {
   fileChipsRow:  { display:'flex', gap:'0.35rem', padding:'0 1.5rem 0.35rem', flexWrap:'wrap' },
   fileChip:      { display:'flex', alignItems:'center', gap:'0.3rem', padding:'0.2rem 0.5rem', borderRadius:'12px', background:'#1e293b', border:'1px solid #334155', fontSize:'0.72rem', color:'#818cf8' },
   chipX:         { cursor:'pointer', color:'#475569', fontSize:'0.8rem', lineHeight:1 },
+
+  // token meta + usage panel
+  tokMeta:       { display:'block', marginTop:'0.3rem', fontSize:'0.68rem', color:'#334155', fontFamily:'monospace' },
+  usagePanel:    { position:'absolute', top:0, right:0, bottom:0, width:'340px', maxWidth:'92vw', background:'#0f172a', borderLeft:'1px solid #1e293b', zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.28s cubic-bezier(.4,0,.2,1)' },
+  usageHdr:      { padding:'1rem 1.25rem 0.75rem', borderBottom:'1px solid #1e293b', flexShrink:0, display:'flex', justifyContent:'space-between', alignItems:'center' },
+  usageTitle:    { fontWeight:700, fontSize:'0.95rem', color:'#e2e8f0' },
+  usageBody:     { flex:1, overflowY:'auto', padding:'1rem 1.25rem' },
+  usageStat:     { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.5rem 0', borderBottom:'1px solid #1e293b', fontSize:'0.82rem' },
+  usageKey:      { color:'#64748b' },
+  usageVal:      { color:'#e2e8f0', fontFamily:'monospace', fontWeight:600 },
 }
 
 function fmtDate(iso) {
@@ -265,6 +295,16 @@ export default function Chat({ token, onLogout }) {
   const [topPEnabled,    setTopPEnabled]    = useState(false)
   const [topP,           setTopP]           = useState(0.9)
 
+  // tool log panel
+  const [toolLogOpen,    setToolLogOpen]    = useState(false)
+  const [toolLogs,       setToolLogs]       = useState([])
+  const [toolLogsLoading,setToolLogsLoading]= useState(false)
+
+  // usage panel
+  const [usageOpen,      setUsageOpen]      = useState(false)
+  const [usageData,      setUsageData]      = useState(null)
+  const [usageLoading,   setUsageLoading]   = useState(false)
+
   // files panel
   const [filesOpen,      setFilesOpen]      = useState(false)
   const [filesTab,       setFilesTab]       = useState('library')
@@ -283,8 +323,8 @@ export default function Chat({ token, onLogout }) {
   const [viewerSaving,   setViewerSaving]   = useState(false)
   const [viewerVersions, setViewerVersions] = useState([])
   const [viewerVerLoading, setViewerVerLoading] = useState(false)
-  const fileInputRef = useRef(null)
-  const statusPollRef = useRef(null)
+  const fileInputRef    = useRef(null)
+  const statusStreamsRef = useRef({})
 
   const bottomRef  = useRef(null)
   const nextId     = useRef(0)
@@ -305,7 +345,7 @@ export default function Chat({ token, onLogout }) {
     if (!activeConvId) return
     fetch(`/api/conversations/${activeConvId}/messages`, { headers: authHeaders })
       .then(r => r.ok ? r.json() : [])
-      .then(msgs => setMessages(msgs.map(m => ({ id: nextId.current++, role: m.role === 'assistant' ? 'ai' : 'user', text: m.content, model: m.model, streaming: false }))))
+      .then(msgs => setMessages(msgs.map(m => ({ id: nextId.current++, role: m.role === 'assistant' ? 'ai' : 'user', text: m.content, model: m.model, streaming: false, promptTokens: m.prompt_tokens, completionTokens: m.completion_tokens, totalTokens: m.total_tokens, costUsd: m.cost_usd }))))
       .catch(() => {})
   }, [activeConvId])
 
@@ -549,24 +589,58 @@ export default function Chat({ token, onLogout }) {
     } catch { /* ignore */ } finally { setRenameId(null) }
   }
 
-  // poll status for processing files
+  const loadToolLogs = useCallback(async (convId) => {
+    setToolLogsLoading(true)
+    try {
+      const qs = convId ? `?conversation_id=${convId}&limit=100` : '?limit=100'
+      const r = await fetch(`/api/tool-calls${qs}`, { headers: authHeaders })
+      if (r.ok) setToolLogs(await r.json())
+    } catch { /* ignore */ } finally { setToolLogsLoading(false) }
+  }, [token])
+
   useEffect(() => {
-    if (!filesOpen) { clearInterval(statusPollRef.current); return }
-    const hasProcessing = libFiles.some(f => f.status === 'processing')
-    if (!hasProcessing) { clearInterval(statusPollRef.current); return }
-    clearInterval(statusPollRef.current)
-    statusPollRef.current = setInterval(async () => {
-      const processing = libFiles.filter(f => f.status === 'processing')
-      if (!processing.length) { clearInterval(statusPollRef.current); return }
-      const updates = await Promise.all(processing.map(f =>
-        fetch(`/api/files/${f.id}/status`, { headers: authHeaders }).then(r => r.ok ? r.json() : null).catch(() => null)
-      ))
-      setLibFiles(prev => prev.map(f => {
-        const u = updates.find(u => u?.id === f.id)
-        return u ? { ...f, status: u.status } : f
-      }))
-    }, 2000)
-    return () => clearInterval(statusPollRef.current)
+    if (!toolLogOpen) return
+    loadToolLogs(activeConvId)
+  }, [toolLogOpen, activeConvId])
+
+  function startStatusStream(fileId) {
+    if (statusStreamsRef.current[fileId]) return
+    const ctrl = new AbortController()
+    statusStreamsRef.current[fileId] = ctrl
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/files/${fileId}/status/stream`, { headers: authHeaders, signal: ctrl.signal })
+        if (!res.ok) return
+        const reader = res.body.getReader()
+        const dec = new TextDecoder()
+        let buf = ''
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += dec.decode(value, { stream: true })
+          const lines = buf.split('\n'); buf = lines.pop()
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const { id, status } = JSON.parse(line.slice(6))
+              setLibFiles(prev => prev.map(f => f.id === id ? { ...f, status } : f))
+            } catch { /* ignore malformed */ }
+          }
+        }
+      } catch { /* aborted or network error */ } finally {
+        delete statusStreamsRef.current[fileId]
+      }
+    })()
+  }
+
+  // SSE streams for processing files — replaces polling interval
+  useEffect(() => {
+    if (!filesOpen) {
+      Object.values(statusStreamsRef.current).forEach(ctrl => ctrl.abort())
+      statusStreamsRef.current = {}
+      return
+    }
+    libFiles.filter(f => f.status === 'processing').forEach(f => startStatusStream(f.id))
   }, [filesOpen, libFiles])
 
   const attachedIds = new Set(attachedFiles.map(f => f.id))
@@ -644,7 +718,7 @@ export default function Chat({ token, onLogout }) {
                   ? { ...m, responses: Object.fromEntries(Object.entries(m.responses).map(([k,v]) => [k, { ...v, streaming: false }])) }
                   : m))
               } else {
-                setMessages(prev => prev.map(m => m.id === aiId ? { ...m, model: event.model, streaming: false } : m))
+                setMessages(prev => prev.map(m => m.id === aiId ? { ...m, model: event.model, streaming: false, promptTokens: event.prompt_tokens, completionTokens: event.completion_tokens, totalTokens: event.total_tokens, costUsd: event.cost_usd } : m))
                 setMemTick(t => t + 1)
               }
               const cid = event.conversation_id
@@ -666,6 +740,8 @@ export default function Chat({ token, onLogout }) {
                     i === (m.toolCalls.length - 1) ? { ...tc, result: event.content } : tc
                   )}
                 : m))
+            } else if (event.type === 'ask_user') {
+              setMessages(prev => prev.map(m => m.id === aiId ? { ...m, askUser: event.question } : m))
             } else if (event.type === 'error') {
               setMessages(prev => prev.map(m => m.id === aiId ? { ...m, role: 'err', text: event.message || 'Error', streaming: false } : m))
             }
@@ -676,6 +752,20 @@ export default function Chat({ token, onLogout }) {
       setMessages(prev => prev.map(m => m.id === aiId ? { ...m, role: 'err', text: `Network error: ${err.message}`, streaming: false } : m))
     } finally { setLoading(false) }
   }
+
+  const loadUsage = useCallback(async () => {
+    setUsageLoading(true)
+    try {
+      const r = await fetch('/api/usage', { headers: authHeaders })
+      if (r.ok) setUsageData(await r.json())
+    } catch { /* ignore */ }
+    finally { setUsageLoading(false) }
+  }, [token])
+
+  useEffect(() => {
+    if (!usageOpen) return
+    loadUsage()
+  }, [usageOpen])
 
   // memory panel derived
   const sections        = parseMemory(memData?.content)
@@ -701,6 +791,24 @@ export default function Chat({ token, onLogout }) {
         ::-webkit-scrollbar-thumb { background:#1e293b; border-radius:2px }
         textarea:focus { border-color:#6366f1 !important }
         input[type=range] { height:4px }
+        .md-body { font-size:inherit; line-height:1.6; color:inherit; word-break:break-word }
+        .md-body p { margin:0 0 0.6em }
+        .md-body p:last-child { margin-bottom:0 }
+        .md-body h1,.md-body h2,.md-body h3,.md-body h4 { margin:0.8em 0 0.35em; font-weight:700; line-height:1.3 }
+        .md-body h1 { font-size:1.2em } .md-body h2 { font-size:1.1em } .md-body h3 { font-size:1em }
+        .md-body ul,.md-body ol { margin:0.4em 0 0.6em 1.4em; padding:0 }
+        .md-body li { margin-bottom:0.2em }
+        .md-body code { background:#0f172a; border:1px solid #1e293b; border-radius:4px; padding:0.1em 0.35em; font-family:monospace; font-size:0.85em; color:#93c5fd }
+        .md-body pre { background:#0f172a; border:1px solid #1e293b; border-radius:6px; padding:0.75em 1em; overflow-x:auto; margin:0.5em 0 }
+        .md-body pre code { background:none; border:none; padding:0; font-size:0.82em; color:#94a3b8 }
+        .md-body blockquote { border-left:3px solid #334155; margin:0.5em 0; padding:0.2em 0.75em; color:#94a3b8 }
+        .md-body table { border-collapse:collapse; width:100%; margin:0.5em 0; font-size:0.85em }
+        .md-body th,.md-body td { border:1px solid #1e293b; padding:0.3em 0.6em; text-align:left }
+        .md-body th { background:#1e293b; color:#cbd5e1; font-weight:600 }
+        .md-body a { color:#818cf8; text-decoration:underline }
+        .md-body strong { color:#e2e8f0; font-weight:700 }
+        .md-body em { color:#cbd5e1 }
+        .md-body hr { border:none; border-top:1px solid #1e293b; margin:0.75em 0 }
       `}</style>
 
       {/* sidebar */}
@@ -741,7 +849,17 @@ export default function Chat({ token, onLogout }) {
             {activeConvId && (
               <button onClick={() => setSettingsOpen(true)} style={s.hdrBtn} title="Conversation settings">⚙</button>
             )}
-            <button onClick={() => { setFilesOpen(true); setMemOpen(false) }} style={{ ...s.hdrBtn, ...(attachedFiles.length > 0 ? { color:'#fbbf24', borderColor:'#78350f' } : {}) }}>
+            <button onClick={() => { setUsageOpen(o => !o); setToolLogOpen(false); setMemOpen(false); setFilesOpen(false) }}
+              style={{ ...s.hdrBtn, ...(usageOpen ? { color:'#34d399', borderColor:'#1e4e3a' } : {}) }}
+              title="Token usage & cost">
+              $ Usage
+            </button>
+            <button onClick={() => { setToolLogOpen(o => !o); setMemOpen(false); setFilesOpen(false); setUsageOpen(false) }}
+              style={{ ...s.hdrBtn, ...(toolLogOpen ? { color:'#818cf8', borderColor:'#4338ca' } : {}) }}
+              title="AI tool call history">
+              🔧 Log
+            </button>
+            <button onClick={() => { setFilesOpen(true); setMemOpen(false); setToolLogOpen(false) }} style={{ ...s.hdrBtn, ...(attachedFiles.length > 0 ? { color:'#fbbf24', borderColor:'#78350f' } : {}) }}>
               {attachedFiles.length > 0 ? `📎 ${attachedFiles.length}` : '📎'} Files
             </button>
             <button onClick={() => { setMemOpen(true); setFilesOpen(false) }} style={s.hdrBtn}>
@@ -763,10 +881,10 @@ export default function Chat({ token, onLogout }) {
                     return (
                       <div key={model} style={s.compareCard}>
                         <div style={s.cardHeader}>{MODEL_LABELS[model]}</div>
-                        <p style={s.text}>
-                          {resp.text || <span style={{ color:'#334155' }}>…</span>}
-                          {resp.streaming && <span style={s.cursor} />}
-                        </p>
+                        {(resp.streaming || !resp.text)
+                          ? <p style={s.text}>{resp.text || <span style={{ color:'#334155' }}>…</span>}{resp.streaming && <span style={s.cursor} />}</p>
+                          : <div className="md-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{resp.text}</ReactMarkdown></div>
+                        }
                         <span style={s.cardModel}>{MODEL_SUBLABELS[model]}</span>
                       </div>
                     )
@@ -786,8 +904,21 @@ export default function Chat({ token, onLogout }) {
                     {tc.expanded && tc.result != null && <div style={s.toolResult}>{tc.result}</div>}
                   </div>
                 ))}
-                <p style={s.text}>{m.text}{m.streaming && <span style={s.cursor} />}</p>
+                {(m.streaming || m.role === 'err' || m.role === 'user')
+                  ? <p style={s.text}>{m.text}{m.streaming && <span style={s.cursor} />}</p>
+                  : <div className="md-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown></div>
+                }
+                {m.askUser && (
+                  <div style={s.askCard}>
+                    <span style={s.askIcon}>⚠️</span>
+                    <div>
+                      <div style={s.askLabel}>NEEDS CLARIFICATION</div>
+                      <div style={s.askQuestion}>{m.askUser}</div>
+                    </div>
+                  </div>
+                )}
                 {m.model && !m.streaming && <span style={s.tag}>{MODEL_LABELS[m.model] || m.model} · {MODEL_SUBLABELS[m.model] || ''}</span>}
+                {m.totalTokens && !m.streaming && <span style={s.tokMeta}>{m.totalTokens.toLocaleString()} tok · ${(m.costUsd || 0).toFixed(5)}</span>}
               </div>
             )
           })}
@@ -854,9 +985,9 @@ export default function Chat({ token, onLogout }) {
       </div>
 
       {/* overlays */}
-      {(memOpen || filesOpen || settingsOpen) && (
+      {(memOpen || filesOpen || settingsOpen || toolLogOpen || usageOpen) && (
         <div style={{ ...s.overlay, zIndex: settingsOpen ? 19 : 10 }}
-          onClick={() => { if (settingsOpen) setSettingsOpen(false); else { setMemOpen(false); setFilesOpen(false) } }} />
+          onClick={() => { if (settingsOpen) setSettingsOpen(false); else { setMemOpen(false); setFilesOpen(false); setToolLogOpen(false); setUsageOpen(false) } }} />
       )}
 
       {/* settings modal */}
@@ -1044,6 +1175,83 @@ export default function Chat({ token, onLogout }) {
           </div>
         </div>
       )}
+
+      {/* tool log panel */}
+      <div style={{ ...s.toolLogPanel, transform: toolLogOpen ? 'translateX(0)' : 'translateX(100%)' }}>
+        <div style={s.toolLogHdr}>
+          <span style={s.toolLogTitle}>🔧 AI Tool Call History</span>
+          <div style={{ display:'flex', gap:'0.4rem', alignItems:'center' }}>
+            <button onClick={() => loadToolLogs(activeConvId)} style={s.refreshBtn} disabled={toolLogsLoading}>
+              {toolLogsLoading ? '…' : '↻'}
+            </button>
+            <button onClick={() => setToolLogOpen(false)} style={s.closeBtn}>✕</button>
+          </div>
+        </div>
+        <div style={{ padding:'0.5rem 1.25rem', borderBottom:'1px solid #1e293b', flexShrink:0, display:'flex', gap:'0.4rem' }}>
+          <button onClick={() => loadToolLogs(activeConvId)}
+            style={{ ...s.wsPill, ...(activeConvId ? s.wsPillActive : {}) }}>
+            This conversation
+          </button>
+          <button onClick={() => loadToolLogs(null)}
+            style={{ ...s.wsPill, ...(!activeConvId ? s.wsPillActive : {}) }}>
+            All
+          </button>
+        </div>
+        <div style={s.toolLogBody}>
+          {toolLogsLoading && <p style={s.emptyMem}>Loading…</p>}
+          {!toolLogsLoading && toolLogs.length === 0 && (
+            <p style={s.emptyMem}>No tool calls yet.<br /><span style={{ fontSize:'0.75rem' }}>Attach files and ask the AI to read or edit them.</span></p>
+          )}
+          {!toolLogsLoading && toolLogs.map(log => (
+            <div key={log.id} style={s.toolLogRow}>
+              <div style={s.toolLogMeta}>
+                <span style={s.toolLogName}>⚙ {log.tool_name}</span>
+                <span style={s.toolLogTime}>{fmtDate(log.created_at)}</span>
+              </div>
+              {log.args && Object.keys(log.args).length > 0 && (
+                <div style={s.toolLogArgs}>
+                  {Object.entries(log.args).map(([k, v]) =>
+                    `${k}: ${typeof v === 'string' ? v.slice(0, 80) : JSON.stringify(v).slice(0, 80)}`
+                  ).join(' · ')}
+                </div>
+              )}
+              {log.result_preview && (
+                <div style={s.toolLogResult}>{log.result_preview.slice(0, 200)}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* usage panel */}
+      <div style={{ ...s.usagePanel, transform: usageOpen ? 'translateX(0)' : 'translateX(100%)' }}>
+        <div style={s.usageHdr}>
+          <span style={s.usageTitle}>$ Token Usage</span>
+          <div style={{ display:'flex', gap:'0.4rem', alignItems:'center' }}>
+            <button onClick={loadUsage} style={s.refreshBtn} disabled={usageLoading}>{usageLoading ? '…' : '↻'}</button>
+            <button onClick={() => setUsageOpen(false)} style={s.closeBtn}>✕</button>
+          </div>
+        </div>
+        <div style={s.usageBody}>
+          {!usageData && !usageLoading && <div style={s.emptyMem}>No data</div>}
+          {usageData && (
+            <>
+              {[
+                ['Messages',    usageData.message_count?.toLocaleString()],
+                ['Prompt tok',  usageData.prompt_tokens?.toLocaleString()],
+                ['Output tok',  usageData.completion_tokens?.toLocaleString()],
+                ['Total tok',   usageData.total_tokens?.toLocaleString()],
+                ['Est. cost',   `$${(usageData.cost_usd || 0).toFixed(4)}`],
+              ].map(([k, v]) => (
+                <div key={k} style={s.usageStat}>
+                  <span style={s.usageKey}>{k}</span>
+                  <span style={s.usageVal}>{v}</span>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
 
       {/* memory panel */}
       <div style={{ ...s.memPanel, transform: panelSlide }}>
