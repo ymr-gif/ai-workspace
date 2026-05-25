@@ -28,9 +28,11 @@ const s = {
   sideTop:     { padding:'1rem', borderBottom:'1px solid #1e293b' },
   newBtn:      { width:'100%', padding:'0.6rem', borderRadius:'8px', background:'#6366f1', color:'#fff', border:'none', cursor:'pointer', fontWeight:600, fontSize:'0.875rem' },
   convList:    { flex:1, overflowY:'auto', padding:'0.5rem' },
-  convItem:    { padding:'0.6rem 0.75rem', borderRadius:'8px', cursor:'pointer', marginBottom:'2px', fontSize:'0.8rem', lineHeight:1.4 },
+  convItem:    { padding:'0.6rem 0.75rem', borderRadius:'8px', cursor:'pointer', marginBottom:'2px', fontSize:'0.8rem', lineHeight:1.4, position:'relative', display:'flex', justifyContent:'space-between', alignItems:'flex-start' },
+  convMeta:    { flex:1, minWidth:0 },
   convTitle:   { display:'block', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', color:'#cbd5e1' },
   convDate:    { display:'block', fontSize:'0.7rem', color:'#475569', marginTop:'2px' },
+  convDel:     { flexShrink:0, marginLeft:'4px', marginTop:'1px', background:'none', border:'none', cursor:'pointer', color:'#475569', fontSize:'0.85rem', lineHeight:1, padding:'2px 4px', borderRadius:'4px' },
 
   chat:        { flex:1, display:'flex', flexDirection:'column', minWidth:0 },
   header:      { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.9rem 1.5rem', background:'#1e293b', borderBottom:'1px solid #334155' },
@@ -321,6 +323,14 @@ export default function Chat({ token, onLogout }) {
 
   function newChat() { setActiveConvId(null); setMessages([]); setInput(''); setConvMemEnabled(true); setConvSysPrompt(''); setConvLockModel('') }
 
+  async function deleteConv(e, id) {
+    e.stopPropagation()
+    if (!window.confirm('Delete this conversation?')) return
+    await fetch(`/api/conversations/${id}`, { method:'DELETE', headers: authHeaders })
+    setConversations(prev => prev.filter(c => c.id !== id))
+    if (activeConvId === id) newChat()
+  }
+
   function selectConv(id) {
     if (id === activeConvId) return
     setActiveConvId(id); setMessages([])
@@ -580,12 +590,15 @@ export default function Chat({ token, onLogout }) {
           {conversations.map(c => (
             <div key={c.id} onClick={() => selectConv(c.id)}
               style={{ ...s.convItem, background: c.id === activeConvId ? '#1e293b' : 'transparent' }}>
-              <span style={s.convTitle}>{c.title}</span>
-              <span style={s.convDate}>
-                {fmtDate(c.updated_at)}
-                {c.memory_enabled === false && <span style={{ color:'#475569', marginLeft:'4px' }}>⊘</span>}
-                {c.locked_model && <span style={{ color:'#6366f1', marginLeft:'4px' }}>🔒</span>}
-              </span>
+              <div style={s.convMeta}>
+                <span style={s.convTitle}>{c.title}</span>
+                <span style={s.convDate}>
+                  {fmtDate(c.updated_at)}
+                  {c.memory_enabled === false && <span style={{ color:'#475569', marginLeft:'4px' }}>⊘</span>}
+                  {c.locked_model && <span style={{ color:'#6366f1', marginLeft:'4px' }}>🔒</span>}
+                </span>
+              </div>
+              <button onClick={e => deleteConv(e, c.id)} style={s.convDel} title="Delete conversation">✕</button>
             </div>
           ))}
         </div>
