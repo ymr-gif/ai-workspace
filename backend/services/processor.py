@@ -6,6 +6,7 @@ from pathlib import Path
 from core.db import AsyncSessionLocal
 from llm.embeddings import embed
 from models import File, FileChunk
+from observability.file_metrics import record_chunks
 
 logger = logging.getLogger("processor")
 
@@ -156,4 +157,5 @@ async def _process(db, file_id: uuid.UUID, storage_path: str, mime_type: str) ->
 
     row.upload_status = "ready"
     await db.commit()
+    record_chunks(saved)
     logger.info("[processor] done file_id=%s chunks=%d/%d", file_id, saved, len(chunks))
