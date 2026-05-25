@@ -1,12 +1,11 @@
-import asyncio
 import logging
 import uuid
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import ConversationFile, File as FileModel, FileChunk
-from services.processor import process_file_async
+from models import ConversationFile, File as FileModel
+from services.file_service import append_content, patch_content, write_content
 from storage.storage_manager import StorageManager
 from llm.embeddings import embed
 from llm.retriever import retrieve_from_files
@@ -180,21 +179,7 @@ async def _read_file(db: AsyncSession, user_id: int, file_id: uuid.UUID) -> str:
 
 
 async def _write_file(db: AsyncSession, user_id: int, file_id: uuid.UUID, content: str) -> str:
-    f = await db.get(FileModel, file_id)
-    if not f or f.user_id != user_id:
-        return "Error: file not found or access denied."
-    try:
-        with open(f.storage_path, "w", encoding="utf-8") as fh:
-            fh.write(content)
-        await db.execute(delete(FileChunk).where(FileChunk.file_id == file_id))
-        f.upload_status = "uploaded"
-        await db.commit()
-        asyncio.create_task(process_file_async(file_id, f.storage_path, f.mime_type))
-        logger.info("[tools] write_file file_id=%s chars=%d reprocessing", file_id, len(content))
-        return f"File updated ({len(content):,} chars). Re-embedding in background."
-    except Exception as e:
-        logger.warning("[tools] write_file failed file_id=%s err=%s", file_id, e)
-        return f"Error writing file: {e}"
+    return await write_content(db, user_id, file_id, content)
 
 
 async def _create_file(
@@ -228,21 +213,7 @@ async def _create_file(
 
 
 async def _append_to_file(db: AsyncSession, user_id: int, file_id: uuid.UUID, content: str) -> str:
-    f = await db.get(FileModel, file_id)
-    if not f or f.user_id != user_id:
-        return "Error: file not found or access denied."
-    try:
-        with open(f.storage_path, "a", encoding="utf-8") as fh:
-            fh.write(("\n\n" if content and not content.startswith("\n") else "") + content)
-        await db.execute(delete(FileChunk).where(FileChunk.file_id == file_id))
-        f.upload_status = "uploaded"
-        await db.commit()
-        asyncio.create_task(process_file_async(file_id, f.storage_path, f.mime_type))
-        logger.info("[tools] append_to_file file_id=%s chars=%d reprocessing", file_id, len(content))
-        return f"Appended {len(content):,} chars to file. Re-embedding in background."
-    except Exception as e:
-        logger.warning("[tools] append_to_file failed file_id=%s err=%s", file_id, e)
-        return f"Error appending to file: {e}"
+    return await append_content(db, user_id, file_id, content)
 
 
 async def _patch_file(
@@ -252,26 +223,7 @@ async def _patch_file(
     old_text: str,
     new_text: str,
 ) -> str:
-    f = await db.get(FileModel, file_id)
-    if not f or f.user_id != user_id:
-        return "Error: file not found or access denied."
-    try:
-        with open(f.storage_path, "r", encoding="utf-8", errors="replace") as fh:
-            current = fh.read()
-        if old_text not in current:
-            return "Error: old_text not found in file. Use read_file to get the exact text, then retry."
-        updated = current.replace(old_text, new_text, 1)
-        with open(f.storage_path, "w", encoding="utf-8") as fh:
-            fh.write(updated)
-        await db.execute(delete(FileChunk).where(FileChunk.file_id == file_id))
-        f.upload_status = "uploaded"
-        await db.commit()
-        asyncio.create_task(process_file_async(file_id, f.storage_path, f.mime_type))
-        logger.info("[tools] patch_file file_id=%s old_len=%d new_len=%d", file_id, len(old_text), len(new_text))
-        return f"Patched: replaced {len(old_text):,} chars with {len(new_text):,} chars. Re-embedding in background."
-    except Exception as e:
-        logger.warning("[tools] patch_file failed file_id=%s err=%s", file_id, e)
-        return f"Error patching file: {e}"
+    return await patch_content(db, user_id, file_id, old_text, new_text)
 
 
 async def _search_in_file(

@@ -173,6 +173,16 @@ class ConversationFile(Base):
     attached_at:     Mapped[datetime]  = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class FileVersion(Base):
+    __tablename__ = "file_versions"
+
+    id:         Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    file_id:    Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("files.id", ondelete="CASCADE"), nullable=False, index=True)
+    version:    Mapped[int]       = mapped_column(Integer, nullable=False)
+    content:    Mapped[str]       = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime]  = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class FileChunk(Base):
     __tablename__ = "file_chunks"
 

@@ -51,10 +51,18 @@ const s = {
   viewerOverlay: { position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:50, display:'flex', alignItems:'center', justifyContent:'center' },
   viewerModal:   { background:'#0f172a', border:'1px solid #1e293b', borderRadius:'12px', width:'700px', maxWidth:'95vw', maxHeight:'80vh', display:'flex', flexDirection:'column', boxShadow:'0 25px 50px rgba(0,0,0,0.5)' },
   viewerHeader:  { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'1rem 1.25rem', borderBottom:'1px solid #1e293b', flexShrink:0 },
-  viewerTitle:   { fontSize:'0.9rem', fontWeight:600, color:'#e2e8f0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
+  viewerTitle:   { fontSize:'0.9rem', fontWeight:600, color:'#e2e8f0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, marginRight:'0.5rem' },
+  viewerHdrRight:{ display:'flex', gap:'0.35rem', alignItems:'center', flexShrink:0 },
   viewerClose:   { background:'none', border:'none', color:'#64748b', cursor:'pointer', fontSize:'1.2rem', lineHeight:1, padding:'2px 6px', borderRadius:'4px' },
   viewerBody:    { flex:1, overflowY:'auto', padding:'1rem 1.25rem' },
   viewerPre:     { margin:0, fontFamily:'monospace', fontSize:'0.8rem', color:'#94a3b8', whiteSpace:'pre-wrap', wordBreak:'break-word', lineHeight:1.6 },
+  viewerEditArea:{ width:'100%', background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px', color:'#cbd5e1', fontSize:'0.8rem', lineHeight:1.6, padding:'0.6rem', resize:'vertical', outline:'none', fontFamily:'monospace', boxSizing:'border-box', minHeight:'300px' },
+  versionItem:   { display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.5rem 0.6rem', borderRadius:'6px', marginBottom:'4px', border:'1px solid #1e293b', background:'#0a1220', fontSize:'0.78rem' },
+  versionMeta:   { flex:1, minWidth:0 },
+  versionNum:    { color:'#cbd5e1', fontWeight:600 },
+  versionDate:   { color:'#475569', fontSize:'0.7rem', marginTop:'1px' },
+  restoreBtn:    { padding:'0.15rem 0.5rem', borderRadius:'4px', border:'1px solid #1e4e3a', background:'#0f4c3a', color:'#34d399', cursor:'pointer', fontSize:'0.72rem', whiteSpace:'nowrap' },
+  renameInput:   { flex:1, padding:'0.15rem 0.4rem', borderRadius:'4px', border:'1px solid #6366f1', background:'#0f172a', color:'#e2e8f0', fontSize:'0.78rem', outline:'none' },
   toolPill:    { display:'inline-flex', alignItems:'center', gap:'4px', fontSize:'0.72rem', color:'#94a3b8', background:'#0f172a', border:'1px solid #1e293b', borderRadius:'6px', padding:'2px 8px', marginBottom:'4px', cursor:'pointer' },
   toolResult:  { fontSize:'0.72rem', color:'#64748b', background:'#0f172a', borderRadius:'4px', padding:'6px 8px', marginBottom:'6px', whiteSpace:'pre-wrap', wordBreak:'break-word', maxHeight:'120px', overflowY:'auto' },
   text:        { margin:0, whiteSpace:'pre-wrap', wordBreak:'break-word' },
@@ -268,7 +276,15 @@ export default function Chat({ token, onLogout }) {
   const [fileUploading,  setFileUploading]  = useState(false)
   const [urlIngest,      setUrlIngest]      = useState('')
   const [urlIngesting,   setUrlIngesting]   = useState(false)
+  const [renameId,       setRenameId]       = useState(null)
+  const [renameVal,      setRenameVal]      = useState('')
+  const [viewerTab,      setViewerTab]      = useState('view')
+  const [viewerEdit,     setViewerEdit]     = useState('')
+  const [viewerSaving,   setViewerSaving]   = useState(false)
+  const [viewerVersions, setViewerVersions] = useState([])
+  const [viewerVerLoading, setViewerVerLoading] = useState(false)
   const fileInputRef = useRef(null)
+  const statusPollRef = useRef(null)
 
   const bottomRef  = useRef(null)
   const nextId     = useRef(0)
@@ -472,9 +488,86 @@ export default function Chat({ token, onLogout }) {
   async function viewFile(fileId) {
     try {
       const r = await fetch(`/api/files/${fileId}/content`, { headers: authHeaders })
-      if (r.ok) setFileViewer(await r.json())
+      if (r.ok) { setFileViewer({ ...(await r.json()), id: fileId }); setViewerTab('view'); setViewerVersions([]) }
     } catch { /* ignore */ }
   }
+
+  async function downloadFile(fileId, filename) {
+    try {
+      const r = await fetch(`/api/files/${fileId}/download`, { headers: authHeaders })
+      if (!r.ok) return
+      const blob = await r.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url; a.download = filename; a.click()
+      URL.revokeObjectURL(url)
+    } catch { /* ignore */ }
+  }
+
+  async function saveFileEdit(fileId, content) {
+    setViewerSaving(true)
+    try {
+      const r = await fetch(`/api/files/${fileId}/content`, {
+        method:'PUT', headers:{...authHeaders,'Content-Type':'application/json'},
+        body: JSON.stringify({ content }),
+      })
+      if (r.ok) {
+        setFileViewer(prev => ({ ...prev, content }))
+        setViewerTab('view')
+        await loadLibFiles()
+      }
+    } catch { /* ignore */ } finally { setViewerSaving(false) }
+  }
+
+  async function loadFileVersions(fileId) {
+    setViewerVerLoading(true)
+    try {
+      const r = await fetch(`/api/files/${fileId}/versions`, { headers: authHeaders })
+      if (r.ok) setViewerVersions(await r.json())
+    } catch { /* ignore */ } finally { setViewerVerLoading(false) }
+  }
+
+  async function restoreFileVersion(fileId, versionId) {
+    try {
+      const r = await fetch(`/api/files/${fileId}/versions/${versionId}/restore`, { method:'POST', headers: authHeaders })
+      if (!r.ok) return
+      const content_r = await fetch(`/api/files/${fileId}/content`, { headers: authHeaders })
+      if (content_r.ok) { const d = await content_r.json(); setFileViewer(prev => ({ ...prev, content: d.content })) }
+      setViewerTab('view')
+      await loadFileVersions(fileId)
+    } catch { /* ignore */ }
+  }
+
+  async function commitRename(fileId) {
+    const name = renameVal.trim(); if (!name) { setRenameId(null); return }
+    try {
+      const r = await fetch(`/api/files/${fileId}/rename`, {
+        method:'PATCH', headers:{...authHeaders,'Content-Type':'application/json'},
+        body: JSON.stringify({ filename: name }),
+      })
+      if (r.ok) await loadLibFiles()
+    } catch { /* ignore */ } finally { setRenameId(null) }
+  }
+
+  // poll status for processing files
+  useEffect(() => {
+    if (!filesOpen) { clearInterval(statusPollRef.current); return }
+    const hasProcessing = libFiles.some(f => f.status === 'processing')
+    if (!hasProcessing) { clearInterval(statusPollRef.current); return }
+    clearInterval(statusPollRef.current)
+    statusPollRef.current = setInterval(async () => {
+      const processing = libFiles.filter(f => f.status === 'processing')
+      if (!processing.length) { clearInterval(statusPollRef.current); return }
+      const updates = await Promise.all(processing.map(f =>
+        fetch(`/api/files/${f.id}/status`, { headers: authHeaders }).then(r => r.ok ? r.json() : null).catch(() => null)
+      ))
+      setLibFiles(prev => prev.map(f => {
+        const u = updates.find(u => u?.id === f.id)
+        return u ? { ...f, status: u.status } : f
+      }))
+    }, 2000)
+    return () => clearInterval(statusPollRef.current)
+  }, [filesOpen, libFiles])
 
   const attachedIds = new Set(attachedFiles.map(f => f.id))
 
@@ -855,8 +948,15 @@ export default function Chat({ token, onLogout }) {
                   return (
                     <div key={f.id} style={s.fileItem}>
                       <span style={{ ...s.statusBadge, background:sc.bg, color:sc.color }}>{f.status}</span>
-                      <span style={s.fileName} title={f.filename}>{f.filename}</span>
+                      {renameId === f.id
+                        ? <input autoFocus style={s.renameInput} value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                            onKeyDown={e => { if (e.key==='Enter') commitRename(f.id); if (e.key==='Escape') setRenameId(null) }}
+                            onBlur={() => commitRename(f.id)} />
+                        : <span style={s.fileName} title={f.filename}>{f.filename}</span>
+                      }
+                      <button onClick={() => { setRenameId(f.id); setRenameVal(f.filename) }} style={s.attachBtn} title="Rename">✎</button>
                       <button onClick={() => viewFile(f.id)} style={s.attachBtn} title="View contents">👁</button>
+                      <button onClick={() => downloadFile(f.id, f.filename)} style={s.attachBtn} title="Download">⬇</button>
                       {activeConvId && (
                         <button onClick={() => isAttached ? detachFile(f.id) : attachFile(f.id)}
                           style={{ ...s.attachBtn, ...(isAttached ? s.attachedBtn : {}) }}
@@ -895,10 +995,51 @@ export default function Chat({ token, onLogout }) {
           <div style={s.viewerModal} onClick={e => e.stopPropagation()}>
             <div style={s.viewerHeader}>
               <span style={s.viewerTitle}>{fileViewer.filename}</span>
-              <button style={s.viewerClose} onClick={() => setFileViewer(null)}>✕</button>
+              <div style={s.viewerHdrRight}>
+                <button onClick={() => downloadFile(fileViewer.id, fileViewer.filename)} style={{ ...s.attachBtn, fontSize:'0.75rem' }} title="Download">⬇ Download</button>
+                <button style={s.viewerClose} onClick={() => setFileViewer(null)}>✕</button>
+              </div>
+            </div>
+            <div style={s.tabBar}>
+              {['view','edit','versions'].map(tab => (
+                <button key={tab} onClick={() => {
+                  setViewerTab(tab)
+                  if (tab === 'edit') setViewerEdit(fileViewer.content)
+                  if (tab === 'versions' && viewerVersions.length === 0) loadFileVersions(fileViewer.id)
+                }}
+                  style={{ ...s.tabBtn, ...(viewerTab === tab ? s.tabActive : {}) }}>
+                  {tab === 'view' ? 'View' : tab === 'edit' ? 'Edit' : 'Versions'}
+                </button>
+              ))}
             </div>
             <div style={s.viewerBody}>
-              <pre style={s.viewerPre}>{fileViewer.content}</pre>
+              {viewerTab === 'view' && <pre style={s.viewerPre}>{fileViewer.content}</pre>}
+              {viewerTab === 'edit' && (
+                <div>
+                  <textarea value={viewerEdit} onChange={e => setViewerEdit(e.target.value)} style={s.viewerEditArea} />
+                  <div style={s.editBtns}>
+                    <button onClick={() => saveFileEdit(fileViewer.id, viewerEdit)} disabled={viewerSaving} style={s.saveBtn}>
+                      {viewerSaving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button onClick={() => setViewerTab('view')} style={s.cancelBtn}>Cancel</button>
+                  </div>
+                </div>
+              )}
+              {viewerTab === 'versions' && (
+                <div>
+                  {viewerVerLoading && <p style={s.emptyMem}>Loading…</p>}
+                  {!viewerVerLoading && viewerVersions.length === 0 && <p style={s.emptyMem}>No saved versions yet.</p>}
+                  {!viewerVerLoading && viewerVersions.map(v => (
+                    <div key={v.id} style={s.versionItem}>
+                      <div style={s.versionMeta}>
+                        <div style={s.versionNum}>v{v.version}</div>
+                        <div style={s.versionDate}>{fmtDate(v.created_at)} · {v.size_chars.toLocaleString()} chars</div>
+                      </div>
+                      <button onClick={() => restoreFileVersion(fileViewer.id, v.id)} style={s.restoreBtn}>Restore</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

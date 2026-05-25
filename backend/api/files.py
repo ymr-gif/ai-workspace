@@ -2,15 +2,19 @@ import asyncio
 import logging
 import re
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import delete, distinct, select
+from sqlalchemy import delete, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.security import get_current_user
 from core.db import get_db
-from models import File as FileModel, FileChunk, User
+from models import File as FileModel, FileChunk, FileVersion, User
+from observability.file_metrics import record_delete, record_upload
+from services.file_service import patch_content, restore_version, write_content
 from services.processor import extract_url_text, process_file_async
 from storage.storage_manager import StorageManager
 
@@ -62,7 +66,7 @@ async def upload_file(
         asyncio.create_task(
             process_file_async(db_file.id, storage_path, db_file.mime_type)
         )
-
+        record_upload()
         return _file_dict(db_file)
 
     except HTTPException:
@@ -103,7 +107,6 @@ async def get_file_content(
         raise HTTPException(status_code=404, detail="Not found")
 
     try:
-        from pathlib import Path
         content = Path(f.storage_path).read_text(encoding="utf-8", errors="replace")
     except Exception:
         raise HTTPException(status_code=500, detail="Could not read file")
@@ -129,9 +132,9 @@ async def delete_file(
     await db.execute(delete(FileChunk).where(FileChunk.file_id == fid))
     await db.delete(f)
     await db.commit()
+    record_delete()
 
     try:
-        from pathlib import Path
         Path(f.storage_path).unlink(missing_ok=True)
     except Exception:
         pass
@@ -217,3 +220,161 @@ async def patch_file_workspace(
     f.workspace_id = body.workspace_id.strip() or None
     await db.commit()
     return _file_dict(f)
+
+
+@router.get("/{file_id}/status")
+async def get_file_status(
+    file_id:      str,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    try:
+        fid = uuid.UUID(file_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+    f = await db.get(FileModel, fid)
+    if not f or f.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"id": str(f.id), "status": f.upload_status}
+
+
+@router.get("/{file_id}/download")
+async def download_file(
+    file_id:      str,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    try:
+        fid = uuid.UUID(file_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+    f = await db.get(FileModel, fid)
+    if not f or f.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Not found")
+    p = Path(f.storage_path)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+    return FileResponse(
+        path=str(p),
+        filename=f.filename,
+        media_type=f.mime_type or "application/octet-stream",
+    )
+
+
+class RenameRequest(BaseModel):
+    filename: str
+
+
+@router.patch("/{file_id}/rename")
+async def rename_file(
+    file_id:      str,
+    body:         RenameRequest,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    try:
+        fid = uuid.UUID(file_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+    f = await db.get(FileModel, fid)
+    if not f or f.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Not found")
+    new_name = body.filename.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Filename required")
+    f.filename = new_name[:512]
+    await db.commit()
+    return _file_dict(f)
+
+
+class ContentPatchRequest(BaseModel):
+    old_text: str
+    new_text: str
+
+
+@router.put("/{file_id}/content")
+async def put_file_content(
+    file_id:      str,
+    body:         dict,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    try:
+        fid = uuid.UUID(file_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+    content = body.get("content", "")
+    result = await write_content(db, current_user.id, fid, content)
+    if result.startswith("Error"):
+        raise HTTPException(status_code=400, detail=result)
+    return {"ok": True, "message": result}
+
+
+@router.get("/{file_id}/versions")
+async def list_file_versions(
+    file_id:      str,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    try:
+        fid = uuid.UUID(file_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+    f = await db.get(FileModel, fid)
+    if not f or f.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Not found")
+    result = await db.execute(
+        select(FileVersion)
+        .where(FileVersion.file_id == fid)
+        .order_by(FileVersion.version.desc())
+        .limit(50)
+    )
+    versions = result.scalars().all()
+    return [
+        {
+            "id":         str(v.id),
+            "version":    v.version,
+            "created_at": v.created_at.isoformat(),
+            "size_chars": len(v.content),
+        }
+        for v in versions
+    ]
+
+
+@router.get("/{file_id}/versions/{version_id}")
+async def get_file_version(
+    file_id:    str,
+    version_id: str,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    try:
+        fid = uuid.UUID(file_id)
+        vid = uuid.UUID(version_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+    f = await db.get(FileModel, fid)
+    if not f or f.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Not found")
+    v = await db.get(FileVersion, vid)
+    if not v or v.file_id != fid:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"id": str(v.id), "version": v.version, "content": v.content, "created_at": v.created_at.isoformat()}
+
+
+@router.post("/{file_id}/versions/{version_id}/restore")
+async def restore_file_version(
+    file_id:    str,
+    version_id: str,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    try:
+        fid = uuid.UUID(file_id)
+        vid = uuid.UUID(version_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+    content = await restore_version(db, current_user.id, fid, vid)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"ok": True, "size_chars": len(content)}
