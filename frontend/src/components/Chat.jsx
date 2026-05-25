@@ -48,6 +48,13 @@ const s = {
   userBubble:  { alignSelf:'flex-end', background:'#6366f1' },
   aiBubble:    { alignSelf:'flex-start', background:'#1e293b', border:'1px solid #334155' },
   errBubble:   { alignSelf:'flex-start', background:'#450a0a', border:'1px solid #991b1b', color:'#fca5a5' },
+  viewerOverlay: { position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:50, display:'flex', alignItems:'center', justifyContent:'center' },
+  viewerModal:   { background:'#0f172a', border:'1px solid #1e293b', borderRadius:'12px', width:'700px', maxWidth:'95vw', maxHeight:'80vh', display:'flex', flexDirection:'column', boxShadow:'0 25px 50px rgba(0,0,0,0.5)' },
+  viewerHeader:  { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'1rem 1.25rem', borderBottom:'1px solid #1e293b', flexShrink:0 },
+  viewerTitle:   { fontSize:'0.9rem', fontWeight:600, color:'#e2e8f0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' },
+  viewerClose:   { background:'none', border:'none', color:'#64748b', cursor:'pointer', fontSize:'1.2rem', lineHeight:1, padding:'2px 6px', borderRadius:'4px' },
+  viewerBody:    { flex:1, overflowY:'auto', padding:'1rem 1.25rem' },
+  viewerPre:     { margin:0, fontFamily:'monospace', fontSize:'0.8rem', color:'#94a3b8', whiteSpace:'pre-wrap', wordBreak:'break-word', lineHeight:1.6 },
   toolPill:    { display:'inline-flex', alignItems:'center', gap:'4px', fontSize:'0.72rem', color:'#94a3b8', background:'#0f172a', border:'1px solid #1e293b', borderRadius:'6px', padding:'2px 8px', marginBottom:'4px', cursor:'pointer' },
   toolResult:  { fontSize:'0.72rem', color:'#64748b', background:'#0f172a', borderRadius:'4px', padding:'6px 8px', marginBottom:'6px', whiteSpace:'pre-wrap', wordBreak:'break-word', maxHeight:'120px', overflowY:'auto' },
   text:        { margin:0, whiteSpace:'pre-wrap', wordBreak:'break-word' },
@@ -253,6 +260,7 @@ export default function Chat({ token, onLogout }) {
   // files panel
   const [filesOpen,      setFilesOpen]      = useState(false)
   const [filesTab,       setFilesTab]       = useState('library')
+  const [fileViewer,     setFileViewer]     = useState(null)   // {filename, content} | null
   const [libFiles,       setLibFiles]       = useState([])
   const [attachedFiles,  setAttachedFiles]  = useState([])
   const [workspaces,     setWorkspaces]     = useState([])
@@ -458,6 +466,13 @@ export default function Chat({ token, onLogout }) {
       await fetch(`/api/files/${fileId}`, { method:'DELETE', headers: authHeaders })
       setAttachedFiles(prev => prev.filter(f => f.id !== fileId))
       await loadLibFiles()
+    } catch { /* ignore */ }
+  }
+
+  async function viewFile(fileId) {
+    try {
+      const r = await fetch(`/api/files/${fileId}/content`, { headers: authHeaders })
+      if (r.ok) setFileViewer(await r.json())
     } catch { /* ignore */ }
   }
 
@@ -841,6 +856,7 @@ export default function Chat({ token, onLogout }) {
                     <div key={f.id} style={s.fileItem}>
                       <span style={{ ...s.statusBadge, background:sc.bg, color:sc.color }}>{f.status}</span>
                       <span style={s.fileName} title={f.filename}>{f.filename}</span>
+                      <button onClick={() => viewFile(f.id)} style={s.attachBtn} title="View contents">👁</button>
                       {activeConvId && (
                         <button onClick={() => isAttached ? detachFile(f.id) : attachFile(f.id)}
                           style={{ ...s.attachBtn, ...(isAttached ? s.attachedBtn : {}) }}
@@ -864,6 +880,7 @@ export default function Chat({ token, onLogout }) {
                       <div key={f.id} style={s.fileItem}>
                         <span style={{ ...s.statusBadge, background:sc.bg, color:sc.color }}>{f.status}</span>
                         <span style={s.fileName} title={f.filename}>{f.filename}</span>
+                        <button onClick={() => viewFile(f.id)} style={s.attachBtn} title="View contents">👁</button>
                         <button onClick={() => detachFile(f.id)} style={s.attachBtn} title="Detach">✕</button>
                       </div>
                     )
@@ -871,6 +888,21 @@ export default function Chat({ token, onLogout }) {
           )}
         </div>
       </div>
+
+      {/* file viewer modal */}
+      {fileViewer && (
+        <div style={s.viewerOverlay} onClick={() => setFileViewer(null)}>
+          <div style={s.viewerModal} onClick={e => e.stopPropagation()}>
+            <div style={s.viewerHeader}>
+              <span style={s.viewerTitle}>{fileViewer.filename}</span>
+              <button style={s.viewerClose} onClick={() => setFileViewer(null)}>✕</button>
+            </div>
+            <div style={s.viewerBody}>
+              <pre style={s.viewerPre}>{fileViewer.content}</pre>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* memory panel */}
       <div style={{ ...s.memPanel, transform: panelSlide }}>

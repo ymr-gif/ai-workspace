@@ -87,6 +87,30 @@ async def list_files(
     return [_file_dict(f) for f in result.scalars().all()]
 
 
+@router.get("/{file_id}/content")
+async def get_file_content(
+    file_id:      str,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    try:
+        fid = uuid.UUID(file_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    f = await db.get(FileModel, fid)
+    if not f or f.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    try:
+        from pathlib import Path
+        content = Path(f.storage_path).read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Could not read file")
+
+    return {"filename": f.filename, "content": content, "mime_type": f.mime_type}
+
+
 @router.delete("/{file_id}", status_code=200)
 async def delete_file(
     file_id:      str,
