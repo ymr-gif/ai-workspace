@@ -328,3 +328,28 @@ user message + file_ids
 | `tokens_completion_total` | Counter | `model` | `observability/token_metrics.py` |
 | `tokens_total` | Counter | `model` | `observability/token_metrics.py` |
 | `estimated_cost_usd_total` | Counter | `model` | `observability/token_metrics.py` |
+
+---
+
+## Possible Next Features
+Suggestions only — ask for specs before implementing any.
+
+### Reliability (fix these first)
+- **Persistent task queue (ARQ)** — `asyncio.create_task` lives in the uvicorn process; API restart mid-embed permanently loses the job. Replace with ARQ (Redis-backed async job queue): `services/processor.py` enqueues a job, a worker process consumes it. Survives restarts. New Docker service: `arq-worker`.
+- **File processing retry** — failed files stay stuck in `error` with no recovery path. Add retry logic in the ARQ worker: up to 3 attempts with exponential backoff (5s, 30s, 120s). On final failure, set `upload_status="error"` and log the exception.
+- **DB in health check** — `GET /health` pings NIM, embedding, and Redis but not Postgres or pgBouncer. A dead DB silently breaks all endpoints. Add a `SELECT 1` check via `get_db()` with a 2s timeout; include result in per-check `{status, latency_ms}` response.
+
+### New Capabilities
+- **OpenAI-compatible endpoint** — `POST /v1/chat/completions` wrapper in `api/compat.py`. Maps OpenAI request schema → internal `ChatRequest`, returns OpenAI response schema. Makes the gateway work with LangChain, Open WebUI, and any OpenAI SDK without changes.
+- **API key auth** — Add `api_key` (String 64, unique, indexed, nullable) to `User` model. `GET /auth/me/api-key` generates one; `auth/security.py` accepts `Authorization: Bearer <key>` as alternative to JWT. Useful for scripts and curl without login flow.
+- **Standalone file search** — `GET /files/search?q=&workspace_id=` — semantic search across the user's file library without being inside a conversation. Calls `embed(q)` → `retrieve_from_files(file_ids=all_user_files, top_k=10)`. Returns chunks with file name + score.
+- **Conversation auto-title** — after first assistant message, fire `asyncio.create_task` calling NIM with a short prompt: `"Summarize this exchange in 6 words or fewer."` Saves result to `Conversation.title`. Sidebar stops showing raw timestamps.
+
+### Cost / Performance
+- **Streaming response cache** — cache is currently bypassed for streaming. After stream completes, store the full assembled response in Redis (same key logic as `cache/keys.py`). On cache hit, stream the stored text token-by-token with a small delay to preserve UX. Saves NIM calls on repeated identical queries.
+- **Per-model rate limits** — add `model` label to the existing Redis sliding-window limiter. Example: 70B capped at 5 req/60s per user, 8B at 30 req/60s. Prevents expensive model abuse without blocking cheap ones.
+
+### Admin / Observability
+- **Admin audit log** — new `AuditLog` model: `id, admin_user_id, action (str), target_user_id, detail (JSONB), created_at`. Record every `PATCH /admin/users/{id}/active` and `PATCH /admin/users/{id}/cost-limit`. `GET /admin/audit?limit=` returns recent entries. Currently zero traceability on admin actions.
+- **Rolling cost window** — add `cost_window_start` (DateTime) to `User`. `_check_cost_cap` sums only messages after that date. `PATCH /admin/users/{id}/cost-limit` accepts optional `reset_window: bool` to restart the window. More practical than all-time spend.
+- **Conversation export** — `GET /conversations/{id}/export?format=markdown|json` — streams the full message history. Markdown: each message as `**User:**` / `**AI:**` blocks. JSON: array of `{role, content, created_at, tokens}`. No new model needed; query existing `Message` rows.
