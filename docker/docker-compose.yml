@@ -101,10 +101,14 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_UNIFIED_ALERTING_ENABLED: "false"
       GF_FEATURE_TOGGLES_ENABLE: ""
+      POSTGRES_USER: ${POSTGRES_USER:-scylla}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scylla}
+      POSTGRES_DB: ${POSTGRES_DB:-nimrouter}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning
     depends_on:
       - prometheus
+      - postgres
     restart: unless-stopped
     networks:
       - backend

@@ -1,11 +1,12 @@
 import asyncio
+import json as _json
 import logging
 import re
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -236,6 +237,67 @@ async def get_file_status(
     if not f or f.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Not found")
     return {"id": str(f.id), "status": f.upload_status}
+
+
+@router.get("/{file_id}/status/stream")
+async def stream_file_status(
+    file_id:      str,
+    request:      Request,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    try:
+        fid = uuid.UUID(file_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+    f = await db.get(FileModel, fid)
+    if not f or f.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    async def status_events():
+        last_status = None
+        last_pct    = None
+        pkey        = f"proc_progress:{fid}"
+        redis = None
+        try:
+            from core.redis_client import get_redis
+            redis = get_redis()
+        except Exception:
+            pass
+
+        try:
+            while True:
+                db.expire(f)
+                await db.refresh(f)
+                status = f.upload_status
+
+                pct = None
+                if status == "processing" and redis:
+                    try:
+                        val = await redis.get(pkey)
+                        pct = float(val) if val else None
+                    except Exception:
+                        redis = None
+
+                if status != last_status or pct != last_pct:
+                    last_status = status
+                    last_pct    = pct
+                    data = {"id": str(fid), "status": status}
+                    if pct is not None:
+                        data["progress"] = pct
+                    yield f"data: {_json.dumps(data)}\n\n"
+
+                if status in ("ready", "error"):
+                    break
+                await asyncio.sleep(0.8)
+        except asyncio.CancelledError:
+            pass
+
+    return StreamingResponse(
+        status_events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/{file_id}/download")

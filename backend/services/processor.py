@@ -10,8 +10,9 @@ from observability.file_metrics import record_chunks
 
 logger = logging.getLogger("processor")
 
-CHUNK_SIZE    = 1800   # ~450 tokens
+CHUNK_SIZE    = 1600
 CHUNK_OVERLAP = 200
+_PROGRESS_TTL = 300  # Redis key TTL in seconds
 
 
 def extract_text(storage_path: str, mime_type: str) -> str:
@@ -27,7 +28,12 @@ def extract_text(storage_path: str, mime_type: str) -> str:
     ) or path.suffix.lower() in (".docx", ".doc"):
         return _extract_docx(path)
 
-    # plain text, code, markdown, etc.
+    if mt in (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+    ) or path.suffix.lower() in (".xlsx", ".xls"):
+        return _extract_excel(path)
+
     try:
         return path.read_text(encoding="utf-8", errors="replace")
     except Exception as e:
@@ -51,8 +57,31 @@ def _extract_pdf(path: Path) -> str:
 def _extract_docx(path: Path) -> str:
     try:
         from docx import Document
-        doc = Document(str(path))
-        return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        doc   = Document(str(path))
+        parts = []
+
+        for p in doc.paragraphs:
+            if p.text.strip():
+                parts.append(p.text)
+
+        for table in doc.tables:
+            rows = []
+            for i, row in enumerate(table.rows):
+                seen: set[int] = set()
+                cells = []
+                for cell in row.cells:
+                    tc_id = id(cell._tc)
+                    if tc_id not in seen:
+                        seen.add(tc_id)
+                        cells.append(cell.text.replace("\n", " ").strip())
+                if cells:
+                    rows.append(" | ".join(cells))
+                    if i == 0:
+                        rows.append(" | ".join(["---"] * len(cells)))
+            if rows:
+                parts.append("\n".join(rows))
+
+        return "\n\n".join(parts)
     except ImportError:
         logger.warning("[processor] python-docx not installed")
         return ""
@@ -61,27 +90,92 @@ def _extract_docx(path: Path) -> str:
         return ""
 
 
+def _extract_excel(path: Path) -> str:
+    try:
+        import openpyxl
+        wb    = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
+        parts = []
+        for sheet in wb.worksheets:
+            rows = []
+            for i, row in enumerate(sheet.iter_rows(values_only=True)):
+                cells = [str(c) if c is not None else "" for c in row]
+                if any(c.strip() for c in cells):
+                    rows.append(" | ".join(cells))
+                    if i == 0:
+                        rows.append(" | ".join(["---"] * len(cells)))
+            if rows:
+                parts.append(f"## Sheet: {sheet.title}\n\n" + "\n".join(rows))
+        wb.close()
+        return "\n\n".join(parts)
+    except ImportError:
+        logger.warning("[processor] openpyxl not installed")
+        return ""
+    except Exception as e:
+        logger.warning("[processor] excel failed path=%s err=%s", path, e)
+        return ""
+
+
+def _split_semantic(text: str) -> list[str]:
+    """Paragraph → sentence → word split into atomic units ≤ CHUNK_SIZE."""
+    units: list[str] = []
+    for para in re.split(r"\n{2,}", text):
+        para = para.strip()
+        if not para:
+            continue
+        if len(para) <= CHUNK_SIZE:
+            units.append(para)
+            continue
+        for sent in re.split(r"(?<=[.!?])\s+", para):
+            sent = sent.strip()
+            if not sent:
+                continue
+            if len(sent) <= CHUNK_SIZE:
+                units.append(sent)
+                continue
+            buf: list[str] = []
+            buf_len = 0
+            for word in sent.split():
+                if buf_len + len(word) + 1 > CHUNK_SIZE and buf:
+                    units.append(" ".join(buf))
+                    buf, buf_len = [], 0
+                buf.append(word)
+                buf_len += len(word) + 1
+            if buf:
+                units.append(" ".join(buf))
+    return units
+
+
+def _merge_with_overlap(units: list[str], size: int, overlap: int) -> list[str]:
+    """Greedily merge atomic units into chunks with sentence-aligned overlap tail."""
+    chunks: list[str] = []
+    buf: list[str]    = []
+    buf_len           = 0
+
+    for unit in units:
+        sep = 1 if buf else 0
+        if buf and buf_len + sep + len(unit) > size:
+            chunk = "\n".join(buf)
+            chunks.append(chunk)
+            tail = chunk[-overlap:] if len(chunk) > overlap else chunk
+            m    = re.search(r"(?<=[.!?\n])\s*\S", tail)
+            tail = tail[m.start():].strip() if m else tail.strip()
+            buf     = [tail] if tail else []
+            buf_len = len(tail)
+        buf.append(unit)
+        buf_len += sep + len(unit)
+
+    if buf:
+        chunk = "\n".join(buf).strip()
+        if chunk:
+            chunks.append(chunk)
+
+    return chunks
+
+
 def chunk_text(text: str) -> list[str]:
     if not text.strip():
         return []
-    chunks = []
-    start  = 0
-    while start < len(text):
-        end = min(start + CHUNK_SIZE, len(text))
-        if end < len(text):
-            for sep in ["\n\n", "\n", ". ", " "]:
-                idx = text.rfind(sep, start + CHUNK_SIZE // 2, end)
-                if idx > 0:
-                    end = idx + len(sep)
-                    break
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        next_start = end - CHUNK_OVERLAP
-        if next_start <= start:
-            break
-        start = next_start
-    return chunks
+    return _merge_with_overlap(_split_semantic(text), CHUNK_SIZE, CHUNK_OVERLAP)
 
 
 async def extract_url_text(url: str) -> tuple[str, str]:
@@ -140,8 +234,17 @@ async def _process(db, file_id: uuid.UUID, storage_path: str, mime_type: str) ->
         logger.warning("[processor] empty text file_id=%s", file_id)
         return
 
-    chunks  = chunk_text(text)
-    saved   = 0
+    chunks = chunk_text(text)
+    total  = len(chunks)
+    saved  = 0
+    pkey   = f"proc_progress:{file_id}"
+
+    from core.redis_client import get_redis
+    redis = None
+    try:
+        redis = get_redis()
+    except Exception:
+        pass
 
     for i, chunk in enumerate(chunks):
         emb = await embed(chunk, input_type="passage")
@@ -155,7 +258,19 @@ async def _process(db, file_id: uuid.UUID, storage_path: str, mime_type: str) ->
             ))
             saved += 1
 
+        if redis and total > 0:
+            try:
+                await redis.setex(pkey, _PROGRESS_TTL, str(round((i + 1) / total, 3)))
+            except Exception:
+                redis = None
+
     row.upload_status = "ready"
     await db.commit()
     record_chunks(saved)
-    logger.info("[processor] done file_id=%s chunks=%d/%d", file_id, saved, len(chunks))
+    logger.info("[processor] done file_id=%s chunks=%d/%d", file_id, saved, total)
+
+    if redis:
+        try:
+            await redis.delete(pkey)
+        except Exception:
+            pass

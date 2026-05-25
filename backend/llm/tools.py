@@ -1,10 +1,11 @@
+import asyncio
 import logging
 import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import ConversationFile, File as FileModel
+from models import ConversationFile, File as FileModel, ToolCallLog
 from services.file_service import append_content, patch_content, write_content
 from storage.storage_manager import StorageManager
 from llm.embeddings import embed
@@ -13,6 +14,7 @@ from llm.retriever import retrieve_from_files
 logger = logging.getLogger("tools")
 
 MAX_FILE_READ = 100_000
+ASK_USER_PREFIX = "__ASK_USER__:"
 
 TOOL_SCHEMAS = [
     {
@@ -113,6 +115,39 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_across_files",
+            "description": "Semantic search across ALL files attached to the conversation at once. Use when you don't know which file contains the information, or when synthesizing across multiple files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query."},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "description": (
+                "Ask the user a clarifying question before proceeding with a destructive operation "
+                "(write_file, patch_file, create_file). Use when the user's intent is ambiguous or "
+                "the edit could cause irreversible data loss. Calling this tool ends the current "
+                "operation — the user's reply will be the next message."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "The clarifying question to ask the user."},
+                },
+                "required": ["question"],
+            },
+        },
+    },
 ]
 
 
@@ -123,25 +158,44 @@ async def execute_tool(
     user_id: int,
     conv_id: uuid.UUID,
 ) -> str:
+    result = f"Unknown tool: {name}"
     try:
         if name == "list_files":
-            return await _list_files(db, conv_id)
-        if name == "read_file":
-            return await _read_file(db, user_id, uuid.UUID(args["file_id"]))
-        if name == "write_file":
-            return await _write_file(db, user_id, uuid.UUID(args["file_id"]), args["content"])
-        if name == "create_file":
-            return await _create_file(db, user_id, conv_id, args["name"], args["content"])
-        if name == "append_to_file":
-            return await _append_to_file(db, user_id, uuid.UUID(args["file_id"]), args["content"])
-        if name == "patch_file":
-            return await _patch_file(db, user_id, uuid.UUID(args["file_id"]), args["old_text"], args["new_text"])
-        if name == "search_in_file":
-            return await _search_in_file(db, user_id, uuid.UUID(args["file_id"]), args["query"])
-        return f"Unknown tool: {name}"
+            result = await _list_files(db, conv_id)
+        elif name == "read_file":
+            result = await _read_file(db, user_id, uuid.UUID(args["file_id"]))
+        elif name == "write_file":
+            result = await _write_file(db, user_id, uuid.UUID(args["file_id"]), args["content"])
+        elif name == "create_file":
+            result = await _create_file(db, user_id, conv_id, args["name"], args["content"])
+        elif name == "append_to_file":
+            result = await _append_to_file(db, user_id, uuid.UUID(args["file_id"]), args["content"])
+        elif name == "patch_file":
+            result = await _patch_file(db, user_id, uuid.UUID(args["file_id"]), args["old_text"], args["new_text"])
+        elif name == "search_in_file":
+            result = await _search_in_file(db, user_id, uuid.UUID(args["file_id"]), args["query"])
+        elif name == "search_across_files":
+            result = await _search_across_files(db, conv_id, args["query"])
+        elif name == "ask_user":
+            result = f"{ASK_USER_PREFIX}{args.get('question', '')}"
     except Exception as e:
         logger.warning("[tools] execute_tool failed name=%s err=%s", name, e)
-        return f"Error: {e}"
+        result = f"Error: {e}"
+
+    try:
+        preview = result if result.startswith(ASK_USER_PREFIX) else result[:500]
+        db.add(ToolCallLog(
+            user_id=user_id,
+            conversation_id=conv_id,
+            tool_name=name,
+            args=args,
+            result_preview=preview,
+        ))
+        await db.flush()
+    except Exception:
+        pass
+
+    return result
 
 
 async def _list_files(db: AsyncSession, conv_id: uuid.UUID) -> str:
@@ -189,6 +243,7 @@ async def _create_file(
     name:    str,
     content: str,
 ) -> str:
+    from services.processor import process_file_async
     storage = StorageManager()
     try:
         storage_path, size_bytes = await storage.save_text(content, name[:80])
@@ -242,4 +297,21 @@ async def _search_in_file(
     if not chunks:
         return "No matching content found in this file."
     logger.info("[tools] search_in_file file_id=%s query=%r chunks=%d", file_id, query[:50], len(chunks))
+    return "\n\n---\n\n".join(chunks)
+
+
+async def _search_across_files(db: AsyncSession, conv_id: uuid.UUID, query: str) -> str:
+    result = await db.execute(
+        select(ConversationFile.file_id).where(ConversationFile.conversation_id == conv_id)
+    )
+    file_ids = list(result.scalars().all())
+    if not file_ids:
+        return "No files attached to this conversation."
+    query_emb = await embed(query, input_type="query")
+    if not query_emb:
+        return "Error: could not embed query (embedding API unavailable)."
+    chunks = await retrieve_from_files(db, query_emb, file_ids, top_k=10)
+    if not chunks:
+        return "No matching content found across attached files."
+    logger.info("[tools] search_across_files conv=%s query=%r chunks=%d", conv_id, query[:50], len(chunks))
     return "\n\n---\n\n".join(chunks)
