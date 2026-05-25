@@ -20,21 +20,25 @@ def build_context_messages(
     memory_enabled:   bool,
     system_prompt:    str | None   = None,
     file_chunks:      list[str]    = (),
+    file_names:       list[str]    = (),
 ) -> list[dict]:
     messages = []
-    if system_prompt:
+
+    # System prompt — append file notice if files attached
+    if file_names:
+        names_str   = ", ".join(file_names)
+        file_notice = f"The user has attached these files: {names_str}. Answer using their content directly when relevant."
+        base        = system_prompt.rstrip() + "\n\n" + file_notice if system_prompt else file_notice
+        messages.append({"role": "system", "content": base})
+    elif system_prompt:
         messages.append({"role": "system", "content": system_prompt})
+
     if memory_enabled:
         if memory_sheet:
             messages.append({"role": "system",    "content": f"[USER STATE]\n{memory_sheet}"})
         if project_summary:
             messages.append({"role": "user",      "content": f"[PROJECT STATE]\n{project_summary}"})
             messages.append({"role": "assistant", "content": "Understood."})
-    if file_chunks:
-        joined = "\n\n---\n\n".join(file_chunks)
-        messages.append({"role": "user",      "content": f"[FILE CONTEXT]\n{joined}"})
-        messages.append({"role": "assistant", "content": "Understood, I will reference these documents."})
-    if memory_enabled:
         if retrieved_chunks:
             chunks_text = "\n\n".join(retrieved_chunks)
             messages.append({"role": "user",      "content": f"[RELEVANT CONTEXT FROM EARLIER]\n{chunks_text}"})
@@ -42,7 +46,15 @@ def build_context_messages(
         if history_summary:
             messages.append({"role": "user",      "content": f"[EARLIER IN THIS CONVERSATION]\n{history_summary}"})
             messages.append({"role": "assistant", "content": "Understood."})
+
     messages += history
+
+    # FILE CONTEXT last — right before user message for maximum model attention
+    if file_chunks:
+        joined = "\n\n---\n\n".join(file_chunks)
+        messages.append({"role": "user",      "content": f"[FILE CONTEXT]\n{joined}"})
+        messages.append({"role": "assistant", "content": "Understood, I will reference these documents in my response."})
+
     return messages
 
 
@@ -119,6 +131,7 @@ async def generate_stream(
     model_params:     dict | None  = None,
     system_prompt:    str | None   = None,
     file_chunks:      list[str]    = (),
+    file_names:       list[str]    = (),
 ):
     use_cache = not history and not model_override and not model_params and not system_prompt and not file_chunks
 
@@ -137,7 +150,7 @@ async def generate_stream(
 
     messages = build_context_messages(
         memory_sheet, project_summary, retrieved_chunks, history_summary,
-        history, memory_enabled, system_prompt, file_chunks,
+        history, memory_enabled, system_prompt, file_chunks, file_names,
     ) + [{"role": "user", "content": message}]
 
     for idx, current_model in enumerate(fallback_chain):

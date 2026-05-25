@@ -366,8 +366,9 @@ async def chat_stream(
 
     # ── file-grounded context ─────────────────────────────────────────────────
     file_chunks: list[str] = []
+    file_names:  list[str] = []
     if req.conversation_id:
-        file_ids = await retriever.get_conversation_file_ids(db, conv.id)
+        file_ids, file_names = await retriever.get_conversation_files(db, conv.id)
         if file_ids:
             if query_emb:
                 file_chunks = await retriever.retrieve_from_files(db, query_emb, file_ids, top_k=5)
@@ -387,7 +388,7 @@ async def chat_stream(
         await db.commit()  # persist new conversation if one was created
         common = service.build_context_messages(
             memory_sheet, project_summary, retrieved, history_summary,
-            history, memory_enabled, system_prompt, file_chunks,
+            history, memory_enabled, system_prompt, file_chunks, file_names,
         )
         t_cmp = metrics.record_request_start()
 
@@ -431,7 +432,7 @@ async def chat_stream(
                 req.message, history, memory_sheet, project_summary, history_summary, retrieved, rid,
                 memory_enabled=memory_enabled, model_override=effective_model,
                 model_params=model_params, system_prompt=system_prompt,
-                file_chunks=file_chunks,
+                file_chunks=file_chunks, file_names=file_names,
             ):
                 if event["type"] == "token":
                     accumulated.append(event["content"])

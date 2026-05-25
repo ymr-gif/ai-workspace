@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import AsyncSessionLocal
-from models import Conversation, ConversationFile, FileChunk, MessageEmbedding
+from models import Conversation, ConversationFile, File as FileModel, FileChunk, MessageEmbedding
 
 logger = logging.getLogger("retriever")
 
@@ -173,3 +173,25 @@ async def get_conversation_file_ids(
     except Exception as e:
         logger.warning("[retriever] get_conversation_file_ids failed err=%s", e)
         return []
+
+
+async def get_conversation_files(
+    db:      AsyncSession,
+    conv_id: uuid.UUID,
+) -> tuple[list[uuid.UUID], list[str]]:
+    """Returns (file_ids, filenames) for files attached to this conversation."""
+    try:
+        result = await db.execute(
+            select(FileModel.id, FileModel.filename)
+            .join(ConversationFile, ConversationFile.file_id == FileModel.id)
+            .where(ConversationFile.conversation_id == conv_id)
+        )
+        rows = result.all()
+        ids   = [r.id       for r in rows]
+        names = [r.filename for r in rows]
+        if ids:
+            logger.info("[retriever] conv=%s attached_files=%d names=%s", conv_id, len(ids), names)
+        return ids, names
+    except Exception as e:
+        logger.warning("[retriever] get_conversation_files failed err=%s", e)
+        return [], []
