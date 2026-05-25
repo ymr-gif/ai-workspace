@@ -138,12 +138,14 @@ ai-api/
 │   │   │                          _embed_exchange(), _resolve_conversation(),
 │   │   │                          _build_stream_context(), _extract_model_params()
 │   │   │                          On "done": calculates prompt/completion tokens, cost_usd,
-│   │   │                          saves to Message, fires record_tokens()
+│   │   │                          saves to Message, fires record_tokens(), injects token
+│   │   │                          fields into SSE "done" event for frontend immediate display
 │   │   ├── files.py            ← all file routes + SSE status stream
 │   │   │                          GET /{id}/status/stream — SSE; polls DB + Redis every 0.8s,
 │   │   │                          pushes {id, status, progress?} events, terminates on ready/error
 │   │   │                          progress (0.0–1.0) from Redis key proc_progress:{file_id}
-│   │   ├── conversations.py    ← conversation routes
+│   │   ├── conversations.py    ← conversation routes; messages endpoint returns token fields
+│   │   │                          (prompt_tokens, completion_tokens, total_tokens, cost_usd)
 │   │   ├── memory.py           ← memory routes
 │   │   ├── system.py           ← /health, /metrics + ResponseMeta/SuccessResponse/ErrorResponse
 │   │   ├── tool_logs.py        ← GET /tool-calls?limit=&conversation_id= — ToolCallLog query
@@ -194,7 +196,10 @@ ai-api/
 │   │                              Usage: ./backup.sh  Restore: gunzip -c <file>.sql.gz | docker compose exec -T postgres psql ...
 │   ├── prometheus.yml
 │   └── grafana/provisioning/
-│       ├── datasources/prometheus.yml
+│       ├── datasources/
+│       │   ├── prometheus.yml    ← Prometheus datasource (uid: prometheus)
+│       │   └── postgres.yml      ← PostgreSQL datasource (uid: postgres); reads POSTGRES_USER/PASSWORD/DB
+│       │                            from Grafana container env; used by stat panels 19-22 for persistent totals
 │       └── dashboards/
 │           ├── dashboard.yml
 │           └── nim-gateway.json  ← 24-panel dashboard
@@ -452,7 +457,16 @@ NOTE: FILE CONTEXT is placed last (right before user message) intentionally — 
 - `file_tool_calls_total` Counter with label `tool` — incremented in file_service.py per operation
 
 ### Grafana Dashboard (`docker/grafana/provisioning/dashboards/nim-gateway.json`)
-24 panels total:
+24 panels total. Two datasources intentionally split:
+- **Prometheus** (`uid: prometheus`) — rate/timeseries panels; ephemeral (resets on restart)
+- **PostgreSQL** (`uid: postgres`) — total/aggregate stat panels; persistent, matches frontend
+
+| Panels | Datasource | Why |
+|--------|-----------|-----|
+| 1-17, 23-24 | Prometheus | Rate queries, time series, needs scrape history |
+| 19-22 | PostgreSQL | All-time totals — must survive container restarts |
+
+Panel layout:
 - Panels 1-4: stat row (requests, success rate, cache hit rate, errors)
 - Panels 5-6: request rate timeseries, latency p50/p95/p99
 - Panels 7-8: model usage rate, model latency p50
@@ -462,9 +476,9 @@ NOTE: FILE CONTEXT is placed last (right before user message) intentionally — 
 - Panel 16: file uploads/deletes/chunks rate per minute timeseries
 - Panel 17: AI tool calls by tool name timeseries
 - Panel 18: row divider "Token Usage & Cost"
-- Panels 19-22: stat row (prompt tokens total, completion tokens total, total tokens, estimated cost USD)
-- Panel 23: token usage by model timeseries (prompt + completion rate/min per model)
-- Panel 24: estimated cost by model timeseries ($/hr per model)
+- Panels 19-22: stat row (prompt tokens total, completion tokens total, total tokens, cost USD) — **PostgreSQL**
+- Panel 23: token usage by model timeseries (prompt + completion rate/min) — Prometheus
+- Panel 24: estimated cost by model timeseries ($/hr) — Prometheus
 
 ### Frontend Files Panel (`Chat.jsx`)
 - 📎 button in header — amber + count when files attached
@@ -500,6 +514,10 @@ NOTE: FILE CONTEXT is placed last (right before user message) intentionally — 
 - Compare mode: same streaming/done split per model card
 - 🔧 Log button → tool call history panel (slide-in, filter by conv or all)
 - `ask_user` event → amber clarification card in AI bubble ("NEEDS CLARIFICATION")
+- Per-bubble token display: `{totalTokens} tok · $x.xxxxx` shown below model tag when done
+  - Live (streaming): tokens from SSE "done" event; loaded (history): from messages endpoint
+- `$ Usage` button in header → slide-in panel showing aggregate `/api/usage` data:
+  - Messages, prompt tokens, output tokens, total tokens, estimated cost; refresh button
 
 ### Tool Log Panel
 - State: `toolLogOpen`, `toolLogs`, `toolLogsLoading`
@@ -639,8 +657,61 @@ Rates in $/1M tokens — verify at build.nvidia.com/explore/llm:
 - `_needs_file_tools` is keyword-based — may miss implicit file requests (e.g. "look at my notes")
 - Token counts on existing messages (pre-migration 011) are NULL — only new messages have data
 - Token pricing hardcoded in `config.py:MODEL_PRICING` — verify rates at build.nvidia.com/explore/llm
+- Token estimates use chars÷4 (rough); real counts require tiktoken or NIM usage field
 - Processing progress (Redis `proc_progress:*`) shows 0.0 briefly before first chunk embeds
 - DOCX table extraction appends tables after all paragraphs (not interleaved by document order)
+- Prometheus counters reset on container restart — rate panels (23-24) lose history; stat panels (19-22) are unaffected (PostgreSQL)
+- `$ Usage` panel shows current user only; no admin view in frontend (admin must use `/admin/users` API directly)
+
+---
+
+## Possible Next Features
+
+Suggestions only — not committed. Ask for specs before implementing any.
+
+### UX / Frontend
+- **Conversation search** — sidebar filter by title/keyword; backend `GET /conversations?q=`
+- **Message editing** — resend user message with edited content; truncate conversation to that point
+- **Conversation export** — download as markdown or JSON; `GET /conversations/{id}/export`
+- **Drag-and-drop upload** — drop files anywhere on chat area (no panel required)
+- **Keyboard shortcuts** — `Ctrl+Enter` to send, `Ctrl+K` to search convs, `Esc` to close panels
+- **Mobile layout** — sidebar collapses to hamburger; input bar stacks vertically
+- **Cost budget alerts** — user-configurable cap; toast warning + optional hard block when exceeded
+- **Notification on memory update** — subtle flash or badge when background memory write completes
+- **Admin frontend panel** — table of users + usage + enable/disable toggle; currently API-only
+
+### RAG / Memory
+- **Real token counting** — replace chars÷4 with `tiktoken` or NIM's usage field from API response
+- **Hybrid search (BM25 + vector)** — full-text fallback when vector similarity is low; needs `pg_trgm` or `tsvector`
+- **File deduplication** — SHA256 before storage; skip re-embed if hash exists
+- **Re-embed on model change** — if `MODEL_EMBEDDING` changes, old chunks are stale; migration tool needed
+- **Per-conversation memory** — separate memory sheet per conversation, not just per user
+- **Graph memory** — entities + relationships extracted from conversations; richer than flat key-value
+
+### Token / Cost
+- **Per-user cost caps** — `User.cost_limit_usd`; check on every request, return 402 when exceeded
+- **Budget dashboard** — Grafana panels per user (needs PostgreSQL queries with user_id group-by)
+- **Monthly rollup** — aggregate table for historical cost analysis beyond Prometheus window
+
+### Observability / Admin
+- **User activity timeline** — admin view: last N messages per user with timestamps + models
+- **Memory system metrics** — Prometheus counters for memory updates, cache hits/misses on RAG
+- **Grafana alerts** — alert rules on error rate >5%, latency p95 >10s, cost spike
+- **Usage CSV export** — `GET /admin/export/usage.csv`; admin-only
+
+### Infrastructure / Reliability
+- **Real token counts from NIM** — parse `usage` field from non-streaming response; streaming requires accumulation
+- **pgBouncer** — connection pooling for high-concurrency deployments
+- **Prometheus remote write** — persist metrics across restarts; heavy but fixes rate panel reset issue
+- **Health check improvements** — `/health` currently minimal; add NIM API ping, embedding ping, Redis ping
+- **Automated backup verification** — weekly restore test to temp DB; alert on failure
+
+### Security (lowest priority — system is home/LAN-deployed)
+- **Per-endpoint rate limits** — currently only `/chat` is limited; `/files/upload` and `/files/ingest-url` unprotected
+- **Prompt injection detection** — heuristic or classifier before passing user input to model
+- **API key auth** — alternative to JWT for programmatic/script access; `User.api_key` column
+- **CORS lockdown** — currently open; restrict to known frontend origin in production
+- **OpenAI-compatible endpoint** — `POST /v1/chat/completions` wrapper for tool compatibility
 
 ---
 
