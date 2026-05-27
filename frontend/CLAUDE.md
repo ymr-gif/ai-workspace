@@ -5,6 +5,7 @@
 - `react-markdown` + `remark-gfm` installed
 - `src/App.jsx` — login form, JWT in localStorage as `nim_token`
 - `src/components/Chat.jsx` — full UI
+- **All fetch calls must use `/api/` prefix** — bare paths (e.g. `/auth/me`) bypass the proxy and 404 silently
 
 ## Chat.jsx — Key Features
 - AI responses: streaming → raw `<p>` + blinking cursor; done → `<ReactMarkdown>` in `.md-body`
