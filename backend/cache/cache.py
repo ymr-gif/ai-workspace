@@ -23,8 +23,14 @@ def _redis():
         return None
 
 
-async def get_cached_response(message: str) -> Optional[dict]:
-    key   = make_key(message)
+async def get_cached_response(
+    message: str,
+    *,
+    model: str = "",
+    history_tail: str = "",
+    system_prompt: str = "",
+) -> Optional[dict]:
+    key   = make_key(message, model=model, history_tail=history_tail, system_prompt=system_prompt)
     redis = _redis()
 
     if redis:
@@ -46,8 +52,16 @@ async def get_cached_response(message: str) -> Optional[dict]:
     return result
 
 
-async def set_cached_response(message: str, response: dict, ttl: int = 3600) -> None:
-    key     = make_key(message)
+async def set_cached_response(
+    message: str,
+    response: dict,
+    ttl: int = 3600,
+    *,
+    model: str = "",
+    history_tail: str = "",
+    system_prompt: str = "",
+) -> None:
+    key     = make_key(message, model=model, history_tail=history_tail, system_prompt=system_prompt)
     payload = {
         "response":  response.get("response"),
         "model":     response.get("model"),

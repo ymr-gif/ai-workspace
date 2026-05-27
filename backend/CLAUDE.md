@@ -8,12 +8,14 @@ backend/
 ├── models.py               ← ORM: User, File, FileChunk, FileVersion, Conversation, Message,
 │                              UserMemory, MessageEmbedding, UserMemoryVersion, ConversationFile,
 │                              ToolCallLog, PromptTemplate, ScheduledPrompt, ScheduledPromptRun,
-│                              Workspace, WorkspaceMemory, Invitation
+│                              Workspace, WorkspaceMemory, Invitation, UserInsight, AdminAuditLog
 │                              Conversation.workspace_id UUID FK → workspaces SET NULL
 │                              File.workspace_id UUID FK → workspaces SET NULL  (was String 64)
 │                              Message.content_tsv tsvector GENERATED (GIN indexed) — full-text search
-│                              User: is_active, cost_limit_usd (NULL = no cap)
+│                              User: is_active, cost_limit_usd (NULL = no cap), cost_window_days (NULL = all-time), api_key
 │                              File: sha256_hash (String 64, nullable, indexed) — dedup key
+│                              UserInsight: id UUID, user_id, content, is_read, created_at
+│                              AdminAuditLog: id UUID, admin_id, action (str64), target_user_id, detail JSONB, created_at
 ├── create_user.py          ← seeds admin/user accounts
 ├── alembic/versions/
 │   ├── 001–007             ← conversations, memory, embeddings, project summary, versioning, model control
@@ -30,7 +32,11 @@ backend/
 │   ├── 018_workspaces.py      ← workspaces table; files.workspace_id String→UUID FK; conversations.workspace_id
 │   ├── 019_workspace_memory.py ← workspace_memory table (1:1 with workspaces)
 │   ├── 020_message_search.py  ← messages.content_tsv GENERATED tsvector + GIN index
-│   └── 021_invitations.py     ← invitations table (token, created_by, used_by, expires_at)
+│   ├── 021_invitations.py     ← invitations table (token, created_by, used_by, expires_at)
+│   ├── 022_api_key.py         ← api_key (String 64, unique, nullable) + index on users
+│   ├── 023_user_insights.py   ← user_insights table
+│   ├── 024_admin_audit_log.py ← admin_audit_logs table (4 indexes)
+│   └── 025_cost_window.py     ← cost_window_days (Integer, nullable) on users
 ├── auth/
 │   ├── router.py           ← /auth/token, /register (+ invite token validation + Default workspace creation), /me
 │   ├── invites.py          ← /auth/invite (admin: generate token), /auth/invites (admin: list)
@@ -64,7 +70,9 @@ backend/
 │                              _update_memory() also calls _update_workspace_memory() after UserMemory update
 ├── cache/
 │   ├── cache.py            ← Redis primary + in-memory LRU fallback
-│   ├── keys.py             ← normalize(), make_key() → SHA256 hex
+│   │                          get/set accept model, history_tail, system_prompt kwargs → context-aware key
+│   ├── keys.py             ← normalize(), make_key(message, *, model, history_tail, system_prompt) → SHA256 hex
+│   │                          CACHE_VERSION="v2"; all 4 fields hashed; old v1 keys ignored naturally
 │   └── memory.py           ← OrderedDict LRU, max 1000 entries
 ├── core/
 │   ├── db.py               ← engine, get_db, init_db
@@ -72,9 +80,12 @@ backend/
 │   │                          connect_args={"prepared_statement_cache_size": 0}
 │   │                          (pgBouncer transaction mode — prepared stmts can't cross connections)
 │   ├── redis_client.py     ← singleton async Redis
+│   ├── arq_pool.py         ← singleton ARQ job pool; init_arq_pool() called in main.py lifespan
 │   └── logger.py           ← setup_logging(), JSON or plain formatter
 ├── rate_limiter/
 │   └── rate_limiter.py     ← Redis sliding-window, fail-open; limit(n, window, key) dependency
+│                              check_model_rate(full_model_name, username) — imperative per-model limit
+│                              key: rate:model:{key}:user:{username}; fails open on Redis error
 ├── observability/
 │   ├── prom_metrics.py     ← all Prometheus counters/histograms
 │   ├── metrics.py          ← record_* wrappers
@@ -90,8 +101,10 @@ backend/
 │   │   ├── helpers.py      ← _resolve_model, _estimate_tokens, _embed_exchange, _auto_title,
 │   │   │                      _resolve_conversation (assigns workspace; falls back to Default),
 │   │   │                      _build_stream_context (loads WorkspaceMemory + workspace system_prompt),
-│   │   │                      _check_cost_cap, _extract_model_params, _calculate_tokens_and_cost
-│   │   └── router.py       ← /chat + /chat/stream; auto-title after 2nd message; workspace system_prompt merge
+│   │   │                      _check_cost_cap (rolling window via cost_window_days; label in error),
+│   │   │                      _extract_model_params, _calculate_tokens_and_cost
+│   │   └── router.py       ← /chat + /chat/stream; calls check_model_rate() after effective_model resolved
+│   │                          auto-title after 2nd message; workspace system_prompt merge
 │   ├── workspaces.py       ← full workspace CRUD + memory routes (prefix /workspaces)
 │   │                          POST /workspaces, GET /workspaces (+ conv/file counts),
 │   │                          GET/PATCH/DELETE /{id}, GET /{id}/conversations, GET /{id}/files,
@@ -110,16 +123,23 @@ backend/
 │   ├── memory.py           ← memory routes
 │   ├── system.py           ← /health (pings NIM, embedding, Redis concurrently), /metrics
 │   ├── tool_logs.py        ← GET /tool-calls?limit=&conversation_id=
-│   ├── admin.py            ← require_role("admin"); users CRUD, usage, cost-limit
+│   ├── admin.py            ← require_role("admin"); users CRUD, usage, cost-limit, audit-log
+│   │                          _audit(db, admin, action, target_user_id, detail) — written in same commit
+│   │                          Actions logged: user.active.enabled/disabled, user.cost_limit.set/removed
+│   │                          CostLimitRequest: cost_limit_usd + cost_window_days (default 30, None=all-time)
+│   │                          GET /admin/audit-log?limit&offset&action&target_user_id
 │   ├── templates.py        ← CRUD for prompt templates + /apply/{conversation_id}
 │   ├── scheduled_prompts.py ← CRUD + run history + manual trigger
 │   └── usage.py            ← GET /usage, GET /usage/history
 ├── services/
 │   ├── processor.py        ← extract_text(), chunk_text(), process_file_async()
+│   │                          process_file_async(): enqueues ARQ job if pool available; inline fallback
 │   │                          Semantic chunker: paragraph → sentence → word split
 │   │                          CHUNK_SIZE=1600, OVERLAP=200; tail sentence-aligned via regex
 │   │                          asyncio.gather(*[embed(c) for c in chunks]) — concurrent embedding
 │   │                          Redis proc_progress:{file_id} (0.0→1.0); deleted on completion
+│   ├── arq_worker.py       ← ARQ WorkerSettings + process_file_job()
+│   │                          max_tries=4; retries at 5s, 30s, 120s; marks error on final failure
 │   ├── file_service.py     ← write_content, append_content, patch_content, restore_version
 │   │                          _fuzzy_replace: exact → normalized \r\n → stripped edges (3-pass)
 │   │                          save_version() called before every mutation
@@ -148,11 +168,15 @@ backend/
 | GET | `/metrics` | none | Prometheus export |
 | POST | `/auth/token` | none | login → JWT |
 | POST | `/auth/register` | none | register user |
-| GET | `/auth/me` | JWT | current user |
+| GET | `/auth/me` | JWT | current user (includes `has_api_key`) |
+| POST | `/auth/me/api-key` | JWT | generate API key |
+| DELETE | `/auth/me/api-key` | JWT | revoke API key |
+| POST | `/v1/chat/completions` | JWT or API key | OpenAI-compatible chat (streaming + non-streaming) |
 | POST | `/files/upload` | JWT | upload → background process |
 | GET | `/files` | JWT | list (?workspace_id=) |
 | DELETE | `/files/{id}` | JWT | delete file + chunks + disk |
 | POST | `/files/ingest-url` | JWT | fetch URL → chunk+embed |
+| GET | `/files/search` | JWT | `?q=&workspace_id=&top_k=` hybrid file search → [{file_id, filename, chunk}] |
 | GET | `/files/workspaces` | JWT | workspace list [{id,name}] for files panel |
 | PATCH | `/files/{id}/workspace` | JWT | assign workspace (UUID) |
 | GET | `/files/{id}/content` | JWT | full text |
@@ -186,10 +210,11 @@ backend/
 | GET | `/tool-calls` | JWT | ToolCallLog; ?limit=&conversation_id= |
 | GET | `/usage` | JWT | own aggregate |
 | GET | `/usage/history` | JWT | per-conversation (last 50) |
-| GET | `/admin/users` | JWT (admin) | all users + usage |
+| GET | `/admin/users` | JWT (admin) | all users + usage (includes cost_window_days) |
 | GET | `/admin/users/{id}/usage` | JWT (admin) | per-conversation breakdown |
-| PATCH | `/admin/users/{id}/active` | JWT (admin) | toggle is_active |
-| PATCH | `/admin/users/{id}/cost-limit` | JWT (admin) | set cost_limit_usd (null = remove) |
+| PATCH | `/admin/users/{id}/active` | JWT (admin) | toggle is_active; logs audit entry |
+| PATCH | `/admin/users/{id}/cost-limit` | JWT (admin) | set cost_limit_usd + cost_window_days; logs audit entry |
+| GET | `/admin/audit-log` | JWT (admin) | paginated audit log; ?action=&target_user_id=&limit=&offset= |
 | POST | `/templates` | JWT | create template |
 | GET | `/templates` | JWT | list own + shared |
 | GET | `/templates/{id}` | JWT | single |
@@ -339,8 +364,14 @@ user message + file_ids
 | `meta/llama-3.3-70b-instruct` | $0.77 | $0.77 |
 
 ### Admin
-- `PATCH /admin/users/{id}/active` — immediate block (get_current_user checks is_active)
-- `PATCH /admin/users/{id}/cost-limit` — 402 returned when spend ≥ limit
+- `PATCH /admin/users/{id}/active` — immediate block (get_current_user checks is_active); logs audit
+- `PATCH /admin/users/{id}/cost-limit` — 402 when rolling-window spend ≥ limit; logs audit
+  - `cost_window_days`: number of days in rolling window (null = all-time); default 30
+  - `_check_cost_cap` adds `WHERE messages.created_at >= now() - interval` when window set
+  - Error message includes window label: e.g. `$4.23 / $5.00 30d`
+- `GET /admin/audit-log` — audit trail; filterable by action/target_user_id; paginated
+  - Actions: `user.active.enabled`, `user.active.disabled`, `user.cost_limit.set`, `user.cost_limit.removed`
+  - detail JSONB includes username + prev/new values
 - Self-disable blocked
 
 ---
@@ -373,20 +404,26 @@ user message + file_ids
 ## Possible Next Features
 Suggestions only — ask for specs before implementing any.
 
-### Reliability (fix these first)
-- **Persistent task queue (ARQ)** — `asyncio.create_task` lives in the uvicorn process; API restart mid-embed permanently loses the job. Replace with ARQ (Redis-backed async job queue): `services/processor.py` enqueues a job, a worker process consumes it. Survives restarts. New Docker service: `arq-worker`.
-- **File processing retry** — failed files stay stuck in `error` with no recovery path. Add retry logic in the ARQ worker: up to 3 attempts with exponential backoff (5s, 30s, 120s). On final failure, set `upload_status="error"` and log the exception.
-- **DB in health check** — `GET /health` pings NIM, embedding, and Redis but not Postgres or pgBouncer. A dead DB silently breaks all endpoints. Add a `SELECT 1` check via `get_db()` with a 2s timeout; include result in per-check `{status, latency_ms}` response.
+### Reliability (DONE)
+- **Persistent task queue (ARQ)** — `services/arq_worker.py` + `core/arq_pool.py`. API enqueues jobs to Redis; `arq-worker` Docker service consumes them. Survives restarts. `process_file_async()` falls back to inline if pool not available (scheduler_worker).
+- **File processing retry** — ARQ `process_file_job` retries 3× at 5s/30s/120s backoff (`max_tries=4`). Final failure marks `upload_status="error"`.
+- **DB in health check** — `GET /health` now includes `"db": {status, latency_ms}` via `SELECT 1` with 2s timeout.
 
-### New Capabilities
-- **OpenAI-compatible endpoint** — `POST /v1/chat/completions` wrapper in `api/compat.py`. Maps OpenAI request schema → internal `ChatRequest`, returns OpenAI response schema. Makes the gateway work with LangChain, Open WebUI, and any OpenAI SDK without changes.
-- **API key auth** — Add `api_key` (String 64, unique, indexed, nullable) to `User` model. `GET /auth/me/api-key` generates one; `auth/security.py` accepts `Authorization: Bearer <key>` as alternative to JWT. Useful for scripts and curl without login flow.
-- **Standalone file search** — `GET /files/search?q=&workspace_id=` — semantic search across the user's file library without being inside a conversation. Calls `embed(q)` → `retrieve_from_files(file_ids=all_user_files, top_k=10)`. Returns chunks with file name + score.
+### Agency Layer (DONE)
+- **Proactive suggestions** — `llm/agency.py:generate_proactive_suggestion()`. After each chat response, llama generates a 1-sentence action hint. Emitted as `{type: "proactive", content: "..."}` SSE event before `done`. Uses `max_tokens=35`.
+- **Background insight engine** — `generate_insight_job` in `arq_worker.py`. Enqueued every 10 assistant messages per user. Reads memory + recent messages → llama generates pattern/gap insight → stored in `user_insights` table. Max 3 unread per user.
+- **Insights API** — `GET /insights` (unread by default, `?all=true`), `PATCH /insights/{id}/read`, `DELETE /insights/{id}`.
+- **UserInsight model** — `user_insights` table (id UUID, user_id, content, is_read, created_at). Migration 023.
 
-### Cost / Performance
-- **Streaming response cache** — cache is currently bypassed for streaming. After stream completes, store the full assembled response in Redis (same key logic as `cache/keys.py`). On cache hit, stream the stored text token-by-token with a small delay to preserve UX. Saves NIM calls on repeated identical queries.
-- **Per-model rate limits** — add `model` label to the existing Redis sliding-window limiter. Example: 70B capped at 5 req/60s per user, 8B at 30 req/60s. Prevents expensive model abuse without blocking cheap ones.
+### New Capabilities (DONE)
+- **OpenAI-compatible endpoint** — `POST /v1/chat/completions` in `api/compat.py`. Maps OpenAI model names (gpt-4→reasoning, gpt-3.5-turbo→llama). Streaming + non-streaming. Auth: JWT or API key. Works with LangChain/Open WebUI.
+- **API key auth** — `api_key` (String 64, nullable) on `User` (migration 022). `POST /auth/me/api-key` generates key; `DELETE /auth/me/api-key` revokes. `auth/security.py` tries JWT first, falls back to DB key lookup.
+- **Standalone file search** — `GET /files/search?q=&workspace_id=&top_k=` in `api/files/search.py`. Hybrid vector+BM25 RRF merge. Returns `[{file_id, filename, chunk}]`.
 
-### Admin / Observability
-- **Admin audit log** — new `AuditLog` model: `id, admin_user_id, action (str), target_user_id, detail (JSONB), created_at`. Record every `PATCH /admin/users/{id}/active` and `PATCH /admin/users/{id}/cost-limit`. `GET /admin/audit?limit=` returns recent entries. Currently zero traceability on admin actions.
-- **Rolling cost window** — add `cost_window_start` (DateTime) to `User`. `_check_cost_cap` sums only messages after that date. `PATCH /admin/users/{id}/cost-limit` accepts optional `reset_window: bool` to restart the window. More practical than all-time spend.
+### Cost / Performance (DONE)
+- **Streaming response cache** — `cache/keys.py` v2 key includes `(message, model, history_tail[-4 msgs], system_prompt)`. `use_cache` no longer requires empty history or no model_override — only excluded when file_chunks/image_b64/model_params present. Identical exchanges in identical context now cache. CACHE_VERSION bumped to v2; old v1 entries expire naturally.
+- **Per-model rate limits** — `rate_limiter/rate_limiter.py:check_model_rate(full_model, username)`. Limits: llama=15, coder=10, reasoning=5 req/60s. Configurable via `RATE_LIMIT_LLAMA/CODER/REASONING` env. Only applies when user explicitly selects a model (model_override or locked_model). Auto-routed requests only hit global 15/60s limit.
+
+### Admin / Observability (DONE)
+- **Admin audit log** — `AdminAuditLog` model + migration 024. `_audit()` helper in `api/admin.py` commits alongside main change. `GET /admin/audit-log` with action/user filter + pagination. Actions: user.active.enabled/disabled, user.cost_limit.set/removed.
+- **Rolling cost window** — `cost_window_days` (Integer, nullable) on User + migration 025. `_check_cost_cap` in `helpers.py` applies `WHERE created_at >= cutoff` when set. Default 30 days. `PATCH /admin/users/{id}/cost-limit` body accepts `cost_window_days`.

@@ -1,4 +1,5 @@
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -89,4 +90,25 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
 
 @auth_router.get("/me")
 async def me(current_user: User = Depends(get_current_user)):
-    return {"username": current_user.username, "role": current_user.role}
+    return {"username": current_user.username, "role": current_user.role, "has_api_key": current_user.api_key is not None}
+
+
+@auth_router.post("/me/api-key", status_code=201)
+async def generate_api_key(
+    current_user: User         = Depends(get_current_user),
+    db:           AsyncSession = Depends(get_db),
+):
+    key = secrets.token_urlsafe(48)
+    current_user.api_key = key
+    await db.commit()
+    return {"api_key": key}
+
+
+@auth_router.delete("/me/api-key")
+async def revoke_api_key(
+    current_user: User         = Depends(get_current_user),
+    db:           AsyncSession = Depends(get_db),
+):
+    current_user.api_key = None
+    await db.commit()
+    return {"ok": True}

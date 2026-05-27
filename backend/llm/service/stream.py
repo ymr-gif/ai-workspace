@@ -27,7 +27,7 @@ async def generate_response(message: str, request_id: str) -> dict:
     except Exception:
         pass
 
-    cached = await get_cached_response(message)
+    cached = await get_cached_response(message)  # non-streaming: no history context
     if cached:
         return {
             "response":      cached["response"],
@@ -99,13 +99,19 @@ async def generate_stream(
     image_mime_type:  str | None        = None,
     workspace_memory: str               = "",
 ):
-    use_cache = (
-        not history and not model_override and not model_params
-        and not system_prompt and not file_chunks and not image_b64
-    )
+    # Cache excludes file/image/custom-params requests; history + model included in key
+    use_cache = not file_chunks and not image_b64 and not model_params
+    history_tail  = "\n".join(m["content"] for m in (history or [])[-4:])
+    cache_model   = model_override or ""
+    cache_sysprompt = system_prompt or ""
 
     if use_cache:
-        cached = await get_cached_response(message)
+        cached = await get_cached_response(
+            message,
+            model=cache_model,
+            history_tail=history_tail,
+            system_prompt=cache_sysprompt,
+        )
         if cached:
             yield {"type": "token", "content": cached["response"]}
             yield {"type": "done",  "model": cached.get("model", "cache"), "cache_hit": True, "fallback_used": False}
@@ -222,7 +228,12 @@ async def generate_stream(
             }
             if use_cache:
                 try:
-                    await set_cached_response(message, payload)
+                    await set_cached_response(
+                        message, payload,
+                        model=current_model,
+                        history_tail=history_tail,
+                        system_prompt=cache_sysprompt,
+                    )
                     metrics.record_cache_write()
                 except Exception as e:
                     logger.warning("[cache] write_failed err=%s", e)

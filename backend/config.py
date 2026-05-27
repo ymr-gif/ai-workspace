@@ -46,6 +46,13 @@ REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", 30))
 MAX_RETRIES     = int(os.getenv("MAX_RETRIES", 2))
 FALLBACK_ORDER  = ["reasoning", "coder", "llama"]
 
+# ── Per-model rate limits (req / 60s) — applied only on explicit model selection
+MODEL_RATE_LIMITS: dict[str, tuple[int, int]] = {
+    "llama":     (_int_env("RATE_LIMIT_LLAMA",     15), 60),
+    "coder":     (_int_env("RATE_LIMIT_CODER",     10), 60),
+    "reasoning": (_int_env("RATE_LIMIT_REASONING",  5), 60),
+}
+
 # ── Observability / Redis Streams ─────────────────────────────────────────────
 OBSERVABILITY_ENABLED   = os.getenv("OBSERVABILITY_ENABLED", "true").lower() == "true"
 METRICS_STREAM          = os.getenv("METRICS_STREAM", "metrics_stream")

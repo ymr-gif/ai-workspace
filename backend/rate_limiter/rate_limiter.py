@@ -208,3 +208,46 @@ def limit(
         )
     )
 
+
+# ─────────────────────────────────────────────
+# PER-MODEL RATE LIMITER (imperative)
+# ─────────────────────────────────────────────
+
+async def check_model_rate(full_model_name: str, username: str) -> None:
+    """
+    Apply per-model rate limit for an explicitly chosen model.
+    Only called when user selects a specific model (override or locked).
+    Fail-open on Redis unavailability.
+    """
+    from config import MODELS, MODEL_RATE_LIMITS
+
+    model_key = next((k for k, v in MODELS.items() if v == full_model_name), None)
+    if not model_key or model_key not in MODEL_RATE_LIMITS:
+        return
+
+    limit_count, window = MODEL_RATE_LIMITS[model_key]
+    now = time.time()
+    key = f"rate:model:{model_key}:user:{username}"
+
+    try:
+        redis = get_redis_client()
+    except RuntimeError:
+        return
+
+    try:
+        async with redis.pipeline(transaction=True) as pipe:
+            pipe.zremrangebyscore(key, 0, now - window)
+            pipe.zadd(key, {str(now): now})
+            pipe.zcard(key)
+            pipe.expire(key, window)
+            results = await pipe.execute()
+
+        count = results[2]
+        if count > limit_count:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded for {model_key} ({limit_count} req/min)",
+            )
+    except RedisError:
+        return
+
