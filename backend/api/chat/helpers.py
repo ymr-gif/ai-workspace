@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import MODEL_PRICING, MODELS
 from llm import retriever
 from llm.embeddings import embed as embed_text
-from models import Conversation, Message, User, UserMemory
+from models import Conversation, Message, User, UserMemory, Workspace, WorkspaceMemory
 
 from .schemas import ChatRequest
 
@@ -84,7 +84,28 @@ async def _resolve_conversation(
             raise HTTPException(status_code=404, detail="Conversation not found")
         return conv
 
-    conv = Conversation(user_id=current_user.id, title=req.message[:60].strip())
+    # Resolve workspace for new conversation
+    workspace_id: uuid.UUID | None = None
+    if req.workspace_id:
+        try:
+            wid = uuid.UUID(req.workspace_id)
+            ws  = await db.get(Workspace, wid)
+            if ws and ws.user_id == current_user.id:
+                workspace_id = wid
+        except ValueError:
+            pass
+    if workspace_id is None:
+        # Fall back to user's Default workspace
+        result = await db.execute(
+            select(Workspace)
+            .where(Workspace.user_id == current_user.id, Workspace.name == "Default")
+            .limit(1)
+        )
+        default_ws = result.scalar_one_or_none()
+        if default_ws:
+            workspace_id = default_ws.id
+
+    conv = Conversation(user_id=current_user.id, title=req.message[:60].strip(), workspace_id=workspace_id)
     db.add(conv)
     await db.flush()
     return conv
@@ -164,17 +185,57 @@ async def _build_stream_context(
             else:
                 logger.warning("[file_ctx] rid=%s file_ids=%d but NO chunks retrieved", rid, len(file_ids))
 
+    # Load workspace memory if conversation belongs to a workspace
+    workspace_memory   = ""
+    workspace_sysprompt = None
+    if conv.workspace_id:
+        ws = await db.get(Workspace, conv.workspace_id)
+        if ws:
+            workspace_sysprompt = ws.system_prompt or None
+            ws_mem_row = await db.execute(
+                select(WorkspaceMemory).where(WorkspaceMemory.workspace_id == conv.workspace_id)
+            )
+            ws_mem = ws_mem_row.scalar_one_or_none()
+            if ws_mem and ws_mem.content:
+                workspace_memory = ws_mem.content
+
     return {
-        "memory_enabled":  memory_enabled,
-        "memory_sheet":    memory_sheet,
-        "project_summary": project_summary,
-        "history_summary": history_summary,
-        "history":         history,
-        "retrieved":       retrieved,
-        "file_chunks":     file_chunks,
-        "file_names":      file_names,
-        "file_ids":        file_ids,
+        "memory_enabled":      memory_enabled,
+        "memory_sheet":        memory_sheet,
+        "project_summary":     project_summary,
+        "history_summary":     history_summary,
+        "history":             history,
+        "retrieved":           retrieved,
+        "file_chunks":         file_chunks,
+        "file_names":          file_names,
+        "file_ids":            file_ids,
+        "workspace_memory":    workspace_memory,
+        "workspace_sysprompt": workspace_sysprompt,
     }
+
+
+async def _auto_title(conv_id: uuid.UUID, user_msg: str, ai_msg: str) -> None:
+    from core.db import AsyncSessionLocal
+    from llm.nim import call
+    prompt = (
+        f"Summarize this exchange in 6 words or fewer:\n"
+        f"User: {user_msg[:200]}\nAI: {ai_msg[:200]}"
+    )
+    try:
+        result = await call(
+            model      = MODELS["llama"],
+            messages   = [{"role": "user", "content": prompt}],
+            request_id = f"title-{conv_id}",
+        )
+        title = (result.get("content") or "").strip().strip('"').strip("'")
+        if title and len(title) <= 80:
+            async with AsyncSessionLocal() as db:
+                conv = await db.get(Conversation, conv_id)
+                if conv:
+                    conv.title = title
+                    await db.commit()
+    except Exception:
+        logger.exception("[auto_title] failed conv=%s", conv_id)
 
 
 def _calculate_tokens_and_cost(

@@ -1,15 +1,16 @@
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import JWT_EXPIRE_MINUTES
+from config import JWT_EXPIRE_MINUTES, REQUIRE_INVITE
 from core.db import get_db
 from auth.schemas import Token, RegisterRequest
 from auth.security import authenticate_user, create_access_token, get_current_user, get_user, pwd_context
-from models import User
+from models import Invitation, User, Workspace
 
 logger      = logging.getLogger("auth")
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -44,10 +45,35 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     if await get_user(username, db):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already taken")
 
+    # Invite gate
+    invite: Invitation | None = None
+    if REQUIRE_INVITE:
+        token = getattr(payload, "invite_token", None)
+        if not token:
+            raise HTTPException(status_code=403, detail="Invite token required")
+        result = await db.execute(select(Invitation).where(Invitation.token == token))
+        invite = result.scalar_one_or_none()
+        if not invite:
+            raise HTTPException(status_code=403, detail="Invalid invite token")
+        if invite.used_by_id is not None:
+            raise HTTPException(status_code=403, detail="Invite token already used")
+        if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=403, detail="Invite token expired")
+
     user = User(username=username, hashed_password=pwd_context.hash(payload.password),
                 role="user", is_active=True)
     try:
         db.add(user)
+        await db.flush()
+
+        # Mark invite as used
+        if invite:
+            invite.used_by_id = user.id
+            invite.used_at    = datetime.now(timezone.utc)
+
+        # Create Default workspace for the new user
+        db.add(Workspace(user_id=user.id, name="Default"))
+
         await db.commit()
         await db.refresh(user)
     except Exception:

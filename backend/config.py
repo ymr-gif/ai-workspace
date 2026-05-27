@@ -65,6 +65,9 @@ PROMETHEUS_PORT    = int(os.getenv("PROMETHEUS_PORT", 9100))
 # ── Storage ───────────────────────────────────────────────────────────────────
 STORAGE_DIR = os.getenv("STORAGE_DIR", "storage/files")
 
+# ── Auth ──────────────────────────────────────────────────────────────────────
+REQUIRE_INVITE = os.getenv("REQUIRE_INVITE", "false").lower() == "true"
+
 # ── App settings ──────────────────────────────────────────────────────────────
 USE_REDIS              = os.getenv("USE_REDIS", "false").lower() == "true"
 AI_TIMEOUT             = int(os.getenv("AI_TIMEOUT", 10))

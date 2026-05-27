@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import time
@@ -11,84 +10,11 @@ from llm.router import route
 from llm.nim import call, call_stream
 from llm.tools import TOOL_SCHEMAS, execute_tool, ASK_USER_PREFIX
 
+from .context import build_context_messages, _needs_file_tools
+
 MAX_TOOL_ITERATIONS = 10
 
 logger = logging.getLogger("service")
-
-_FILE_OP_KEYWORDS = frozenset({
-    "read", "write", "edit", "update", "create", "append", "patch",
-    "search", "find", "fix", "change", "modify", "file", "document",
-    "documents", "content", "add", "remove", "delete", "replace",
-    "rewrite", "summarize", "analyse", "analyze", "open", "insert",
-    "correct", "improve", "refactor", "rename", "review", "check",
-})
-
-
-def _needs_file_tools(message: str) -> bool:
-    tokens = set(message.lower().split())
-    return bool(tokens & _FILE_OP_KEYWORDS)
-
-
-def build_context_messages(
-    memory_sheet:     str,
-    project_summary:  str,
-    retrieved_chunks: list[str],
-    history_summary:  str,
-    history:          list[dict],
-    memory_enabled:   bool,
-    system_prompt:    str | None   = None,
-    file_chunks:      list[str]    = (),
-    file_names:       list[str]    = (),
-    file_ids:         list         = (),
-) -> list[dict]:
-    messages = []
-
-    # System prompt — append file notice with IDs if files attached
-    if file_names:
-        if file_ids:
-            files_list  = "\n".join(f"  - {name} (id={fid})" for name, fid in zip(file_names, file_ids))
-            file_notice = (
-                f"The user has attached these files:\n{files_list}\n"
-                "Rules for file tools:\n"
-                "- ONLY use tools when the user explicitly asks to read, edit, write, search, or create files.\n"
-                "- For conversational messages, acknowledgments, or questions not about file content: respond normally with NO tool calls.\n"
-                "- To ADD content (new paragraph, section, notes): use append_to_file — safest, never loses existing content\n"
-                "- To EDIT a specific passage: use read_file first, then patch_file(old_text=<exact passage>, new_text=<replacement>)\n"
-                "- To REWRITE the whole file: use write_file with the COMPLETE new content\n"
-                "- To CREATE a new file: use create_file\n"
-                "- After any write/append/patch/create succeeds, respond to the user immediately — do NOT read the file back to verify\n"
-                "- Never call the same tool more than twice in a single turn"
-            )
-        else:
-            file_notice = f"The user has attached these files: {', '.join(file_names)}. Use file tools to read or edit them."
-        base = system_prompt.rstrip() + "\n\n" + file_notice if system_prompt else file_notice
-        messages.append({"role": "system", "content": base})
-    elif system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-
-    if memory_enabled:
-        if memory_sheet:
-            messages.append({"role": "system",    "content": f"[USER STATE]\n{memory_sheet}"})
-        if project_summary:
-            messages.append({"role": "user",      "content": f"[PROJECT STATE]\n{project_summary}"})
-            messages.append({"role": "assistant", "content": "Understood."})
-        if retrieved_chunks:
-            chunks_text = "\n\n".join(retrieved_chunks)
-            messages.append({"role": "user",      "content": f"[RELEVANT CONTEXT FROM EARLIER]\n{chunks_text}"})
-            messages.append({"role": "assistant", "content": "Understood."})
-        if history_summary:
-            messages.append({"role": "user",      "content": f"[EARLIER IN THIS CONVERSATION]\n{history_summary}"})
-            messages.append({"role": "assistant", "content": "Understood."})
-
-    messages += history
-
-    # FILE CONTEXT last — right before user message for maximum model attention
-    if file_chunks:
-        joined = "\n\n---\n\n".join(file_chunks)
-        messages.append({"role": "user",      "content": f"[FILE CONTEXT]\n{joined}"})
-        messages.append({"role": "assistant", "content": "Understood, I will reference these documents in my response."})
-
-    return messages
 
 
 async def generate_response(message: str, request_id: str) -> dict:
@@ -171,6 +97,7 @@ async def generate_stream(
     db                                  = None,
     image_b64:        str | None        = None,
     image_mime_type:  str | None        = None,
+    workspace_memory: str               = "",
 ):
     use_cache = (
         not history and not model_override and not model_params
@@ -184,20 +111,19 @@ async def generate_stream(
             yield {"type": "done",  "model": cached.get("model", "cache"), "cache_hit": True, "fallback_used": False}
             return
 
-    # Model selection priority: image → file tools → explicit override → router
+    # Model selection priority: image → explicit override → file tools → router
     if image_b64:
         fallback_chain = [MODEL_VISION]
-    elif file_ids and not model_override:
-        fallback_chain = [MODELS["reasoning"]]
     elif model_override:
         fallback_chain = [model_override]
+    elif file_ids and _needs_file_tools(message):
+        fallback_chain = [MODELS["reasoning"]]
     else:
         model, _ = await route(message, request_id)
         fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
 
     tools = TOOL_SCHEMAS if (file_ids and db is not None and _needs_file_tools(message)) else None
 
-    # Build multimodal user message when image present
     if image_b64 and image_mime_type:
         user_content = [
             {"type": "text", "text": message},
@@ -210,13 +136,14 @@ async def generate_stream(
     base_messages = build_context_messages(
         memory_sheet, project_summary, retrieved_chunks, history_summary,
         history, memory_enabled, system_prompt, file_chunks, file_names, file_ids,
+        workspace_memory=workspace_memory,
     ) + [user_msg]
 
     for idx, current_model in enumerate(fallback_chain):
         fallback_used  = idx > 0
-        tool_messages  = list(base_messages)  # per-model copy, extended by tool results
+        tool_messages  = list(base_messages)
         model_done     = False
-        tool_call_counts: dict[str, int] = {}  # guard against same-tool repetition
+        tool_call_counts: dict[str, int] = {}
 
         for _tool_iter in range(MAX_TOOL_ITERATIONS):
             accumulated      = []
@@ -280,11 +207,11 @@ async def generate_stream(
 
                 if ask_user_triggered:
                     return
-                continue  # next tool iteration
+                continue
 
             if not accumulated:
                 logger.warning("[service] empty_stream model=%s", current_model)
-                break  # try next fallback model
+                break
 
             full_response = "".join(accumulated)
             payload = {
@@ -310,7 +237,6 @@ async def generate_stream(
             break
 
         else:
-            # exhausted MAX_TOOL_ITERATIONS without a text response
             yield {"type": "error", "message": "Tool loop limit reached"}
             return
 
@@ -318,36 +244,3 @@ async def generate_stream(
             return
 
     yield {"type": "error", "message": "All models failed"}
-
-
-async def compare_streams(
-    message:      str,
-    common_msgs:  list[dict],
-    model_params: dict | None,
-    request_id:   str,
-):
-    """Run all models concurrently; yield tagged token events."""
-    queue  = asyncio.Queue()
-    models = list(MODELS.values())
-
-    async def _run(model: str) -> None:
-        try:
-            msgs = common_msgs + [{"role": "user", "content": message}]
-            async for chunk in call_stream(model, msgs, request_id, model_params):
-                await queue.put({"type": "token", "content": chunk, "model": model})
-        except Exception as e:
-            logger.warning("[compare] %s failed: %s", model, e)
-        await queue.put({"__done__": model})
-
-    tasks = [asyncio.create_task(_run(m)) for m in models]
-    done  = 0
-
-    while done < len(models):
-        item = await queue.get()
-        if "__done__" in item:
-            done += 1
-        else:
-            yield item
-
-    yield {"type": "done", "compare": True, "model": "compare", "cache_hit": False, "fallback_used": False}
-    await asyncio.gather(*tasks, return_exceptions=True)

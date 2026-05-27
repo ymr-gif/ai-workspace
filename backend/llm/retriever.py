@@ -52,8 +52,8 @@ async def _bm25_file_chunks(
     result = await db.execute(
         select(FileChunk.id, FileChunk.content)
         .where(FileChunk.file_id.in_(file_ids))
-        .where(text("content_tsv @@ websearch_to_tsquery('english', :q)"))
-        .order_by(text("ts_rank(content_tsv, websearch_to_tsquery('english', :q)) DESC"))
+        .where(text("content_tsv @@ websearch_to_tsquery('simple', :q)"))
+        .order_by(text("ts_rank(content_tsv, websearch_to_tsquery('simple', :q)) DESC"))
         .limit(limit)
         .params(q=query)
     )
@@ -69,8 +69,8 @@ async def _bm25_message_embeddings(
     result = await db.execute(
         select(MessageEmbedding.id, MessageEmbedding.content_snippet)
         .where(*where)
-        .where(text("content_tsv @@ websearch_to_tsquery('english', :q)"))
-        .order_by(text("ts_rank(content_tsv, websearch_to_tsquery('english', :q)) DESC"))
+        .where(text("content_tsv @@ websearch_to_tsquery('simple', :q)"))
+        .order_by(text("ts_rank(content_tsv, websearch_to_tsquery('simple', :q)) DESC"))
         .limit(limit)
         .params(q=query)
     )

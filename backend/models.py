@@ -18,6 +18,42 @@ from config import EMBEDDING_DIM
 from core.db import Base
 
 
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id:            Mapped[uuid.UUID]  = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id:       Mapped[int]        = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name:          Mapped[str]        = mapped_column(String(120), nullable=False)
+    description:   Mapped[str | None] = mapped_column(Text, nullable=True)
+    system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at:    Mapped[datetime]   = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at:    Mapped[datetime]   = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class WorkspaceMemory(Base):
+    __tablename__ = "workspace_memory"
+
+    id:              Mapped[int]           = mapped_column(Integer, primary_key=True, autoincrement=True)
+    workspace_id:    Mapped[uuid.UUID]     = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    content:         Mapped[str | None]    = mapped_column(Text, nullable=True)
+    project_summary: Mapped[str | None]    = mapped_column(Text, nullable=True)
+    version:         Mapped[int]           = mapped_column(Integer, nullable=False, default=0)
+    updated_at:      Mapped[datetime]      = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class Invitation(Base):
+    __tablename__ = "invitations"
+
+    id:            Mapped[uuid.UUID]      = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    token:         Mapped[str]            = mapped_column(String(64), unique=True, nullable=False, index=True)
+    created_by_id: Mapped[int]            = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    email:         Mapped[str | None]     = mapped_column(String(254), nullable=True)
+    used_by_id:    Mapped[int | None]     = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at:    Mapped[datetime]       = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at:    Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    used_at:       Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -73,10 +109,11 @@ class File(Base):
         index=True
     )
 
-    workspace_id: Mapped[str | None] = mapped_column(
-        String(64),
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
         nullable=True,
-        index=True
+        index=True,
     )
 
     filename: Mapped[str] = mapped_column(
@@ -140,6 +177,7 @@ class Conversation(Base):
     memory_enabled: Mapped[bool]        = mapped_column(Boolean,      nullable=False, default=True, server_default="true")
     system_prompt:  Mapped[str | None]  = mapped_column(Text,         nullable=True)
     locked_model:   Mapped[str | None]  = mapped_column(String(100),  nullable=True)
+    workspace_id:   Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at:     Mapped[datetime]    = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at:     Mapped[datetime]    = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
