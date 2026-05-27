@@ -38,7 +38,7 @@ For every change:
 ## What This Is
 FastAPI backend routing chat messages to NVIDIA NIM models via keyword classification.
 React/Vite frontend. Docker Compose stack: Postgres + pgvector, Redis, Prometheus, Grafana.
-Features: SSE streaming, conversation history, multi-tier memory, pgvector RAG, file knowledge base, AI agent tool loop, model control, markdown rendering.
+Features: SSE streaming, conversation history, multi-tier memory, pgvector RAG, file knowledge base, AI agent tool loop, model control, markdown rendering, **workspace layer** (conversations + files scoped to workspaces), invite-gated registration, conversation search + export, auto-title.
 
 > Subdir details: `backend/CLAUDE.md` · `docker/CLAUDE.md` · `frontend/CLAUDE.md`
 
@@ -90,12 +90,12 @@ ai-api/
 | Rate limit (chat) | 15 req / 60s per user | `api/chat/router.py` |
 | Rate limit (upload) | 20 req / 60s per user | `api/files/router.py` |
 | Rate limit (ingest-url) | 10 req / 60s per user | `api/files/ingest.py` |
-| Cache bypass | history / model_override / model_params / system_prompt / file_chunks | `service.py` |
+| Cache bypass | history / model_override / model_params / system_prompt / file_chunks | `llm/service/stream.py` |
 | Embedding timeout | 15s | `llm/embeddings.py` |
 | Memory write lock | pg_advisory_xact_lock(user_id) | `summarizer.py` |
-| Max tool iterations | 10 | `llm/service.py` |
-| Tool repetition guard | >3 calls same tool → abort | `llm/service.py` |
-| Tool keyword gate | `_needs_file_tools(message)` | `llm/service.py` |
+| Max tool iterations | 10 | `llm/service/stream.py` |
+| Tool repetition guard | >3 calls same tool → abort | `llm/service/stream.py` |
+| Tool keyword gate | `_needs_file_tools(message)` | `llm/service/context.py` |
 | Max file read (tool) | 100,000 chars | `llm/tools.py` |
 
 ---
@@ -106,7 +106,7 @@ ai-api/
 - Embedding latency (~100-300ms) adds to stream start time
 - File RAG requires explicit attachment (Library → + button); upload alone is not enough
 - File context only injected when `req.conversation_id` set — first message of new conv won't have it
-- AI tool loop forces 70B when file_ids present + `_needs_file_tools` passes — cannot override
+- AI tool loop forces 70B when file_ids present + `_needs_file_tools` passes — `model_override`/`locked_model` now takes precedence (fixed)
 - `_needs_file_tools` keyword-based — may miss implicit file requests ("look at my notes")
 - Token counts on pre-migration 011 messages are NULL
 - Token pricing hardcoded in `config.py:MODEL_PRICING` — verify at build.nvidia.com/explore/llm
@@ -115,7 +115,7 @@ ai-api/
 - Prometheus counters reset on container restart — rate panels lose history; stat panels (PostgreSQL) unaffected
 - `$ Usage` panel shows current user only; admin must use `/admin/users` API directly
 - Cost cap uses total historical spend — no monthly/rolling window
-- BM25 hybrid search uses `english` config — non-English content has degraded BM25
+- BM25 hybrid search uses `simple` config (fixed in migration 017) — no stemming, works for any language
 
 ---
 

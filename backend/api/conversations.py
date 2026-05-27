@@ -1,9 +1,11 @@
+import json
 import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.security import get_current_user
@@ -17,16 +19,35 @@ router = APIRouter()
 
 @router.get("/conversations")
 async def list_conversations(
+    workspace_id: str | None   = None,
+    q:            str | None   = None,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
 ):
-    result = await db.execute(
+    stmt = (
         select(Conversation)
         .where(Conversation.user_id == current_user.id)
         .order_by(Conversation.updated_at.desc())
-        .limit(50)
+        .limit(100)
     )
-    convs = result.scalars().all()
+
+    if workspace_id:
+        try:
+            wid = uuid.UUID(workspace_id)
+            stmt = stmt.where(Conversation.workspace_id == wid)
+        except ValueError:
+            pass
+
+    if q and q.strip():
+        stmt = (
+            stmt
+            .join(Message, Message.conversation_id == Conversation.id)
+            .where(text("messages.content_tsv @@ websearch_to_tsquery('simple', :q)").bindparams(q=q.strip()))
+            .distinct()
+        )
+
+    result = await db.execute(stmt)
+    convs  = result.scalars().all()
     return [
         {
             "id":             str(c.id),
@@ -35,6 +56,7 @@ async def list_conversations(
             "memory_enabled": c.memory_enabled,
             "system_prompt":  c.system_prompt  or "",
             "locked_model":   c.locked_model   or "",
+            "workspace_id":   str(c.workspace_id) if c.workspace_id else None,
         }
         for c in convs
     ]
@@ -209,6 +231,63 @@ async def detach_file(
         await db.commit()
 
     return {"ok": True}
+
+
+@router.get("/conversations/{conversation_id}/export")
+async def export_conversation(
+    conversation_id: str,
+    format:          str          = "markdown",
+    db:              AsyncSession = Depends(get_db),
+    current_user:    User         = Depends(get_current_user),
+):
+    try:
+        cid = uuid.UUID(conversation_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    conv = await db.get(Conversation, cid)
+    if not conv or conv.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    result = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == cid)
+        .order_by(Message.created_at.asc())
+    )
+    msgs = result.scalars().all()
+
+    if format == "json":
+        payload = json.dumps([
+            {
+                "role":              m.role,
+                "content":           m.content,
+                "model":             m.model,
+                "created_at":        m.created_at.isoformat(),
+                "prompt_tokens":     m.prompt_tokens,
+                "completion_tokens": m.completion_tokens,
+                "total_tokens":      m.total_tokens,
+                "cost_usd":          m.cost_usd,
+            }
+            for m in msgs
+        ], indent=2)
+        return StreamingResponse(
+            iter([payload]),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{conv.title[:40]}.json"'},
+        )
+
+    # Markdown
+    def _md_lines():
+        yield f"# {conv.title}\n\n"
+        for m in msgs:
+            label = "**User:**" if m.role == "user" else f"**AI** ({m.model or 'unknown'}):"
+            yield f"{label}\n\n{m.content}\n\n---\n\n"
+
+    return StreamingResponse(
+        _md_lines(),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{conv.title[:40]}.md"'},
+    )
 
 
 @router.delete("/conversations/{conversation_id}")

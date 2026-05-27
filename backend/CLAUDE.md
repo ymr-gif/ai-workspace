@@ -4,13 +4,15 @@
 ```
 backend/
 ├── main.py                 ← thin app factory: lifespan, middleware, router includes (~83 lines)
-├── config.py               ← env vars, startup guards, _int_env(); MODEL_EMBEDDING, NIM_EMBEDDING_URL
+├── config.py               ← env vars, REQUIRE_INVITE bool, MODEL_PRICING, _int_env()
 ├── models.py               ← ORM: User, File, FileChunk, FileVersion, Conversation, Message,
 │                              UserMemory, MessageEmbedding, UserMemoryVersion, ConversationFile,
-│                              ToolCallLog, PromptTemplate, ScheduledPrompt, ScheduledPromptRun
-│                              Message: prompt_tokens, completion_tokens, total_tokens, cost_usd
-│                              User: is_active (checked in get_current_user — blocks immediately)
-│                              User: cost_limit_usd (Float, nullable — NULL = no cap)
+│                              ToolCallLog, PromptTemplate, ScheduledPrompt, ScheduledPromptRun,
+│                              Workspace, WorkspaceMemory, Invitation
+│                              Conversation.workspace_id UUID FK → workspaces SET NULL
+│                              File.workspace_id UUID FK → workspaces SET NULL  (was String 64)
+│                              Message.content_tsv tsvector GENERATED (GIN indexed) — full-text search
+│                              User: is_active, cost_limit_usd (NULL = no cap)
 │                              File: sha256_hash (String 64, nullable, indexed) — dedup key
 ├── create_user.py          ← seeds admin/user accounts
 ├── alembic/versions/
@@ -20,20 +22,29 @@ backend/
 │   ├── 010_tool_call_log.py   ← tool_call_logs (id, user_id, conversation_id, tool_name, args JSONB, result_preview)
 │   ├── 011_token_usage.py     ← prompt_tokens, completion_tokens, total_tokens, cost_usd on messages
 │   ├── 012_cost_caps.py       ← cost_limit_usd (Float, nullable) on users
-│   ├── 013_hybrid_search.py   ← pg_trgm; content_tsv tsvector GENERATED ALWAYS AS STORED + GIN index
+│   ├── 013_hybrid_search.py   ← pg_trgm; content_tsv tsvector GENERATED ALWAYS AS STORED + GIN index on file_chunks
 │   ├── 014_prompt_templates.py ← prompt_templates table
 │   ├── 015_scheduled_prompts.py ← scheduled_prompts + scheduled_prompt_runs tables
-│   └── 016_file_dedup.py      ← sha256_hash (String 64) + ix_files_user_sha256 on files
+│   ├── 016_file_dedup.py      ← sha256_hash (String 64) + ix_files_user_sha256 on files
+│   ├── 017_bm25_simple_config.py ← recreates content_tsv on file_chunks + message_embeddings with 'simple' config
+│   ├── 018_workspaces.py      ← workspaces table; files.workspace_id String→UUID FK; conversations.workspace_id
+│   ├── 019_workspace_memory.py ← workspace_memory table (1:1 with workspaces)
+│   ├── 020_message_search.py  ← messages.content_tsv GENERATED tsvector + GIN index
+│   └── 021_invitations.py     ← invitations table (token, created_by, used_by, expires_at)
 ├── auth/
-│   ├── router.py           ← /auth/token, /register, /me
+│   ├── router.py           ← /auth/token, /register (+ invite token validation + Default workspace creation), /me
+│   ├── invites.py          ← /auth/invite (admin: generate token), /auth/invites (admin: list)
 │   ├── security.py         ← JWT, bcrypt, get_current_user, require_role
-│   └── schemas.py          ← Token, TokenData, RegisterRequest
+│   └── schemas.py          ← Token, TokenData, RegisterRequest (+ invite_token field)
 ├── llm/
-│   ├── service.py          ← generate_stream(), compare_streams(), build_context_messages()
-│   │                          _needs_file_tools(message) — keyword heuristic, guards tool pass
-│   │                          tool_call_counts guard: abort if same tool called >3 times/turn
-│   │                          Agent loop: MAX_TOOL_ITERATIONS=10, forces MODELS["reasoning"]
-│   │                          ASK_USER_PREFIX detection → yields {type:"ask_user"} + done
+│   ├── service/            ← PACKAGE (was single service.py)
+│   │   ├── __init__.py     ← re-exports: generate_stream, compare_streams, build_context_messages
+│   │   ├── context.py      ← build_context_messages() + _needs_file_tools() + _FILE_OP_KEYWORDS
+│   │   │                      workspace_memory injected as [WORKSPACE STATE] between USER/PROJECT STATE
+│   │   ├── stream.py       ← generate_stream(), generate_response(), MAX_TOOL_ITERATIONS=10
+│   │   │                      workspace_memory param → passed to build_context_messages
+│   │   │                      model priority: image → model_override → file tools (70B) → router
+│   │   └── compare.py      ← compare_streams()
 │   ├── nim.py              ← call() + call_stream() → NIM API
 │   │                          call_stream() accumulates tool_call deltas, yields {"__tool_calls__": [...]}
 │   │                          yields {"__usage__": {prompt_tokens, completion_tokens, total_tokens}}
@@ -50,6 +61,7 @@ backend/
 │   │                          All retrieve*() accept query_text for BM25 hybrid side
 │   │                          _FETCH_N=20 per side; graceful fallback to pure vector
 │   └── summarizer.py       ← update_memory(), compress_history(), update_project_summary()
+│                              _update_memory() also calls _update_workspace_memory() after UserMemory update
 ├── cache/
 │   ├── cache.py            ← Redis primary + in-memory LRU fallback
 │   ├── keys.py             ← normalize(), make_key() → SHA256 hex
@@ -73,23 +85,28 @@ backend/
 │   └── token_metrics.py    ← record_tokens(model, prompt, completion, cost)
 ├── api/
 │   ├── chat/               ← package; main.py: from api.chat import router
-│   │   ├── schemas.py      ← ChatRequest: message, conversation_id, model_override,
+│   │   ├── schemas.py      ← ChatRequest: message, conversation_id, workspace_id, model_override,
 │   │   │                      temperature, max_tokens, top_p, compare, image_b64, image_mime_type
-│   │   ├── helpers.py      ← _resolve_model, _estimate_tokens, _embed_exchange,
-│   │   │                      _resolve_conversation, _build_stream_context,
+│   │   ├── helpers.py      ← _resolve_model, _estimate_tokens, _embed_exchange, _auto_title,
+│   │   │                      _resolve_conversation (assigns workspace; falls back to Default),
+│   │   │                      _build_stream_context (loads WorkspaceMemory + workspace system_prompt),
 │   │   │                      _check_cost_cap, _extract_model_params, _calculate_tokens_and_cost
-│   │   │                      embed_text starts as asyncio.create_task (concurrent with DB queries)
-│   │   │                      get_relevance_scores filters to candidate_ids only
-│   │   └── router.py       ← /chat + /chat/stream; saves Message with token fields on "done"
+│   │   └── router.py       ← /chat + /chat/stream; auto-title after 2nd message; workspace system_prompt merge
+│   ├── workspaces.py       ← full workspace CRUD + memory routes (prefix /workspaces)
+│   │                          POST /workspaces, GET /workspaces (+ conv/file counts),
+│   │                          GET/PATCH/DELETE /{id}, GET /{id}/conversations, GET /{id}/files,
+│   │                          GET /{id}/memory, PUT /{id}/memory
 │   ├── files/              ← package; prefix="/files"
 │   │   ├── utils.py        ← _file_dict(), _get_file_or_404(), logger, storage, MAX_FILE_SIZE
 │   │   ├── router.py       ← upload (rate 20/60), list, delete, content, status, download,
 │   │   │                      rename, put_content; sha256 dedup before DB insert
 │   │   ├── ingest.py       ← /ingest-url (rate 10/60); sha256 dedup on extracted text
-│   │   ├── workspaces.py   ← /workspaces, /{id}/workspace
+│   │   ├── workspaces.py   ← GET /workspaces (returns [{id,name}] from Workspace table),
+│   │   │                      PATCH /{id}/workspace (accepts UUID, validates ownership)
 │   │   ├── versions.py     ← /{id}/versions, /{id}/versions/{vid}, restore
 │   │   └── stream.py       ← /{id}/status/stream — SSE; polls DB + Redis every 0.8s
-│   ├── conversations.py    ← conversation routes; messages returns token fields
+│   ├── conversations.py    ← conversation routes; ?workspace_id= filter; ?q= full-text search;
+│   │                          GET /{id}/export?format=markdown|json; messages returns token fields
 │   ├── memory.py           ← memory routes
 │   ├── system.py           ← /health (pings NIM, embedding, Redis concurrently), /metrics
 │   ├── tool_logs.py        ← GET /tool-calls?limit=&conversation_id=
@@ -136,8 +153,8 @@ backend/
 | GET | `/files` | JWT | list (?workspace_id=) |
 | DELETE | `/files/{id}` | JWT | delete file + chunks + disk |
 | POST | `/files/ingest-url` | JWT | fetch URL → chunk+embed |
-| GET | `/files/workspaces` | JWT | distinct workspace IDs |
-| PATCH | `/files/{id}/workspace` | JWT | assign workspace |
+| GET | `/files/workspaces` | JWT | workspace list [{id,name}] for files panel |
+| PATCH | `/files/{id}/workspace` | JWT | assign workspace (UUID) |
 | GET | `/files/{id}/content` | JWT | full text |
 | GET | `/files/{id}/status` | JWT | one-shot poll |
 | GET | `/files/{id}/status/stream` | JWT | SSE until ready/error |
@@ -147,8 +164,20 @@ backend/
 | GET | `/files/{id}/versions` | JWT | last 50 desc |
 | GET | `/files/{id}/versions/{vid}` | JWT | single version |
 | POST | `/files/{id}/versions/{vid}/restore` | JWT | restore version |
-| GET | `/conversations` | JWT | list |
+| POST | `/workspaces` | JWT | create workspace |
+| GET | `/workspaces` | JWT | list (+ conv/file counts) |
+| GET | `/workspaces/{id}` | JWT | single workspace |
+| PATCH | `/workspaces/{id}` | JWT | update name/description/system_prompt |
+| DELETE | `/workspaces/{id}` | JWT | delete (orphans content) |
+| GET | `/workspaces/{id}/conversations` | JWT | conversations in workspace |
+| GET | `/workspaces/{id}/files` | JWT | files in workspace |
+| GET | `/workspaces/{id}/memory` | JWT | workspace memory sheet |
+| PUT | `/workspaces/{id}/memory` | JWT | edit workspace memory |
+| POST | `/auth/invite` | JWT (admin) | generate invite token (7-day expiry) |
+| GET | `/auth/invites` | JWT (admin) | list all invitations |
+| GET | `/conversations` | JWT | list; ?workspace_id= filter; ?q= full-text search |
 | GET | `/conversations/{id}/messages` | JWT | messages + token fields |
+| GET | `/conversations/{id}/export` | JWT | ?format=markdown|json download |
 | PATCH | `/conversations/{id}` | JWT | memory_enabled / system_prompt / locked_model |
 | DELETE | `/conversations/{id}` | JWT | delete |
 | GET | `/conversations/{id}/files` | JWT | attached files |
@@ -184,6 +213,7 @@ backend/
 ```python
 message:          str          # required, max 2000 chars
 conversation_id:  str | None
+workspace_id:     str | None   # UUID; used when creating new conversation
 model_override:   str | None   # short key or full model ID
 temperature:      float | None # 0.0–2.0
 max_tokens:       int | None   # 1–4096
@@ -233,21 +263,30 @@ user message + file_ids
 
 ### Context Injection Order
 ```
-1. system_prompt (+ file list with IDs if attached)
+1. workspace system_prompt (if set) merged with conv system_prompt; file list with IDs
 2. [USER STATE]       ← UserMemory.content
-3. [PROJECT STATE]    ← UserMemory.project_summary
-4. [RELEVANT CONTEXT] ← pgvector cosine top-K
-5. [EARLIER IN CONV]  ← history_summary
-6. last 10 importance-weighted messages
-7. [FILE CONTEXT]     ← cosine top-5 chunks (LAST — recency bias)
-8. current user message
+3. [WORKSPACE STATE]  ← WorkspaceMemory.content  (NEW)
+4. [PROJECT STATE]    ← UserMemory.project_summary
+5. [RELEVANT CONTEXT] ← pgvector cosine top-K
+6. [EARLIER IN CONV]  ← history_summary
+7. last 10 importance-weighted messages
+8. [FILE CONTEXT]     ← cosine top-5 chunks (LAST — recency bias)
+9. current user message
 ```
+
+### Workspace System Prompt
+- Workspace system_prompt takes precedence over conversation system_prompt
+- If both set: merged as `ws_sysprompt + "\n\n" + conv_sysprompt`
+- Workspace system_prompt also passed to compare mode
 
 ### Triggers
 - Memory sheet: >3000 tokens OR every 10 assistant messages
 - Project summary: >4000 tokens OR every 15 messages
 - History compression: compresses all_msgs[:-10] → max 200 words
+- WorkspaceMemory: updated alongside UserMemory when conv belongs to a workspace
 - Lock: `pg_advisory_xact_lock(user_id)` prevents version races
+- Auto-title: fires after 2nd message (all_count == 2) via `asyncio.create_task(_auto_title(...))`
+  - Calls MODELS["llama"] with "Summarize in 6 words or fewer"
 
 ### Retrieval
 - HNSW `vector_cosine_ops`, 1024d; normal top_k=3, reference top_k=8

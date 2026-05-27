@@ -305,14 +305,18 @@ export default function Chat({ token, onLogout }) {
   const [usageData,      setUsageData]      = useState(null)
   const [usageLoading,   setUsageLoading]   = useState(false)
 
+  // workspace sidebar
+  const [sidebarWsList,  setSidebarWsList]  = useState([])
+  const [sidebarWsId,    setSidebarWsId]    = useState(null)
+
   // files panel
   const [filesOpen,      setFilesOpen]      = useState(false)
   const [filesTab,       setFilesTab]       = useState('library')
   const [fileViewer,     setFileViewer]     = useState(null)   // {filename, content} | null
   const [libFiles,       setLibFiles]       = useState([])
   const [attachedFiles,  setAttachedFiles]  = useState([])
-  const [workspaces,     setWorkspaces]     = useState([])
-  const [wsFilter,       setWsFilter]       = useState('')
+  const [workspaces,     setWorkspaces]     = useState([])  // [{id, name}]
+  const [wsFilter,       setWsFilter]       = useState('')  // UUID string
   const [fileUploading,  setFileUploading]  = useState(false)
   const [urlIngest,      setUrlIngest]      = useState('')
   const [urlIngesting,   setUrlIngesting]   = useState(false)
@@ -339,6 +343,12 @@ export default function Chat({ token, onLogout }) {
     fetch('/api/conversations', { headers: authHeaders })
       .then(r => r.ok ? r.json() : [])
       .then(setConversations).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/workspaces', { headers: authHeaders })
+      .then(r => r.ok ? r.json() : [])
+      .then(setSidebarWsList).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -654,7 +664,7 @@ export default function Chat({ token, onLogout }) {
 
   // build request body
   function buildBody(text) {
-    const body = { message: text, conversation_id: activeConvId }
+    const body = { message: text, conversation_id: activeConvId, workspace_id: sidebarWsId }
     if (selectedModel !== 'auto') body.model_override = selectedModel  // short key
     if (compareMode) body.compare = true
     if (tempEnabled)   body.temperature = temperature
@@ -727,7 +737,7 @@ export default function Chat({ token, onLogout }) {
                 setConversations(prev => {
                   const exists = prev.find(c => c.id === cid)
                   if (exists) return [{ ...exists, updated_at: new Date().toISOString() }, ...prev.filter(c => c.id !== cid)]
-                  return [{ id: cid, title: text.slice(0, 60), updated_at: new Date().toISOString(), memory_enabled: true, system_prompt: '', locked_model: '' }, ...prev]
+                  return [{ id: cid, title: text.slice(0, 60), updated_at: new Date().toISOString(), memory_enabled: true, system_prompt: '', locked_model: '', workspace_id: sidebarWsId }, ...prev]
                 })
               }
             } else if (event.type === 'tool_call') {
@@ -814,8 +824,22 @@ export default function Chat({ token, onLogout }) {
       {/* sidebar */}
       <div style={s.sidebar}>
         <div style={s.sideTop}><button onClick={newChat} style={s.newBtn}>+ New Chat</button></div>
+        {sidebarWsList.length > 0 && (
+          <div style={{ padding:'0.4rem 0.5rem', borderBottom:'1px solid #1e293b', display:'flex', gap:'0.25rem', flexWrap:'wrap' }}>
+            <button onClick={() => setSidebarWsId(null)}
+              style={{ ...s.wsPill, ...(sidebarWsId === null ? s.wsPillActive : {}) }}>
+              All
+            </button>
+            {sidebarWsList.map(ws => (
+              <button key={ws.id} onClick={() => setSidebarWsId(sidebarWsId === ws.id ? null : ws.id)}
+                style={{ ...s.wsPill, ...(sidebarWsId === ws.id ? s.wsPillActive : {}) }}>
+                {ws.name}
+              </button>
+            ))}
+          </div>
+        )}
         <div style={s.convList}>
-          {conversations.map(c => (
+          {conversations.filter(c => sidebarWsId === null || c.workspace_id === sidebarWsId).map(c => (
             <div key={c.id} onClick={() => selectConv(c.id)}
               style={{ ...s.convItem, background: c.id === activeConvId ? '#1e293b' : 'transparent' }}>
               <div style={s.convMeta}>
@@ -1061,9 +1085,9 @@ export default function Chat({ token, onLogout }) {
             <span style={s.wsLabel}>WS:</span>
             <button onClick={() => setWsFilter('')} style={{ ...s.wsPill, ...(wsFilter === '' ? s.wsPillActive : {}) }}>All</button>
             {workspaces.map(ws => (
-              <button key={ws} onClick={() => setWsFilter(ws === wsFilter ? '' : ws)}
-                style={{ ...s.wsPill, ...(wsFilter === ws ? s.wsPillActive : {}) }}>
-                {ws}
+              <button key={ws.id} onClick={() => setWsFilter(ws.id === wsFilter ? '' : ws.id)}
+                style={{ ...s.wsPill, ...(wsFilter === ws.id ? s.wsPillActive : {}) }}>
+                {ws.name}
               </button>
             ))}
           </div>

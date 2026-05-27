@@ -9,6 +9,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 import llm.client as llm_client
 from api.admin import router as admin_router
+from api.workspaces import router as workspaces_router
 from api.chat import router as chat_router
 from api.conversations import router as conversations_router
 from api.files import router as files_router
@@ -18,7 +19,7 @@ from api.system import router as system_router
 from api.templates import router as templates_router
 from api.tool_logs import router as tool_logs_router
 from api.usage import router as usage_router
-from auth import auth_router
+from auth import auth_router, invite_router
 from config import REQUEST_TIMEOUT
 from core.db import init_db
 from core.logger import setup_logging
@@ -68,6 +69,8 @@ app.include_router(admin_router)
 app.include_router(usage_router)
 app.include_router(templates_router)
 app.include_router(scheduled_prompts_router)
+app.include_router(workspaces_router)
+app.include_router(invite_router)
 
 Instrumentator().instrument(app).expose(app, endpoint="/prometheus")
 

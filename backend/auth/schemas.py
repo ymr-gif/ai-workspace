@@ -12,5 +12,6 @@ class TokenData(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    username: str
-    password: str
+    username:     str
+    password:     str
+    invite_token: str | None = None

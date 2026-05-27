@@ -21,7 +21,7 @@ from observability.token_metrics import record_tokens
 from rate_limiter import limit
 
 from .helpers import (
-    _build_stream_context, _calculate_tokens_and_cost, _check_cost_cap,
+    _auto_title, _build_stream_context, _calculate_tokens_and_cost, _check_cost_cap,
     _embed_exchange, _estimate_tokens, _extract_model_params, _resolve_conversation,
     _resolve_model,
 )
@@ -109,7 +109,13 @@ async def chat_stream(
     ctx             = await _build_stream_context(req, conv, current_user, db, rid)
     model_params    = _extract_model_params(req)
     effective_model = _resolve_model(req.model_override) or _resolve_model(conv.locked_model)
-    system_prompt   = conv.system_prompt or None
+    # Workspace system_prompt takes precedence; merge with conv system_prompt if both set
+    ws_sysprompt  = ctx.get("workspace_sysprompt")
+    conv_sysprompt = conv.system_prompt or None
+    if ws_sysprompt and conv_sysprompt:
+        system_prompt = ws_sysprompt + "\n\n" + conv_sysprompt
+    else:
+        system_prompt = ws_sysprompt or conv_sysprompt
 
     if req.compare:
         await db.commit()
@@ -162,6 +168,7 @@ async def chat_stream(
                 file_ids=ctx["file_ids"], conv_id=conv.id,
                 user_id=current_user.id, db=db,
                 image_b64=req.image_b64, image_mime_type=req.image_mime_type,
+                workspace_memory=ctx.get("workspace_memory", ""),
             ):
                 if event["type"] == "token":
                     accumulated.append(event["content"])
@@ -195,6 +202,9 @@ async def chat_stream(
                         cnt       = await db.execute(select(func.count()).select_from(Message).where(Message.conversation_id == conv.id))
                         all_count = cnt.scalar_one()
                         asst_cnt  = await db.execute(select(func.count()).select_from(Message).where(Message.conversation_id == conv.id, Message.role == "assistant"))
+
+                        if all_count == 2:
+                            asyncio.create_task(_auto_title(conv.id, req.message, full_response))
                         asst_count = asst_cnt.scalar_one()
 
                         ctx_tokens = _estimate_tokens(

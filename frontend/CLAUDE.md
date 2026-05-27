@@ -13,6 +13,10 @@
 - Per-bubble token display: `{totalTokens} tok · $x.xxxxx` below model tag when done
   - Live: from SSE "done" event; history: from messages endpoint
 - `$ Usage` button → slide-in panel (aggregate `/api/usage`): messages, tokens, cost + refresh
+- **Workspace filter pills** in sidebar — loaded from `GET /workspaces` on mount
+  - "All" pill + one pill per workspace; active pill filters conversation list
+  - `workspace_id` sent in every `/chat/stream` request (null = backend picks Default)
+  - New conversations in SSE "done" event include `workspace_id` for immediate sidebar filter
 
 ## Files Panel
 - 📎 button in header — amber + count when files attached
@@ -20,7 +24,9 @@
 - Library per-file: status badge, rename (inline), ✎ rename, 👁 view, ⬇ download, +/✓ attach, 🗑 delete
 - Attached per-file: status badge, filename, 👁 view, ✕ detach
 - Processing status: SSE stream per file (not polling); `AbortController` stored in `statusStreamsRef`
-- Upload button + URL ingest input; workspace filter pills
+- Upload button + URL ingest input
+- Workspace filter pills from `GET /files/workspaces` → `{workspaces: [{id, name}]}`
+  - `wsFilter` is a UUID string (was plain string in old API)
 
 ## File Viewer Modal
 - 3 tabs:
