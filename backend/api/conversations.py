@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth.security import get_current_user
 from config import MODELS
 from core.db import get_db
-from models import Conversation, ConversationFile, File as FileModel, Message, User
+from models import Conversation, ConversationFile, File as FileModel, Message, User, Workspace
 
 logger = logging.getLogger("conversations")
 router = APIRouter()
@@ -97,10 +98,16 @@ async def get_messages(
     ]
 
 
+def _safe_filename(title: str, ext: str) -> str:
+    safe = re.sub(r'[\"\r\n\x00-\x1f\\]', '', title)[:40].strip() or 'conversation'
+    return f"{safe}.{ext}"
+
+
 class ConversationPatch(BaseModel):
     memory_enabled: bool | None = None
     system_prompt:  str  | None = None   # "" clears
     locked_model:   str  | None = None   # "" or short key ("llama"…) or full model id; "" clears
+    workspace_id:   str  | None = None   # UUID to move conv; "" clears (unassigns)
 
 
 @router.patch("/conversations/{conversation_id}")
@@ -135,12 +142,26 @@ async def patch_conversation(
             # accept short key ("llama") or full model id
             conv.locked_model = MODELS.get(raw, raw) if raw in MODELS or raw in MODELS.values() else None
 
+    if "workspace_id" in updated:
+        raw = (body.workspace_id or "").strip()
+        if not raw:
+            conv.workspace_id = None
+        else:
+            try:
+                wid = uuid.UUID(raw)
+                ws  = await db.get(Workspace, wid)
+                if ws and ws.user_id == current_user.id:
+                    conv.workspace_id = wid
+            except ValueError:
+                pass
+
     await db.commit()
     return {
         "ok":             True,
         "memory_enabled": conv.memory_enabled,
         "system_prompt":  conv.system_prompt  or "",
         "locked_model":   conv.locked_model   or "",
+        "workspace_id":   str(conv.workspace_id) if conv.workspace_id else None,
     }
 
 
@@ -273,7 +294,7 @@ async def export_conversation(
         return StreamingResponse(
             iter([payload]),
             media_type="application/json",
-            headers={"Content-Disposition": f'attachment; filename="{conv.title[:40]}.json"'},
+            headers={"Content-Disposition": f"attachment; filename=\"{_safe_filename(conv.title, 'json')}\""},
         )
 
     # Markdown
@@ -286,7 +307,7 @@ async def export_conversation(
     return StreamingResponse(
         _md_lines(),
         media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="{conv.title[:40]}.md"'},
+        headers={"Content-Disposition": f"attachment; filename=\"{_safe_filename(conv.title, 'md')}\""},
     )
 
 
