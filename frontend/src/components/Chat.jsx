@@ -194,6 +194,24 @@ const s = {
   fileChip:      { display:'flex', alignItems:'center', gap:'0.3rem', padding:'0.2rem 0.5rem', borderRadius:'12px', background:'#1e293b', border:'1px solid #334155', fontSize:'0.72rem', color:'#818cf8' },
   chipX:         { cursor:'pointer', color:'#475569', fontSize:'0.8rem', lineHeight:1 },
 
+  // workspace modal / gear
+  wsGearBtn:    { background:'none', border:'none', color:'#475569', cursor:'pointer', fontSize:'0.6rem', padding:'0 1px', lineHeight:1, marginLeft:'1px' },
+  wsPlusBtn:    { padding:'0.15rem 0.45rem', borderRadius:'12px', border:'1px dashed #334155', background:'none', color:'#475569', cursor:'pointer', fontSize:'0.7rem', lineHeight:1.2 },
+  wsModal:      { position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:'420px', maxWidth:'92vw', background:'#0f172a', border:'1px solid #1e293b', borderRadius:'12px', zIndex:22, display:'flex', flexDirection:'column' },
+
+  // sidebar search
+  sideSearchWrap:  { padding:'0.4rem 0.5rem', borderBottom:'1px solid #1e293b', flexShrink:0 },
+  sideSearchInput: { width:'100%', padding:'0.35rem 0.6rem', borderRadius:'6px', border:'1px solid #1e293b', background:'#0a1220', color:'#f1f5f9', fontSize:'0.78rem', outline:'none', boxSizing:'border-box' },
+
+  // invite panel
+  invitePanel:  { position:'absolute', top:0, right:0, bottom:0, width:'420px', maxWidth:'95vw', background:'#0f172a', borderLeft:'1px solid #1e293b', zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.28s cubic-bezier(.4,0,.2,1)' },
+  inviteHdr:    { padding:'1rem 1.25rem 0.75rem', borderBottom:'1px solid #1e293b', flexShrink:0, display:'flex', justifyContent:'space-between', alignItems:'center' },
+  inviteTitle:  { fontWeight:700, fontSize:'0.95rem', color:'#e2e8f0' },
+  inviteBody:   { flex:1, overflowY:'auto', padding:'1rem 1.25rem' },
+  inviteRow:    { padding:'0.6rem 0.75rem', borderRadius:'6px', marginBottom:'6px', border:'1px solid #1e293b', background:'#0a1220', fontSize:'0.78rem' },
+  tokenBox:     { background:'rgba(99,102,241,0.08)', border:'1px solid rgba(99,102,241,0.25)', borderRadius:'8px', padding:'0.75rem', marginBottom:'1rem' },
+  tokenText:    { fontFamily:'monospace', fontSize:'0.72rem', color:'#818cf8', wordBreak:'break-all', cursor:'pointer', userSelect:'all' },
+
   // token meta + usage panel
   tokMeta:       { display:'block', marginTop:'0.3rem', fontSize:'0.68rem', color:'#334155', fontFamily:'monospace' },
   usagePanel:    { position:'absolute', top:0, right:0, bottom:0, width:'340px', maxWidth:'92vw', background:'#0f172a', borderLeft:'1px solid #1e293b', zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.28s cubic-bezier(.4,0,.2,1)' },
@@ -309,6 +327,39 @@ export default function Chat({ token, onLogout }) {
   const [sidebarWsList,  setSidebarWsList]  = useState([])
   const [sidebarWsId,    setSidebarWsId]    = useState(null)
 
+  // workspace modal (create / edit)
+  const [wsModalOpen,    setWsModalOpen]    = useState(false)
+  const [wsModalTarget,  setWsModalTarget]  = useState(null)
+  const [wsFieldName,    setWsFieldName]    = useState('')
+  const [wsFieldDesc,    setWsFieldDesc]    = useState('')
+  const [wsFieldSys,     setWsFieldSys]     = useState('')
+  const [wsSaving,       setWsSaving]       = useState(false)
+
+  // sidebar conversation search
+  const [convSearch,     setConvSearch]     = useState('')
+  const [searchResults,  setSearchResults]  = useState(null)
+  const [searchLoading,  setSearchLoading]  = useState(false)
+
+  // workspace memory (tab in memory panel)
+  const [wsMemData,      setWsMemData]      = useState(null)
+  const [wsMemLoading,   setWsMemLoading]   = useState(false)
+  const [wsMemEditing,   setWsMemEditing]   = useState(false)
+  const [wsMemContent,   setWsMemContent]   = useState('')
+  const [wsMemSaving,    setWsMemSaving]    = useState(false)
+
+  // invite panel (admin only)
+  const [inviteOpen,      setInviteOpen]      = useState(false)
+  const [inviteList,      setInviteList]      = useState([])
+  const [inviteLoading,   setInviteLoading]   = useState(false)
+  const [newToken,        setNewToken]        = useState('')
+  const [tokenGenerating, setTokenGenerating] = useState(false)
+
+  // user role (admin gate)
+  const [userRole,       setUserRole]       = useState(null)
+
+  // conv workspace move (in settings modal)
+  const [editWsId,       setEditWsId]       = useState('')
+
   // files panel
   const [filesOpen,      setFilesOpen]      = useState(false)
   const [filesTab,       setFilesTab]       = useState('library')
@@ -350,6 +401,40 @@ export default function Chat({ token, onLogout }) {
       .then(r => r.ok ? r.json() : [])
       .then(setSidebarWsList).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    fetch('/auth/me', { headers: authHeaders })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setUserRole(d.role) }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!sidebarWsId && memTab === 'workspace') setMemTab('view')
+  }, [sidebarWsId])
+
+  useEffect(() => {
+    if (!convSearch.trim()) { setSearchResults(null); return }
+    const tid = setTimeout(async () => {
+      setSearchLoading(true)
+      try {
+        const qs = new URLSearchParams({ q: convSearch.trim() })
+        if (sidebarWsId) qs.set('workspace_id', sidebarWsId)
+        const r = await fetch(`/conversations?${qs}`, { headers: authHeaders })
+        if (r.ok) setSearchResults(await r.json())
+      } catch { /* ignore */ } finally { setSearchLoading(false) }
+    }, 350)
+    return () => clearTimeout(tid)
+  }, [convSearch, sidebarWsId])
+
+  useEffect(() => {
+    if (!inviteOpen) return
+    loadInvites()
+  }, [inviteOpen])
+
+  useEffect(() => {
+    if (!memOpen || memTab !== 'workspace' || !sidebarWsId) return
+    loadWsMemory(sidebarWsId)
+  }, [memOpen, memTab, sidebarWsId])
 
   useEffect(() => {
     if (!activeConvId) return
@@ -399,6 +484,85 @@ export default function Chat({ token, onLogout }) {
 
   function newChat() { setActiveConvId(null); setMessages([]); setInput(''); setConvMemEnabled(true); setConvSysPrompt(''); setConvLockModel('') }
 
+  // workspace modal
+  function openCreateWs() { setWsModalTarget(null); setWsFieldName(''); setWsFieldDesc(''); setWsFieldSys(''); setWsModalOpen(true) }
+  function openEditWs(ws, e) { e.stopPropagation(); setWsModalTarget(ws); setWsFieldName(ws.name); setWsFieldDesc(ws.description || ''); setWsFieldSys(ws.system_prompt || ''); setWsModalOpen(true) }
+  async function saveWsModal() {
+    if (!wsFieldName.trim()) return
+    setWsSaving(true)
+    try {
+      const isEdit = !!wsModalTarget
+      const r = await fetch(isEdit ? `/workspaces/${wsModalTarget.id}` : '/workspaces', {
+        method: isEdit ? 'PATCH' : 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: wsFieldName.trim(), description: wsFieldDesc || null, system_prompt: wsFieldSys || null }),
+      })
+      if (!r.ok) return
+      const d = await r.json()
+      setSidebarWsList(prev => isEdit ? prev.map(w => w.id === d.id ? { ...w, ...d } : w) : [...prev, d])
+      setWsModalOpen(false)
+    } catch { /* ignore */ } finally { setWsSaving(false) }
+  }
+  async function deleteWs() {
+    if (!wsModalTarget) return
+    if (!window.confirm(`Delete workspace "${wsModalTarget.name}"? Conversations and files will become unorganized.`)) return
+    try {
+      await fetch(`/workspaces/${wsModalTarget.id}`, { method: 'DELETE', headers: authHeaders })
+      setSidebarWsList(prev => prev.filter(w => w.id !== wsModalTarget.id))
+      if (sidebarWsId === wsModalTarget.id) setSidebarWsId(null)
+      setWsModalOpen(false)
+    } catch { /* ignore */ }
+  }
+
+  // workspace memory
+  const loadWsMemory = useCallback(async (wsId) => {
+    setWsMemLoading(true)
+    try {
+      const r = await fetch(`/workspaces/${wsId}/memory`, { headers: authHeaders })
+      if (r.ok) setWsMemData(await r.json())
+    } catch { /* ignore */ } finally { setWsMemLoading(false) }
+  }, [token])
+  async function saveWsMemory() {
+    if (!sidebarWsId) return
+    setWsMemSaving(true)
+    try {
+      const r = await fetch(`/workspaces/${sidebarWsId}/memory`, {
+        method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: wsMemContent }),
+      })
+      if (r.ok) { setWsMemData(await r.json()); setWsMemEditing(false) }
+    } catch { /* ignore */ } finally { setWsMemSaving(false) }
+  }
+
+  // invites
+  const loadInvites = useCallback(async () => {
+    setInviteLoading(true)
+    try {
+      const r = await fetch('/auth/invites', { headers: authHeaders })
+      if (r.ok) setInviteList(await r.json())
+    } catch { /* ignore */ } finally { setInviteLoading(false) }
+  }, [token])
+  async function generateInvite() {
+    setTokenGenerating(true)
+    try {
+      const r = await fetch('/auth/invite', { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: '{}' })
+      if (r.ok) { const d = await r.json(); setNewToken(d.token); await loadInvites() }
+    } catch { /* ignore */ } finally { setTokenGenerating(false) }
+  }
+
+  // export conversation
+  async function exportConv(convId, title, format = 'markdown') {
+    try {
+      const r = await fetch(`/conversations/${convId}/export?format=${format}`, { headers: authHeaders })
+      if (!r.ok) return
+      const blob = await r.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url; a.download = `${(title || 'conversation').slice(0,40).replace(/[^a-z0-9 _-]/gi, '_')}.${format === 'json' ? 'json' : 'md'}`
+      a.click(); URL.revokeObjectURL(url)
+    } catch { /* ignore */ }
+  }
+
   async function deleteConv(e, id) {
     e.stopPropagation()
     if (!window.confirm('Delete this conversation?')) return
@@ -414,6 +578,7 @@ export default function Chat({ token, onLogout }) {
     setConvMemEnabled(c?.memory_enabled !== false)
     setConvSysPrompt(c?.system_prompt || ''); setEditSysPrompt(c?.system_prompt || '')
     setConvLockModel(c?.locked_model  || ''); setEditLockModel(c?.locked_model  || '')
+    setEditWsId(c?.workspace_id || '')
   }
 
   async function toggleConvMemory() {
@@ -431,12 +596,12 @@ export default function Chat({ token, onLogout }) {
     try {
       const r = await fetch(`/api/conversations/${activeConvId}`, {
         method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ system_prompt: editSysPrompt || null, locked_model: editLockModel || null }),
+        body: JSON.stringify({ system_prompt: editSysPrompt || null, locked_model: editLockModel || null, workspace_id: editWsId || null }),
       })
       if (!r.ok) return
       const data = await r.json()
       setConvSysPrompt(data.system_prompt); setConvLockModel(data.locked_model)
-      setConversations(prev => prev.map(c => c.id === activeConvId ? { ...c, system_prompt: data.system_prompt, locked_model: data.locked_model } : c))
+      setConversations(prev => prev.map(c => c.id === activeConvId ? { ...c, system_prompt: data.system_prompt, locked_model: data.locked_model, workspace_id: data.workspace_id } : c))
       setSettingsOpen(false)
     } catch { /* ignore */ } finally { setSettingsSaving(false) }
   }
@@ -824,22 +989,34 @@ export default function Chat({ token, onLogout }) {
       {/* sidebar */}
       <div style={s.sidebar}>
         <div style={s.sideTop}><button onClick={newChat} style={s.newBtn}>+ New Chat</button></div>
-        {sidebarWsList.length > 0 && (
-          <div style={{ padding:'0.4rem 0.5rem', borderBottom:'1px solid #1e293b', display:'flex', gap:'0.25rem', flexWrap:'wrap' }}>
-            <button onClick={() => setSidebarWsId(null)}
-              style={{ ...s.wsPill, ...(sidebarWsId === null ? s.wsPillActive : {}) }}>
-              All
-            </button>
-            {sidebarWsList.map(ws => (
-              <button key={ws.id} onClick={() => setSidebarWsId(sidebarWsId === ws.id ? null : ws.id)}
+
+        {/* workspace filter pills */}
+        <div style={{ padding:'0.4rem 0.5rem', borderBottom:'1px solid #1e293b', display:'flex', gap:'0.25rem', flexWrap:'wrap', alignItems:'center' }}>
+          <button onClick={() => setSidebarWsId(null)}
+            style={{ ...s.wsPill, ...(sidebarWsId === null ? s.wsPillActive : {}) }}>
+            All
+          </button>
+          {sidebarWsList.map(ws => (
+            <span key={ws.id} style={{ display:'inline-flex', alignItems:'center' }}>
+              <button onClick={() => setSidebarWsId(sidebarWsId === ws.id ? null : ws.id)}
                 style={{ ...s.wsPill, ...(sidebarWsId === ws.id ? s.wsPillActive : {}) }}>
                 {ws.name}
               </button>
-            ))}
-          </div>
-        )}
+              <button onClick={e => openEditWs(ws, e)} style={s.wsGearBtn} title="Workspace settings">⚙</button>
+            </span>
+          ))}
+          <button onClick={openCreateWs} style={s.wsPlusBtn} title="New workspace">+</button>
+        </div>
+
+        {/* conversation search */}
+        <div style={s.sideSearchWrap}>
+          <input value={convSearch} onChange={e => setConvSearch(e.target.value)}
+            placeholder="Search conversations…" style={s.sideSearchInput} />
+        </div>
+
         <div style={s.convList}>
-          {conversations.filter(c => sidebarWsId === null || c.workspace_id === sidebarWsId).map(c => (
+          {searchLoading && <p style={{ color:'#475569', fontSize:'0.75rem', textAlign:'center', padding:'0.5rem' }}>Searching…</p>}
+          {(searchResults !== null ? searchResults : conversations.filter(c => sidebarWsId === null || c.workspace_id === sidebarWsId)).map(c => (
             <div key={c.id} onClick={() => selectConv(c.id)}
               style={{ ...s.convItem, background: c.id === activeConvId ? '#1e293b' : 'transparent' }}>
               <div style={s.convMeta}>
@@ -850,6 +1027,7 @@ export default function Chat({ token, onLogout }) {
                   {c.locked_model && <span style={{ color:'#6366f1', marginLeft:'4px' }}>🔒</span>}
                 </span>
               </div>
+              <button onClick={e => { e.stopPropagation(); exportConv(c.id, c.title) }} style={s.convDel} title="Export as Markdown">⬇</button>
               <button onClick={e => deleteConv(e, c.id)} style={s.convDel} title="Delete conversation">✕</button>
             </div>
           ))}
@@ -890,6 +1068,13 @@ export default function Chat({ token, onLogout }) {
               {memPending ? <span style={s.updatingDot} /> : hasMemory && <span style={s.memDot} />}
               Memory
             </button>
+            {userRole === 'admin' && (
+              <button onClick={() => { setInviteOpen(o => !o); setMemOpen(false); setFilesOpen(false); setToolLogOpen(false); setUsageOpen(false) }}
+                style={{ ...s.hdrBtn, ...(inviteOpen ? { color:'#818cf8', borderColor:'#4338ca' } : {}) }}
+                title="Manage invite tokens">
+                ⚡ Invites
+              </button>
+            )}
             <button onClick={onLogout} style={s.logout}>Logout</button>
           </div>
         </header>
@@ -1009,9 +1194,13 @@ export default function Chat({ token, onLogout }) {
       </div>
 
       {/* overlays */}
-      {(memOpen || filesOpen || settingsOpen || toolLogOpen || usageOpen) && (
-        <div style={{ ...s.overlay, zIndex: settingsOpen ? 19 : 10 }}
-          onClick={() => { if (settingsOpen) setSettingsOpen(false); else { setMemOpen(false); setFilesOpen(false); setToolLogOpen(false); setUsageOpen(false) } }} />
+      {(memOpen || filesOpen || settingsOpen || toolLogOpen || usageOpen || inviteOpen || wsModalOpen) && (
+        <div style={{ ...s.overlay, zIndex: (settingsOpen || wsModalOpen) ? 21 : 10 }}
+          onClick={() => {
+            if (wsModalOpen) setWsModalOpen(false)
+            else if (settingsOpen) setSettingsOpen(false)
+            else { setMemOpen(false); setFilesOpen(false); setToolLogOpen(false); setUsageOpen(false); setInviteOpen(false) }
+          }} />
       )}
 
       {/* settings modal */}
@@ -1035,12 +1224,58 @@ export default function Chat({ token, onLogout }) {
               ))}
             </div>
             {editLockModel && <div style={{ fontSize:'0.7rem', color:'#475569', marginTop:'0.4rem' }}>All messages in this conversation will use {MODEL_LABELS[MODEL_KEYS[editLockModel]] || editLockModel}.</div>}
+            {sidebarWsList.length > 0 && (
+              <>
+                <div style={{ ...s.editLabel, marginTop:'1rem' }}>Workspace</div>
+                <select value={editWsId} onChange={e => setEditWsId(e.target.value)}
+                  style={{ ...s.editArea, height:'2.2rem', resize:'none', padding:'0.3rem 0.6rem', cursor:'pointer' }}>
+                  <option value="">— None —</option>
+                  {sidebarWsList.map(ws => (
+                    <option key={ws.id} value={ws.id}>{ws.name}</option>
+                  ))}
+                </select>
+              </>
+            )}
           </div>
           <div style={s.settingsFooter}>
             <button onClick={() => setSettingsOpen(false)} style={s.cancelBtn}>Cancel</button>
             <button onClick={saveSettings} disabled={settingsSaving} style={s.saveBtn}>
               {settingsSaving ? 'Saving…' : 'Save'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* workspace modal */}
+      {wsModalOpen && (
+        <div style={s.wsModal} onClick={e => e.stopPropagation()}>
+          <div style={s.settingsHeader}>
+            <span style={s.settingsTitle}>{wsModalTarget ? `⚙ ${wsModalTarget.name}` : '+ New Workspace'}</span>
+            <button onClick={() => setWsModalOpen(false)} style={s.closeBtn}>✕</button>
+          </div>
+          <div style={s.settingsBody}>
+            <div style={{ ...s.editLabel, marginTop:0 }}>Name</div>
+            <input value={wsFieldName} onChange={e => setWsFieldName(e.target.value)}
+              style={{ ...s.editArea, height:'2.2rem', resize:'none', padding:'0.4rem 0.6rem' }}
+              placeholder="My Workspace" onKeyDown={e => e.key === 'Enter' && saveWsModal()} />
+            <div style={s.editLabel}>Description</div>
+            <input value={wsFieldDesc} onChange={e => setWsFieldDesc(e.target.value)}
+              style={{ ...s.editArea, height:'2.2rem', resize:'none', padding:'0.4rem 0.6rem' }}
+              placeholder="Optional description" />
+            <div style={s.editLabel}>System Prompt (AI persona for all conversations)</div>
+            <textarea value={wsFieldSys} onChange={e => setWsFieldSys(e.target.value)}
+              rows={4} style={s.editArea} placeholder="You are an expert in…" />
+          </div>
+          <div style={{ ...s.settingsFooter, justifyContent: wsModalTarget ? 'space-between' : 'flex-end' }}>
+            {wsModalTarget && (
+              <button onClick={deleteWs} style={{ ...s.cancelBtn, color:'#ef4444', borderColor:'#7f1d1d' }}>Delete</button>
+            )}
+            <div style={{ display:'flex', gap:'0.5rem' }}>
+              <button onClick={() => setWsModalOpen(false)} style={s.cancelBtn}>Cancel</button>
+              <button onClick={saveWsModal} disabled={wsSaving || !wsFieldName.trim()} style={s.saveBtn}>
+                {wsSaving ? 'Saving…' : wsModalTarget ? 'Save' : 'Create'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1277,6 +1512,48 @@ export default function Chat({ token, onLogout }) {
         </div>
       </div>
 
+      {/* invite panel */}
+      <div style={{ ...s.invitePanel, transform: inviteOpen ? 'translateX(0)' : 'translateX(100%)' }}>
+        <div style={s.inviteHdr}>
+          <span style={s.inviteTitle}>⚡ Invite Tokens</span>
+          <div style={{ display:'flex', gap:'0.4rem', alignItems:'center' }}>
+            <button onClick={loadInvites} style={s.refreshBtn} disabled={inviteLoading}>{inviteLoading ? '…' : '↻'}</button>
+            <button onClick={() => setInviteOpen(false)} style={s.closeBtn}>✕</button>
+          </div>
+        </div>
+        <div style={s.inviteBody}>
+          <button onClick={generateInvite} disabled={tokenGenerating}
+            style={{ ...s.saveBtn, width:'100%', marginBottom:'1rem' }}>
+            {tokenGenerating ? 'Generating…' : '+ Generate Invite Token'}
+          </button>
+          {newToken && (
+            <div style={s.tokenBox}>
+              <div style={{ fontSize:'0.7rem', color:'#64748b', marginBottom:'0.4rem' }}>New token (click to copy):</div>
+              <div style={s.tokenText} onClick={() => { navigator.clipboard.writeText(newToken).catch(() => {}); }}>
+                {newToken}
+              </div>
+              <div style={{ fontSize:'0.65rem', color:'#475569', marginTop:'0.3rem' }}>Valid 7 days · one-time use</div>
+            </div>
+          )}
+          {inviteLoading && <p style={s.emptyMem}>Loading…</p>}
+          {!inviteLoading && inviteList.length === 0 && <p style={s.emptyMem}>No invites yet.</p>}
+          {!inviteLoading && inviteList.map(inv => (
+            <div key={inv.id} style={s.inviteRow}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <span style={{ fontFamily:'monospace', color:'#818cf8', fontSize:'0.75rem' }}>{inv.token_prefix}</span>
+                <span style={{ ...s.statusBadge, ...(inv.used ? { background:'rgba(52,211,153,0.15)', color:'#34d399' } : { background:'rgba(100,116,139,0.15)', color:'#64748b' }) }}>
+                  {inv.used ? 'used' : 'pending'}
+                </span>
+              </div>
+              {inv.email && <div style={{ color:'#64748b', fontSize:'0.7rem', marginTop:'2px' }}>{inv.email}</div>}
+              <div style={{ color:'#334155', fontSize:'0.68rem', marginTop:'2px' }}>
+                {fmtDate(inv.created_at)}{inv.expires_at ? ` · expires ${fmtDate(inv.expires_at)}` : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* memory panel */}
       <div style={{ ...s.memPanel, transform: panelSlide }}>
         <div style={s.memHeader}>
@@ -1297,10 +1574,14 @@ export default function Chat({ token, onLogout }) {
         </div>
 
         <div style={s.tabBar}>
-          {['view','edit','history'].map(tab => (
-            <button key={tab} onClick={() => tab === 'edit' ? openEdit() : setMemTab(tab)}
+          {['view', ...(sidebarWsId ? ['workspace'] : []), 'edit', 'history'].map(tab => (
+            <button key={tab} onClick={() => {
+              if (tab === 'edit') openEdit()
+              else if (tab === 'workspace') { setMemTab('workspace'); loadWsMemory(sidebarWsId) }
+              else setMemTab(tab)
+            }}
               style={{ ...s.tabBtn, ...(memTab === tab ? s.tabActive : {}) }}>
-              {tab === 'view' ? 'View' : tab === 'edit' ? 'Edit' : 'History'}
+              {tab === 'view' ? 'View' : tab === 'edit' ? 'Edit' : tab === 'workspace' ? 'Workspace' : 'History'}
             </button>
           ))}
         </div>
@@ -1333,6 +1614,42 @@ export default function Chat({ token, onLogout }) {
               )}
             </>
           )}
+          {memTab === 'workspace' && (
+            <div>
+              {wsMemLoading && <p style={s.emptyMem}>Loading…</p>}
+              {!wsMemLoading && !wsMemEditing && (
+                <>
+                  {!wsMemData?.content
+                    ? <p style={s.emptyMem}>No workspace memory yet.<br /><span style={{ fontSize:'0.75rem' }}>Updates after exchanges in this workspace.</span></p>
+                    : parseMemory(wsMemData.content).map(sec => (
+                        <div key={sec.name} style={s.section}>
+                          <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||'#94a3b8', background: (SECTION_COLORS[sec.name]||'#94a3b8')+'18' }}>{sec.name}</span>
+                          {sec.pairs.map((p, i) => (
+                            <div key={i} style={s.kv}><span style={s.kvKey}>{p.key}</span><span style={s.kvVal}>{p.val}</span></div>
+                          ))}
+                        </div>
+                      ))
+                  }
+                  <button onClick={() => { setWsMemContent(wsMemData?.content || ''); setWsMemEditing(true) }}
+                    style={{ ...s.actionBtn, marginTop:'0.75rem' }}>Edit</button>
+                </>
+              )}
+              {!wsMemLoading && wsMemEditing && (
+                <div>
+                  <textarea value={wsMemContent} onChange={e => setWsMemContent(e.target.value)}
+                    rows={12} style={s.editArea} placeholder="[GOALS]&#10;goal: Build AI workspace" />
+                  <div style={s.editBtns}>
+                    <button onClick={saveWsMemory} disabled={wsMemSaving} style={s.saveBtn}>{wsMemSaving ? 'Saving…' : 'Save'}</button>
+                    <button onClick={() => setWsMemEditing(false)} style={s.cancelBtn}>Cancel</button>
+                  </div>
+                </div>
+              )}
+              {wsMemData?.updated_at && !wsMemEditing && (
+                <div style={{ fontSize:'0.68rem', color:'#334155', marginTop:'0.5rem' }}>Updated {fmtDate(wsMemData.updated_at)}</div>
+              )}
+            </div>
+          )}
+
           {memTab === 'edit' && (
             <div>
               <div style={{ ...s.editLabel, marginTop:0 }}>USER STATE (key: value per line, headers as [SECTION])</div>

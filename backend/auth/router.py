@@ -51,7 +51,9 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
         token = getattr(payload, "invite_token", None)
         if not token:
             raise HTTPException(status_code=403, detail="Invite token required")
-        result = await db.execute(select(Invitation).where(Invitation.token == token))
+        result = await db.execute(
+            select(Invitation).where(Invitation.token == token).with_for_update()
+        )
         invite = result.scalar_one_or_none()
         if not invite:
             raise HTTPException(status_code=403, detail="Invalid invite token")
