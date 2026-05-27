@@ -178,7 +178,7 @@ backend/
 | GET | `/conversations` | JWT | list; ?workspace_id= filter; ?q= full-text search |
 | GET | `/conversations/{id}/messages` | JWT | messages + token fields |
 | GET | `/conversations/{id}/export` | JWT | ?format=markdown|json download |
-| PATCH | `/conversations/{id}` | JWT | memory_enabled / system_prompt / locked_model |
+| PATCH | `/conversations/{id}` | JWT | memory_enabled / system_prompt / locked_model / workspace_id |
 | DELETE | `/conversations/{id}` | JWT | delete |
 | GET | `/conversations/{id}/files` | JWT | attached files |
 | POST | `/conversations/{id}/files` | JWT | attach file |
@@ -382,7 +382,6 @@ Suggestions only — ask for specs before implementing any.
 - **OpenAI-compatible endpoint** — `POST /v1/chat/completions` wrapper in `api/compat.py`. Maps OpenAI request schema → internal `ChatRequest`, returns OpenAI response schema. Makes the gateway work with LangChain, Open WebUI, and any OpenAI SDK without changes.
 - **API key auth** — Add `api_key` (String 64, unique, indexed, nullable) to `User` model. `GET /auth/me/api-key` generates one; `auth/security.py` accepts `Authorization: Bearer <key>` as alternative to JWT. Useful for scripts and curl without login flow.
 - **Standalone file search** — `GET /files/search?q=&workspace_id=` — semantic search across the user's file library without being inside a conversation. Calls `embed(q)` → `retrieve_from_files(file_ids=all_user_files, top_k=10)`. Returns chunks with file name + score.
-- **Conversation auto-title** — after first assistant message, fire `asyncio.create_task` calling NIM with a short prompt: `"Summarize this exchange in 6 words or fewer."` Saves result to `Conversation.title`. Sidebar stops showing raw timestamps.
 
 ### Cost / Performance
 - **Streaming response cache** — cache is currently bypassed for streaming. After stream completes, store the full assembled response in Redis (same key logic as `cache/keys.py`). On cache hit, stream the stored text token-by-token with a small delay to preserve UX. Saves NIM calls on repeated identical queries.
@@ -391,4 +390,3 @@ Suggestions only — ask for specs before implementing any.
 ### Admin / Observability
 - **Admin audit log** — new `AuditLog` model: `id, admin_user_id, action (str), target_user_id, detail (JSONB), created_at`. Record every `PATCH /admin/users/{id}/active` and `PATCH /admin/users/{id}/cost-limit`. `GET /admin/audit?limit=` returns recent entries. Currently zero traceability on admin actions.
 - **Rolling cost window** — add `cost_window_start` (DateTime) to `User`. `_check_cost_cap` sums only messages after that date. `PATCH /admin/users/{id}/cost-limit` accepts optional `reset_window: bool` to restart the window. More practical than all-time spend.
-- **Conversation export** — `GET /conversations/{id}/export?format=markdown|json` — streams the full message history. Markdown: each message as `**User:**` / `**AI:**` blocks. JSON: array of `{role, content, created_at, tokens}`. No new model needed; query existing `Message` rows.

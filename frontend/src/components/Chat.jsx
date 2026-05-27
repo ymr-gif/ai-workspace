@@ -403,7 +403,7 @@ export default function Chat({ token, onLogout }) {
   }, [])
 
   useEffect(() => {
-    fetch('/auth/me', { headers: authHeaders })
+    fetch('/api/auth/me', { headers: authHeaders })
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setUserRole(d.role) }).catch(() => {})
   }, [])
@@ -419,7 +419,7 @@ export default function Chat({ token, onLogout }) {
       try {
         const qs = new URLSearchParams({ q: convSearch.trim() })
         if (sidebarWsId) qs.set('workspace_id', sidebarWsId)
-        const r = await fetch(`/conversations?${qs}`, { headers: authHeaders })
+        const r = await fetch(`/api/conversations?${qs}`, { headers: authHeaders })
         if (r.ok) setSearchResults(await r.json())
       } catch { /* ignore */ } finally { setSearchLoading(false) }
     }, 350)
@@ -492,7 +492,7 @@ export default function Chat({ token, onLogout }) {
     setWsSaving(true)
     try {
       const isEdit = !!wsModalTarget
-      const r = await fetch(isEdit ? `/workspaces/${wsModalTarget.id}` : '/workspaces', {
+      const r = await fetch(isEdit ? `/api/workspaces/${wsModalTarget.id}` : '/api/workspaces', {
         method: isEdit ? 'PATCH' : 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: wsFieldName.trim(), description: wsFieldDesc || null, system_prompt: wsFieldSys || null }),
@@ -507,7 +507,7 @@ export default function Chat({ token, onLogout }) {
     if (!wsModalTarget) return
     if (!window.confirm(`Delete workspace "${wsModalTarget.name}"? Conversations and files will become unorganized.`)) return
     try {
-      await fetch(`/workspaces/${wsModalTarget.id}`, { method: 'DELETE', headers: authHeaders })
+      await fetch(`/api/workspaces/${wsModalTarget.id}`, { method: 'DELETE', headers: authHeaders })
       setSidebarWsList(prev => prev.filter(w => w.id !== wsModalTarget.id))
       if (sidebarWsId === wsModalTarget.id) setSidebarWsId(null)
       setWsModalOpen(false)
@@ -518,7 +518,7 @@ export default function Chat({ token, onLogout }) {
   const loadWsMemory = useCallback(async (wsId) => {
     setWsMemLoading(true)
     try {
-      const r = await fetch(`/workspaces/${wsId}/memory`, { headers: authHeaders })
+      const r = await fetch(`/api/workspaces/${wsId}/memory`, { headers: authHeaders })
       if (r.ok) setWsMemData(await r.json())
     } catch { /* ignore */ } finally { setWsMemLoading(false) }
   }, [token])
@@ -526,7 +526,7 @@ export default function Chat({ token, onLogout }) {
     if (!sidebarWsId) return
     setWsMemSaving(true)
     try {
-      const r = await fetch(`/workspaces/${sidebarWsId}/memory`, {
+      const r = await fetch(`/api/workspaces/${sidebarWsId}/memory`, {
         method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: wsMemContent }),
       })
@@ -538,14 +538,14 @@ export default function Chat({ token, onLogout }) {
   const loadInvites = useCallback(async () => {
     setInviteLoading(true)
     try {
-      const r = await fetch('/auth/invites', { headers: authHeaders })
+      const r = await fetch('/api/auth/invites', { headers: authHeaders })
       if (r.ok) setInviteList(await r.json())
     } catch { /* ignore */ } finally { setInviteLoading(false) }
   }, [token])
   async function generateInvite() {
     setTokenGenerating(true)
     try {
-      const r = await fetch('/auth/invite', { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: '{}' })
+      const r = await fetch('/api/auth/invite', { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: '{}' })
       if (r.ok) { const d = await r.json(); setNewToken(d.token); await loadInvites() }
     } catch { /* ignore */ } finally { setTokenGenerating(false) }
   }
@@ -553,7 +553,7 @@ export default function Chat({ token, onLogout }) {
   // export conversation
   async function exportConv(convId, title, format = 'markdown') {
     try {
-      const r = await fetch(`/conversations/${convId}/export?format=${format}`, { headers: authHeaders })
+      const r = await fetch(`/api/conversations/${convId}/export?format=${format}`, { headers: authHeaders })
       if (!r.ok) return
       const blob = await r.blob()
       const url  = URL.createObjectURL(blob)
