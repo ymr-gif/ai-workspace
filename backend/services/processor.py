@@ -208,7 +208,12 @@ async def extract_url_text(url: str) -> tuple[str, str]:
 
 
 async def process_file_async(file_id: uuid.UUID, storage_path: str, mime_type: str) -> None:
-    """Background task: extract → chunk → embed → save."""
+    """Enqueue via ARQ when pool available; run inline as fallback (scheduler_worker)."""
+    from core.arq_pool import get_arq_pool
+    pool = get_arq_pool()
+    if pool is not None:
+        await pool.enqueue_job("process_file_job", str(file_id), storage_path, mime_type)
+        return
     async with AsyncSessionLocal() as db:
         try:
             await _process(db, file_id, storage_path, mime_type)

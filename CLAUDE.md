@@ -88,10 +88,11 @@ ai-api/
 | Circuit breaker cooldown | 30s | `llm/circuit_breaker.py` |
 | Request timeout | 30s | `REQUEST_TIMEOUT` env |
 | Max concurrent requests | 10 (cap 50) | `MAX_CONCURRENT_REQUESTS` env |
-| Rate limit (chat) | 15 req / 60s per user | `api/chat/router.py` |
+| Rate limit (chat) | 15 req / 60s per user (global) | `api/chat/router.py` |
+| Rate limit (per-model) | llama=15, coder=10, reasoning=5 req/60s — explicit selection only | `rate_limiter/rate_limiter.py:check_model_rate` |
 | Rate limit (upload) | 20 req / 60s per user | `api/files/router.py` |
 | Rate limit (ingest-url) | 10 req / 60s per user | `api/files/ingest.py` |
-| Cache bypass | history / model_override / model_params / system_prompt / file_chunks | `llm/service/stream.py` |
+| Cache bypass | model_params / file_chunks / image_b64 (history+model+sysprompt now in key) | `llm/service/stream.py` |
 | Embedding timeout | 15s | `llm/embeddings.py` |
 | Memory write lock | pg_advisory_xact_lock(user_id) | `summarizer.py` |
 | Max tool iterations | 10 | `llm/service/stream.py` |
@@ -115,7 +116,7 @@ ai-api/
 - DOCX table extraction appends tables after all paragraphs (not interleaved)
 - Prometheus counters reset on container restart — rate panels lose history; stat panels (PostgreSQL) unaffected
 - `$ Usage` panel shows current user only; admin must use `/admin/users` API directly
-- Cost cap uses total historical spend — no monthly/rolling window
+- Cost cap supports rolling window via `cost_window_days` (default 30); set to null for all-time
 - BM25 hybrid search uses `simple` config (fixed in migration 017) — no stemming, works for any language
 
 ---

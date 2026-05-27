@@ -212,6 +212,24 @@ const s = {
   tokenBox:     { background:'rgba(99,102,241,0.08)', border:'1px solid rgba(99,102,241,0.25)', borderRadius:'8px', padding:'0.75rem', marginBottom:'1rem' },
   tokenText:    { fontFamily:'monospace', fontSize:'0.72rem', color:'#818cf8', wordBreak:'break-all', cursor:'pointer', userSelect:'all' },
 
+  // proactive card
+  proactiveCard: { display:'flex', gap:'0.6rem', alignItems:'flex-start', background:'rgba(99,102,241,0.08)', border:'1px solid rgba(99,102,241,0.3)', borderRadius:'8px', padding:'0.65rem 0.85rem', margin:'0 1.5rem 0.5rem' },
+  proactiveLabel:{ fontSize:'0.7rem', color:'#818cf8', fontWeight:600, marginBottom:'0.2rem', letterSpacing:'0.04em' },
+  proactiveTxt:  { fontSize:'0.85rem', color:'#c7d2fe', lineHeight:1.5, flex:1 },
+  proactiveDismiss: { background:'none', border:'none', color:'#475569', cursor:'pointer', fontSize:'0.9rem', padding:'0 2px', lineHeight:1, flexShrink:0 },
+
+  // insights panel
+  insightsPanel: { position:'absolute', top:0, right:0, bottom:0, width:'400px', maxWidth:'92vw', background:'#0f172a', borderLeft:'1px solid #1e293b', zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.28s cubic-bezier(.4,0,.2,1)' },
+  insightsHdr:   { padding:'1rem 1.25rem 0.75rem', borderBottom:'1px solid #1e293b', flexShrink:0, display:'flex', justifyContent:'space-between', alignItems:'center' },
+  insightsTitle: { fontWeight:700, fontSize:'0.95rem', color:'#e2e8f0' },
+  insightsBody:  { flex:1, overflowY:'auto', padding:'1rem 1.25rem' },
+  insightRow:    { display:'flex', gap:'0.5rem', alignItems:'flex-start', padding:'0.65rem 0.75rem', borderRadius:'8px', marginBottom:'6px', border:'1px solid #1e293b', background:'#0a1220', fontSize:'0.82rem', cursor:'pointer', transition:'border-color 0.15s' },
+  insightDot:    { width:'7px', height:'7px', borderRadius:'50%', background:'#818cf8', flexShrink:0, marginTop:'5px' },
+  insightContent:{ flex:1, color:'#cbd5e1', lineHeight:1.5 },
+  insightMeta:   { fontSize:'0.68rem', color:'#475569', marginTop:'0.25rem' },
+  insightDel:    { background:'none', border:'none', color:'#475569', cursor:'pointer', fontSize:'0.8rem', padding:'2px 4px', borderRadius:'4px', flexShrink:0, lineHeight:1 },
+  unreadBadge:   { display:'inline-flex', alignItems:'center', justifyContent:'center', minWidth:'16px', height:'16px', borderRadius:'8px', background:'#818cf8', color:'#fff', fontSize:'0.62rem', fontWeight:700, padding:'0 3px', marginLeft:'3px' },
+
   // token meta + usage panel
   tokMeta:       { display:'block', marginTop:'0.3rem', fontSize:'0.68rem', color:'#334155', fontFamily:'monospace' },
   usagePanel:    { position:'absolute', top:0, right:0, bottom:0, width:'340px', maxWidth:'92vw', background:'#0f172a', borderLeft:'1px solid #1e293b', zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.28s cubic-bezier(.4,0,.2,1)' },
@@ -354,6 +372,15 @@ export default function Chat({ token, onLogout }) {
   const [newToken,        setNewToken]        = useState('')
   const [tokenGenerating, setTokenGenerating] = useState(false)
 
+  // insights panel
+  const [insightsOpen,    setInsightsOpen]    = useState(false)
+  const [insights,        setInsights]        = useState([])
+  const [insightsLoading, setInsightsLoading] = useState(false)
+  const [unreadCount,     setUnreadCount]     = useState(0)
+
+  // proactive suggestion
+  const [proactive,       setProactive]       = useState(null)
+
   // user role (admin gate)
   const [userRole,       setUserRole]       = useState(null)
 
@@ -430,6 +457,13 @@ export default function Chat({ token, onLogout }) {
     if (!inviteOpen) return
     loadInvites()
   }, [inviteOpen])
+
+  useEffect(() => { loadInsights() }, [])
+
+  useEffect(() => {
+    if (!insightsOpen) return
+    loadInsights(true)
+  }, [insightsOpen])
 
   useEffect(() => {
     if (!memOpen || memTab !== 'workspace' || !sidebarWsId) return
@@ -532,6 +566,40 @@ export default function Chat({ token, onLogout }) {
       })
       if (r.ok) { setWsMemData(await r.json()); setWsMemEditing(false) }
     } catch { /* ignore */ } finally { setWsMemSaving(false) }
+  }
+
+  // insights
+  const loadInsights = useCallback(async (all = false) => {
+    setInsightsLoading(true)
+    try {
+      const r = await fetch(`/api/insights${all ? '?all=true' : ''}`, { headers: authHeaders })
+      if (r.ok) {
+        const data = await r.json()
+        setInsights(data)
+        if (!all) setUnreadCount(data.length)
+      }
+    } catch { /* ignore */ } finally { setInsightsLoading(false) }
+  }, [token])
+
+  async function markInsightRead(id) {
+    try {
+      const r = await fetch(`/api/insights/${id}/read`, { method: 'PATCH', headers: authHeaders })
+      if (r.ok) {
+        setInsights(prev => prev.map(i => i.id === id ? { ...i, is_read: true } : i))
+        setUnreadCount(prev => Math.max(0, prev - 1))
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function deleteInsight(id) {
+    try {
+      await fetch(`/api/insights/${id}`, { method: 'DELETE', headers: authHeaders })
+      setInsights(prev => prev.filter(i => i.id !== id))
+      setUnreadCount(prev => {
+        const wasUnread = insights.find(i => i.id === id && !i.is_read)
+        return wasUnread ? Math.max(0, prev - 1) : prev
+      })
+    } catch { /* ignore */ }
   }
 
   // invites
@@ -843,7 +911,7 @@ export default function Chat({ token, onLogout }) {
     const text = input.trim(); if (!text || loading) return
     const isCompare = compareMode
     const userId = nextId.current++, aiId = nextId.current++
-    setInput(''); setLoading(true)
+    setInput(''); setLoading(true); setProactive(null)
 
     if (isCompare) {
       setMessages(prev => [...prev,
@@ -917,6 +985,8 @@ export default function Chat({ token, onLogout }) {
                 : m))
             } else if (event.type === 'ask_user') {
               setMessages(prev => prev.map(m => m.id === aiId ? { ...m, askUser: event.question } : m))
+            } else if (event.type === 'proactive') {
+              setProactive(event.content)
             } else if (event.type === 'error') {
               setMessages(prev => prev.map(m => m.id === aiId ? { ...m, role: 'err', text: event.message || 'Error', streaming: false } : m))
             }
@@ -1068,8 +1138,13 @@ export default function Chat({ token, onLogout }) {
               {memPending ? <span style={s.updatingDot} /> : hasMemory && <span style={s.memDot} />}
               Memory
             </button>
+            <button onClick={() => { setInsightsOpen(o => !o); setMemOpen(false); setFilesOpen(false); setToolLogOpen(false); setUsageOpen(false); setInviteOpen(false) }}
+              style={{ ...s.hdrBtn, ...(insightsOpen ? { color:'#818cf8', borderColor:'#4338ca' } : {}) }}
+              title="AI insights about you">
+              💡{unreadCount > 0 && <span style={s.unreadBadge}>{unreadCount}</span>}
+            </button>
             {userRole === 'admin' && (
-              <button onClick={() => { setInviteOpen(o => !o); setMemOpen(false); setFilesOpen(false); setToolLogOpen(false); setUsageOpen(false) }}
+              <button onClick={() => { setInviteOpen(o => !o); setMemOpen(false); setFilesOpen(false); setToolLogOpen(false); setUsageOpen(false); setInsightsOpen(false) }}
                 style={{ ...s.hdrBtn, ...(inviteOpen ? { color:'#818cf8', borderColor:'#4338ca' } : {}) }}
                 title="Manage invite tokens">
                 ⚡ Invites
@@ -1134,6 +1209,17 @@ export default function Chat({ token, onLogout }) {
           <div ref={bottomRef} />
         </div>
 
+        {proactive && (
+          <div style={s.proactiveCard}>
+            <span style={{ fontSize:'1rem', flexShrink:0, marginTop:'1px' }}>💡</span>
+            <div style={{ flex:1 }}>
+              <div style={s.proactiveLabel}>SUGGESTION</div>
+              <div style={s.proactiveTxt}>{proactive}</div>
+            </div>
+            <button style={s.proactiveDismiss} onClick={() => setProactive(null)} title="Dismiss">✕</button>
+          </div>
+        )}
+
         {/* model toolbar */}
         <div style={s.toolbarWrap}>
           <div style={s.toolbar}>
@@ -1194,12 +1280,12 @@ export default function Chat({ token, onLogout }) {
       </div>
 
       {/* overlays */}
-      {(memOpen || filesOpen || settingsOpen || toolLogOpen || usageOpen || inviteOpen || wsModalOpen) && (
+      {(memOpen || filesOpen || settingsOpen || toolLogOpen || usageOpen || inviteOpen || insightsOpen || wsModalOpen) && (
         <div style={{ ...s.overlay, zIndex: (settingsOpen || wsModalOpen) ? 21 : 10 }}
           onClick={() => {
             if (wsModalOpen) setWsModalOpen(false)
             else if (settingsOpen) setSettingsOpen(false)
-            else { setMemOpen(false); setFilesOpen(false); setToolLogOpen(false); setUsageOpen(false); setInviteOpen(false) }
+            else { setMemOpen(false); setFilesOpen(false); setToolLogOpen(false); setUsageOpen(false); setInviteOpen(false); setInsightsOpen(false) }
           }} />
       )}
 
@@ -1509,6 +1595,34 @@ export default function Chat({ token, onLogout }) {
               ))}
             </>
           )}
+        </div>
+      </div>
+
+      {/* insights panel */}
+      <div style={{ ...s.insightsPanel, transform: insightsOpen ? 'translateX(0)' : 'translateX(100%)' }}>
+        <div style={s.insightsHdr}>
+          <span style={s.insightsTitle}>💡 Insights</span>
+          <div style={{ display:'flex', gap:'0.4rem', alignItems:'center' }}>
+            <button onClick={() => loadInsights(true)} style={s.refreshBtn} disabled={insightsLoading}>{insightsLoading ? '…' : '↻'}</button>
+            <button onClick={() => setInsightsOpen(false)} style={s.closeBtn}>✕</button>
+          </div>
+        </div>
+        <div style={s.insightsBody}>
+          {insightsLoading && insights.length === 0 && <p style={s.emptyMem}>Loading…</p>}
+          {!insightsLoading && insights.length === 0 && (
+            <p style={s.emptyMem}>No insights yet.<br /><span style={{ fontSize:'0.75rem' }}>Generated after every 10 exchanges.</span></p>
+          )}
+          {insights.map(i => (
+            <div key={i.id} style={{ ...s.insightRow, borderColor: i.is_read ? '#1e293b' : 'rgba(129,140,248,0.35)', opacity: i.is_read ? 0.65 : 1 }}
+              onClick={() => !i.is_read && markInsightRead(i.id)}>
+              {!i.is_read && <span style={s.insightDot} />}
+              <div style={{ ...s.insightContent, paddingLeft: i.is_read ? '15px' : 0 }}>
+                <div>{i.content}</div>
+                <div style={s.insightMeta}>{fmtDate(i.created_at)}{i.is_read ? ' · read' : ''}</div>
+              </div>
+              <button style={s.insightDel} onClick={e => { e.stopPropagation(); deleteInsight(i.id) }} title="Delete">🗑</button>
+            </div>
+          ))}
         </div>
       </div>
 

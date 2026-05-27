@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import uuid
+from datetime import datetime, timezone, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -56,16 +57,21 @@ async def _embed_exchange(
 async def _check_cost_cap(user: User, db: AsyncSession) -> None:
     if user.cost_limit_usd is None:
         return
-    row = await db.execute(
+    q = (
         select(func.coalesce(func.sum(Message.cost_usd), 0.0).label("total"))
         .join(Conversation, Conversation.id == Message.conversation_id)
         .where(Conversation.user_id == user.id, Message.role == "assistant")
     )
+    if user.cost_window_days:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=user.cost_window_days)
+        q = q.where(Message.created_at >= cutoff)
+    row   = await db.execute(q)
     total = float(row.scalar_one() or 0.0)
     if total >= user.cost_limit_usd:
+        window_label = f"{user.cost_window_days}d" if user.cost_window_days else "all-time"
         raise HTTPException(
             status_code=402,
-            detail=f"Cost cap reached (${total:.6f} / ${user.cost_limit_usd:.6f}). Contact admin.",
+            detail=f"Cost cap reached (${total:.6f} / ${user.cost_limit_usd:.6f} {window_label}). Contact admin.",
         )
 
 
@@ -212,6 +218,15 @@ async def _build_stream_context(
         "workspace_memory":    workspace_memory,
         "workspace_sysprompt": workspace_sysprompt,
     }
+
+
+async def _generate_proactive(user_msg: str, ai_msg: str) -> str | None:
+    from llm.agency import generate_proactive_suggestion
+    try:
+        return await generate_proactive_suggestion(user_msg, ai_msg)
+    except Exception:
+        logger.exception("[proactive] failed")
+        return None
 
 
 async def _auto_title(conv_id: uuid.UUID, user_msg: str, ai_msg: str) -> None:

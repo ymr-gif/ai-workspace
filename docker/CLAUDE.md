@@ -11,6 +11,7 @@
 | prometheus | 9090 | scrapes api:8000/metrics every 5s |
 | grafana | 3001 | admin/admin, auto-provisioned 24-panel dashboard |
 | metrics-worker | — | `python -m observability.metrics_worker` |
+| arq-worker | — | `python -m arq services.arq_worker.WorkerSettings`; persistent file processing queue; max_jobs=10 |
 | scheduler | — | `python -m services.scheduler_worker`; APScheduler cron runner |
 
 ## pgBouncer

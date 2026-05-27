@@ -9,6 +9,8 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 import llm.client as llm_client
 from api.admin import router as admin_router
+from api.compat import router as compat_router
+from api.insights import router as insights_router
 from api.workspaces import router as workspaces_router
 from api.chat import router as chat_router
 from api.conversations import router as conversations_router
@@ -21,6 +23,8 @@ from api.tool_logs import router as tool_logs_router
 from api.usage import router as usage_router
 from auth import auth_router, invite_router
 from config import REQUEST_TIMEOUT
+from config import REDIS_URL
+from core.arq_pool import init_arq_pool
 from core.db import init_db
 from core.logger import setup_logging
 from core.redis_client import get_redis, init_redis
@@ -43,6 +47,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("[startup] redis failed: %s", e)
 
+    logger.info("[startup] init arq pool...")
+    try:
+        await init_arq_pool(REDIS_URL)
+        logger.info("[startup] arq pool ready")
+    except Exception as e:
+        logger.error("[startup] arq pool failed: %s", e)
+
     logger.info("[startup] init http client...")
     llm_client.client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
     logger.info("[startup] ready")
@@ -58,6 +69,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="NIM LLM Router", lifespan=lifespan)
 
 app.include_router(chat_router)
+app.include_router(compat_router)
+app.include_router(insights_router)
 app.include_router(files_router,         prefix="/files")
 app.include_router(auth_router)
 app.include_router(metrics_router)

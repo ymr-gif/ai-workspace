@@ -5,9 +5,11 @@ import time
 from fastapi import APIRouter
 from fastapi.responses import Response
 from pydantic import BaseModel
+from sqlalchemy import text
 
 import llm.client as llm_client
 from config import MODELS, MODEL_EMBEDDING, NVIDIA_API_KEY, NIM_URL, NIM_EMBEDDING_URL
+from core.db import AsyncSessionLocal
 from core.redis_client import get_redis
 from observability.prom_metrics import CONTENT_TYPE_LATEST, export_metrics
 
@@ -78,16 +80,28 @@ async def _ping_redis() -> dict:
         return {"status": "error", "detail": str(e)[:120]}
 
 
+async def _ping_db() -> dict:
+    t = time.monotonic()
+    try:
+        async with AsyncSessionLocal() as db:
+            await asyncio.wait_for(db.execute(text("SELECT 1")), timeout=2)
+        latency = int((time.monotonic() - t) * 1000)
+        return {"status": "ok", "latency_ms": latency}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:120]}
+
+
 @router.get("/health")
 async def health():
-    nim, emb, redis = await asyncio.gather(
+    nim, emb, redis, db = await asyncio.gather(
         _ping_nim(),
         _ping_embedding(),
         _ping_redis(),
+        _ping_db(),
         return_exceptions=False,
     )
 
-    checks = {"nim": nim, "embedding": emb, "redis": redis}
+    checks = {"nim": nim, "embedding": emb, "redis": redis, "db": db}
     all_ok = all(c["status"] == "ok" for c in checks.values())
 
     return {

@@ -31,6 +31,10 @@
   - Loads from `GET /auth/invites`; generate token via `POST /auth/invite`
   - Click token text to copy to clipboard
   - Shows: token, expires, status (unused / used by <username>)
+- **Admin endpoints** (no frontend panel yet — API-only)
+  - `GET /api/admin/users` — includes `cost_window_days` field per user
+  - `PATCH /api/admin/users/{id}/cost-limit` — body: `{cost_limit_usd, cost_window_days}` (default 30)
+  - `GET /api/admin/audit-log?action=&target_user_id=&limit=&offset=` — admin action trail
 
 ## Files Panel
 - 📎 button in header — amber + count when files attached
@@ -54,6 +58,19 @@
 - Loads from `GET /tool-calls?conversation_id=&limit=100`
 - Filter pills: This conversation / All
 - Per-row: tool name (purple), timestamp, args summary, result preview
+
+## Proactive Suggestion Card
+- Appears below chat feed after each AI response (when backend yields `{type:"proactive"}` SSE event)
+- Indigo card: "SUGGESTION" label + text + ✕ dismiss button
+- Clears automatically on next send
+- State: `proactive` string | null
+
+## Insights Panel
+- 💡 button in header; unread badge (count) shown when `unreadCount > 0`
+- Slide-in panel: `GET /api/insights?all=true` when opened; `GET /api/insights` on mount (unread only, for badge)
+- Click insight → marks read (`PATCH /api/insights/{id}/read`); unread shown with indigo dot + highlighted border
+- 🗑 per-insight delete (`DELETE /api/insights/{id}`)
+- State: `insightsOpen`, `insights`, `insightsLoading`, `unreadCount`
 
 ## ask_user Flow
 1. Model calls `ask_user(question="...")`

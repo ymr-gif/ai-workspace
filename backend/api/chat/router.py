@@ -18,12 +18,12 @@ from observability.prom_metrics import (
     REQUEST_COUNT, REQUEST_LATENCY,
 )
 from observability.token_metrics import record_tokens
-from rate_limiter import limit
+from rate_limiter import limit, check_model_rate
 
 from .helpers import (
     _auto_title, _build_stream_context, _calculate_tokens_and_cost, _check_cost_cap,
-    _embed_exchange, _estimate_tokens, _extract_model_params, _resolve_conversation,
-    _resolve_model,
+    _embed_exchange, _estimate_tokens, _extract_model_params, _generate_proactive,
+    _resolve_conversation, _resolve_model,
 )
 from .schemas import ChatRequest
 
@@ -109,6 +109,8 @@ async def chat_stream(
     ctx             = await _build_stream_context(req, conv, current_user, db, rid)
     model_params    = _extract_model_params(req)
     effective_model = _resolve_model(req.model_override) or _resolve_model(conv.locked_model)
+    if effective_model:
+        await check_model_rate(effective_model, current_user.username)
     # Workspace system_prompt takes precedence; merge with conv system_prompt if both set
     ws_sysprompt  = ctx.get("workspace_sysprompt")
     conv_sysprompt = conv.system_prompt or None
@@ -217,6 +219,13 @@ async def chat_stream(
                         if ctx_tokens > 3000 or asst_count % 10 == 0:
                             asyncio.create_task(update_memory(current_user.id, conv.id))
 
+                        # Enqueue background insight every 10 assistant messages
+                        if asst_count % 10 == 0:
+                            from core.arq_pool import get_arq_pool
+                            pool = get_arq_pool()
+                            if pool:
+                                await pool.enqueue_job("generate_insight_job", current_user.id)
+
                         event["prompt_tokens"]     = pt
                         event["completion_tokens"] = ct
                         event["total_tokens"]      = tt
@@ -224,6 +233,14 @@ async def chat_stream(
 
                     except Exception:
                         logger.exception("[chat/stream] db save failed rid=%s", rid)
+
+                    # Proactive suggestion before closing stream
+                    try:
+                        suggestion = await _generate_proactive(req.message, full_response)
+                        if suggestion:
+                            yield f"data: {_json.dumps({'type': 'proactive', 'content': suggestion})}\n\n"
+                    except Exception:
+                        pass
 
                     event["conversation_id"] = conv_id_str
                     yield f"data: {_json.dumps(event)}\n\n"

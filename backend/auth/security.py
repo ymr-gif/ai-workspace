@@ -14,7 +14,7 @@ from models import User
 
 logger      = logging.getLogger("auth")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
 
 
 def verify_password(plain: str, hashed: str) -> bool:
@@ -48,7 +48,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    token: str | None = Depends(oauth2_scheme),
     db:    AsyncSession = Depends(get_db),
 ) -> User:
     exc = HTTPException(
@@ -56,23 +56,30 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    if not token:
+        raise exc
+
+    # Try JWT first
     try:
         payload    = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM], options={"verify_aud": False})
         username   = payload.get("sub")
         token_type = payload.get("type")
-        if not username or token_type != "access":
+        if username and token_type == "access":
+            user = await get_user(username, db)
+            if user and user.is_active:
+                return user
             raise exc
     except JWTError:
-        logger.warning("[auth] JWT decode failed")
-        raise exc
+        pass
 
-    user = await get_user(username, db)
-    if not user:
-        raise exc
-    if not user.is_active:
-        logger.warning("[auth] inactive user username=%s", username)
-        raise exc
-    return user
+    # Fall back to API key lookup
+    result = await db.execute(select(User).where(User.api_key == token, User.api_key.isnot(None)))
+    user = result.scalar_one_or_none()
+    if user and user.is_active:
+        return user
+
+    logger.warning("[auth] invalid token/api-key")
+    raise exc
 
 
 def require_role(required_role: str):
