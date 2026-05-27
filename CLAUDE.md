@@ -41,6 +41,7 @@ React/Vite frontend. Docker Compose stack: Postgres + pgvector, Redis, Prometheu
 Features: SSE streaming, conversation history, multi-tier memory, pgvector RAG, file knowledge base, AI agent tool loop, model control, markdown rendering, **workspace layer** (conversations + files scoped to workspaces), invite-gated registration, conversation search + export, auto-title.
 
 > Subdir details: `backend/CLAUDE.md` · `docker/CLAUDE.md` · `frontend/CLAUDE.md`
+> Completed plan (workspace layer, invites, search, export, auto-title): `~/.claude/plans/since-we-are-in-smooth-lobster.md`
 
 ---
 

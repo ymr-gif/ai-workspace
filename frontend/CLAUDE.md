@@ -15,8 +15,21 @@
 - `$ Usage` button → slide-in panel (aggregate `/api/usage`): messages, tokens, cost + refresh
 - **Workspace filter pills** in sidebar — loaded from `GET /workspaces` on mount
   - "All" pill + one pill per workspace; active pill filters conversation list
+  - Each workspace pill has ⚙ (edit/delete) and + (create) buttons → workspace modal
   - `workspace_id` sent in every `/chat/stream` request (null = backend picks Default)
   - New conversations in SSE "done" event include `workspace_id` for immediate sidebar filter
+- **Workspace modal** — create or edit workspace
+  - Fields: name, description, system prompt
+  - Delete button (with confirm) on edit mode
+  - `POST /workspaces` / `PATCH /workspaces/{id}` / `DELETE /workspaces/{id}`
+- **Conversation search** — debounced input above conversation list (300ms)
+  - Calls `GET /conversations?q=` on input; shows results inline; clears on empty
+- **Conversation export** — ⬇ button per conversation in sidebar
+  - Downloads via `GET /conversations/{id}/export?format=markdown` (Content-Disposition attachment)
+- **Invite panel** (admin only) — ⚡ button in header
+  - Loads from `GET /auth/invites`; generate token via `POST /auth/invite`
+  - Click token text to copy to clipboard
+  - Shows: token, expires, status (unused / used by <username>)
 
 ## Files Panel
 - 📎 button in header — amber + count when files attached
@@ -52,9 +65,15 @@
 - Pills: Auto / LLaMA 8B / DeepSeek / 70B
 - ⊞ Compare toggle
 - ⚙ params expander: temp, max_tokens, top_p (per-slider enable checkboxes)
-- ⚙ settings modal: system prompt + model lock
+- ⚙ settings modal: system prompt, model lock, **workspace selector** (dropdown of user's workspaces)
+  - Workspace change: `PATCH /conversations/{id}` with `workspace_id`
 - Ctx button — toggles memory_enabled
 - Sidebar shows 🔒 when locked model set
+
+## Memory Panel
+- Tabs: User / Workspace (visible when workspace is selected in sidebar) / History
+- Workspace tab: loads `GET /workspaces/{id}/memory`; view + inline edit; `PUT /workspaces/{id}/memory` to save
+  - Tracks version number; shows last updated timestamp
 
 ## Markdown CSS
 Scoped to `.md-body`, injected via `<style>` tag.
@@ -66,9 +85,7 @@ Covers: `p`, `h1-h4`, `code` (inline + block `pre`), `ul/ol/li`, `blockquote`, `
 Suggestions only — ask for specs before implementing.
 
 ### UX / Frontend
-- **Conversation search** — sidebar filter; backend `GET /conversations?q=`
 - **Message editing** — resend edited user message; truncate conv to that point
-- **Conversation export** — markdown or JSON; `GET /conversations/{id}/export`
 - **Drag-and-drop upload** — drop anywhere on chat area
 - **Keyboard shortcuts** — `Ctrl+Enter` send, `Ctrl+K` search, `Esc` close panels
 - **Mobile layout** — sidebar hamburger, stacked input bar
