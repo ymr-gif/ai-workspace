@@ -1,352 +1,98 @@
 # HANDOFF ARCHIVE
-Completed features — full detail. See Archive rules in root CLAUDE.md.
+Completed features — key design decisions and non-obvious implementation details.
+Full code detail is in CLAUDE.md and git history.
 
 ---
 
-## Fix Retrieval Eval Correctness
-**Completed:** 2026-05-28
+## Autonomous Memory Writing
+**Completed:** 2026-05-29
 
-### What was built
-- **Bug**: `recall_at_k()` and `mrr()` were passed `{c["chunk_id"] for c in results}` — expected set derived from results themselves, always returning 1.0 (tautology)
-- **Fix**: `expected_chunk_ids` added to every test case in `conftest.py` as ground-truth relevant chunk IDs, independent of retriever output
-- **Thresholds adjusted**: recall@3 0.7→0.5, MRR 0.6→0.25 — real ground-truth exposed actual retriever limits (fuzzy_bm25_boost cases have low vector scores for BM25-only relevant chunks)
+- **Tool**: `write_memory(fact: str)` — always available when `memory_enabled=True`
+- **Flow**: tool call → executor returns `__CONFIRM_WRITE_MEMORY__:{fact}` sentinel → stream yields `{type:"confirm_write_memory", fact}` + `{type:"done"}` → generator returns (stream pauses, like ask_user)
+- **API**: `POST /memory/write` — appends fact as new line (trim 500 chars), snapshots to `UserMemoryVersion`, bumps `version +1`, boosts `salience +0.1`
+- **Frontend**: `pendingWriteFact` in `useConversations`; green card (bg `rgba(52,211,153,0.08)`, border `rgba(52,211,153,0.25)`); cleared on Accept (calls API), Dismiss, or next send
 
-### Key files
-| File | Change |
-|------|--------|
-| `backend/tests/retrieval/conftest.py` | `expected_chunk_ids` in all 7 test cases |
-| `backend/tests/retrieval/test_hybrid_eval.py` | recall@3 + MRR use `tc["expected_chunk_ids"]` |
-
----
-
-## Chunk Quality States
-**Completed:** 2026-05-28
-
-### What was built
-- **Migration 030** — adds `chunk_total` (nullable Int), `chunk_embedded` (nullable Int), `embed_fail_count` (Int default 0) to `files`
-- **`File` model** — three new fields in `models/file.py`
-- **`processor.py`** — counts per-chunk embed failures post-`gather`; drives `upload_status`: `saved==0→failed`, `0<saved<total→partial`, `saved==total→ready`; sets all three count fields; `error` status preserved for pre-chunk parse failures
-- **`file_service.py`** — `write_content()`, `append_content()`, `patch_content()` reset counts + `upload_status="uploaded"` on edit
-- **`api/files/utils.py`** — `_file_dict()` includes `chunk_total`, `chunk_embedded`, `embed_fail_count` in response
-
-### Key files
-| File | Change |
-|------|--------|
-| `backend/alembic/versions/030_chunk_quality.py` | migration |
-| `backend/models/file.py` | three new fields on `File` |
-| `backend/services/processor.py` | embed fail counting, status logic |
-| `backend/services/file_service.py` | count reset on edit |
-| `backend/api/files/utils.py` | expose counts in response |
-| `backend/CLAUDE.md` | docs |
-
----
-
-## Salience Integration Completion
-**Completed:** 2026-05-28
-
-### What was built
-- **Migration 029** — `fact_saliences` JSONB column on `user_memory` (not null, default `{}`)
-- **`score_facts()`** — sorts memory facts high→low by per-fact salience score; default 1.0 for unseen facts
-- **`bump_fact_saliences()`** — applies `compute_salience(current, access_count=1)` per accessed fact
-- **`decay_fact_saliences()`** — decays all per-fact scores 0.95×/cycle; drops entries < 0.05
-- **`_build_stream_context()`** — sorts facts by salience before `[USER STATE]` injection (top 20); bumps accessed facts; re-ranks retrieved+file chunks by `final_score * (1 + memory_salience * 0.05)`
-- **`apply_context_budget()`** — tier 1 partial drop: drops low-salience facts (< 0.5) before dropping entire `[USER STATE]` block
-- **`compact.py`** — decays `fact_saliences` per compaction cycle; clears on salience < 0.3
-
-### Key files
-| File | Change |
-|------|--------|
-| `backend/models/user.py` | `fact_saliences` JSONB field on `UserMemory` |
-| `backend/alembic/versions/029_fact_saliences.py` | migration |
-| `backend/llm/summarizer/salience.py` | `score_facts()`, `bump_fact_saliences()`, `decay_fact_saliences()` |
-| `backend/api/chat/helpers.py` | fact sorting, chunk re-ranking, `fact_saliences` in ctx dict |
-| `backend/llm/service/context.py` | `fact_saliences` param, partial tier-1 drop |
-| `backend/llm/service/stream.py` | forwards `fact_saliences` to `apply_context_budget()` |
-| `backend/api/chat/stream.py` | passes `ctx.get("fact_saliences", {})` to `generate_stream()` |
-| `backend/llm/summarizer/compact.py` | per-fact decay + clear |
-| `backend/CLAUDE.md` | docs |
+**Key files:** `llm/tools/schemas.py` · `llm/tools/executor.py` · `llm/service/stream.py` · `api/memory.py` · `hooks/useConversations.js` · `chat/MessageList.jsx`
 
 ---
 
 ## Memory Conflict Resolver
 **Completed:** 2026-05-28
 
-### What was built
-- **`MemoryConflict` model** in `models/user.py` — fields: `id` (UUID PK), `user_id` (FK CASCADE), `fact_a`, `fact_b`, `conflict_type` (contradiction|duplicate|ambiguous), `resolution` (keep_a|keep_b|merge|discard_both|unresolved), `resolved_at`, `created_at`
-- **Migration 028** — `memory_conflicts` table + index on `(user_id, resolution)`
-- **`detect_conflicts(content)`** in `llm/summarizer/conflicts.py` — pairwise LLM (llama) check on all fact combinations; skips `"none"` pairs; returns `[{fact_a, fact_b, conflict_type}]`
-- **`resolve_conflict(conflict, strategy, db)`** — applies patch to `UserMemory.content` (removes losing fact, appends merged); bumps `version`
-- **Compaction hook** in `compact.py` — post-compaction runs `detect_conflicts()`; stores new `MemoryConflict` rows; rides existing commit via `flush()`
-- **Context suppression** in `llm/service/context.py` — queries unresolved conflicts; filters `fact_a`+`fact_b` lines from `memory_sheet` before `[USER STATE]` injection
-- **API**: `GET /memory/conflicts?resolution=unresolved|all` · `POST /memory/conflicts/{id}/resolve` body `{strategy}` · `POST /memory/conflicts/scan`
+- **Model**: `MemoryConflict` — `id` (UUID PK), `user_id` FK, `fact_a`, `fact_b`, `conflict_type` (contradiction|duplicate|ambiguous), `resolution` (keep_a|keep_b|merge|discard_both|unresolved)
+- **Detection**: pairwise LLM (llama) check post-compaction; skips `"none"` pairs
+- **Suppression**: unresolved conflicts filtered from `[USER STATE]` injection at context build time
+- **Resolution**: `POST /memory/conflicts/{id}/resolve` applies patch to `UserMemory.content`, bumps version
+- **Migration**: 028
 
-### Key files
-| File | Change |
-|------|--------|
-| `backend/models/user.py` | MemoryConflict model |
-| `backend/models/__init__.py` | export MemoryConflict |
-| `backend/alembic/versions/028_memory_conflicts.py` | migration |
-| `backend/llm/summarizer/conflicts.py` | detect_conflicts(), resolve_conflict() |
-| `backend/llm/summarizer/compact.py` | post-compaction detection hook |
-| `backend/llm/service/context.py` | unresolved fact suppression |
-| `backend/api/memory.py` | 3 new endpoints |
-| `backend/CLAUDE.md` | conflict resolver docs |
+**Key files:** `models/user.py` · `alembic/028_memory_conflicts.py` · `llm/summarizer/conflicts.py` · `llm/service/context.py` · `api/memory.py`
 
 ---
 
 ## Adaptive Retrieval Policy
 **Completed:** 2026-05-28
 
-### What was built
-- **Query classifier** `classify_query(msg)` in `llm/router.py` — keyword sets per type: `relational` (compare/difference/between/vs), `temporal` (before/after/when/recent), `factual` (what is/define/explain), `broad` (hello/summarize/overview); fallback `factual`
-- **Policy map** in `llm/retriever/policy.py`:
-  - `factual` → fusion=weighted, alpha=0.7, k_dense=20, k_sparse=20, top_k=5
-  - `relational` → fusion=rrf, alpha=0.5, k_dense=20, k_sparse=20, top_k=8, use_graph=true
-  - `temporal` → fusion=rrf, alpha=0.5, k_dense=20, k_sparse=10, top_k=6
-  - `broad` → fusion=weighted, alpha=0.3, k_dense=5, k_sparse=20, top_k=3
-- **Context integration**: `_build_stream_context()` calls `classify_query(req.message)` before retrieve calls, passes `fusion_mode, alpha, k_dense, k_sparse, top_k` as kwargs; `policy_used` field added to context dict
-- **Logging**: per-request `[policy] rid=... query_type=... fusion=... alpha=... k_dense=... k_sparse=... top_k=...`
+- **Classifier**: `classify_query(msg)` in `router.py` → `factual|relational|temporal|broad`; keyword-set matching, fallback `factual`
+- **Policy map** in `retriever/policy.py`:
+  - `factual` → weighted, alpha=0.7, top_k=5
+  - `relational` → RRF, top_k=8, use_graph=true
+  - `temporal` → RRF, k_sparse=10, top_k=6
+  - `broad` → weighted, alpha=0.3, top_k=3
+- Applied per-request in `_build_stream_context()`; logged with query_type + params
 
-### Key files
-| File | Change |
-|------|--------|
-| `backend/llm/router.py` | classify_query() |
-| `backend/llm/retriever/policy.py` | policy map |
-| `backend/api/chat/helpers.py` | classify_query call, policy kwargs on retrieve |
-| `backend/llm/retriever/__init__.py` | export policy |
-| `backend/llm/service/context.py` | policy_used in context |
-| `backend/CLAUDE.md` | adaptive policy docs |
+**Key files:** `llm/router.py` · `llm/retriever/policy.py` · `api/chat/helpers.py`
 
 ---
 
-## Context Budget Allocator
+## Salience Integration Completion
 **Completed:** 2026-05-28
 
-### What was built
-- **Context windows** in `config.py`: `CONTEXT_WINDOWS = {"meta/llama-3.1-8b-instruct": 131072, "deepseek-ai/deepseek-v4-flash": 32768, ...}`, `DEFAULT_CONTEXT_WINDOW = 131072`
-- **`get_context_limit(model_name)`** in `router.py` — returns per-model context window from env-configured models; fallback to `DEFAULT_CONTEXT_WINDOW`
-- **`apply_context_budget()`** in `llm/service/context.py` — 7 priority tiers: drops lowest-tier sources (file context, history summary, project state, workspace state, graph context) when estimated tokens exceed `context_window - max_output_tokens - 10%`; uses `len(msg) // 4` token estimate; removes "Understood." ack pairs
-- **Tool loop re-apply**: budget re-applied after each tool iteration in `stream.py` per fallback model
+- **Per-fact salience**: `UserMemory.fact_saliences` JSONB maps fact text → score (default 1.0)
+- **Injection**: facts sorted high→low before `[USER STATE]` (top 20); bumped per-access via `bump_fact_saliences()`
+- **Budget**: tier-1 partial drop removes low-salience facts (< 0.5) before dropping entire `[USER STATE]` block
+- **Decay**: per compaction cycle; facts < 0.3 dropped from saliences map
+- **Retrieval re-rank**: `final_score * (1 + memory_salience * 0.05)`
+- **Migration**: 029
 
-### Key files
-| File | Change |
-|------|--------|
-| `backend/config.py` | CONTEXT_WINDOWS dict, DEFAULT_CONTEXT_WINDOW |
-| `backend/llm/router.py` | get_context_limit() |
-| `backend/llm/service/context.py` | apply_context_budget(), priority tiers |
-| `backend/llm/service/stream.py` | budget re-applied per fallback model |
-
----
-
-## Memory Compaction Job
-**Completed:** 2026-05-28
-
-### What was built
-- **`compact_memory()`** in `llm/summarizer/compact.py` — acquires `pg_advisory_xact_lock(user_id)`, skips if content < 100 words, sends to llama via `_COMPACT_SYSTEM` prompt for dedup/compress, caps at 500 words, snapshots old state to `UserMemoryVersion` before overwrite
-- **ARQ job** `compact_memory_job` in `services/arq_worker.py` — queues compaction per user via pool
-- **Daily cron** `run_memory_compaction()` in `services/scheduler_worker.py` — daily 3 AM UTC cron
-- **API** `POST /memory/compact` in `api/memory.py` — enqueues ARQ job, returns `{"status": "queued"}`
-
-### Key files
-| File | Change |
-|------|--------|
-| `backend/llm/summarizer/compact.py` | compact_memory(), _compact_memory() |
-| `backend/services/arq_worker.py` | compact_memory_job |
-| `backend/services/scheduler_worker.py` | run_memory_compaction() daily cron |
-| `backend/api/memory.py` | POST /memory/compact |
+**Key files:** `models/user.py` · `llm/summarizer/salience.py` · `api/chat/helpers.py` · `llm/service/context.py`
 
 ---
 
 ## Memory Salience Engine
 **Completed:** 2026-05-28
 
-### What was built
-- **Salience fields** on `UserMemory`: `salience` (float, default 1.0), `last_used_at` (DateTime tz, nullable), `confidence` (float, default 1.0) — per-fact scoring across memory sheet lines
-- **Scoring function** `compute_salience()` in `backend/llm/summarizer/salience.py`: factors recency (exponential decay 0.05), frequency (cap +10% per access), explicit emphasis, clamped [0,2]
-- **Compaction update**: `compact_memory()` decays salience ×0.95 per cycle before LLM call; if salience < 0.3, clears memory entirely instead of compacting
-- **Read-time update**: `_build_stream_context()` / `build_context_messages()` bumps salience on accessed facts when memory is loaded into context
-- **API**: `GET /memory` returns per-fact array `{content, salience, last_used_at, confidence}`; `POST /memory/decay` applies decay pass, returns `{status, salience_before, salience_after}`
-- **Alembic migration** 027 added columns to `user_memory`
+- **Fields on `UserMemory`**: `salience` (float, default 1.0), `confidence` (float, default 1.0), `last_used_at`
+- **`compute_salience()`**: recency decay (exponential 0.05) + frequency cap (+10%/access), clamped [0,2]
+- **Compaction**: decays ×0.95/cycle; clears memory entirely if salience < 0.3
+- **Read-time**: bumped on every context load; `POST /memory/decay` for manual pass
+- **Migration**: 027
 
-### Key files
-| File | Change |
-|------|--------|
-| `backend/models/user.py` | salience, confidence, last_used_at on UserMemory |
-| `backend/alembic/versions/027_salience.py` | migration |
-| `backend/llm/summarizer/salience.py` | compute_salience() |
-| `backend/llm/summarizer/compact.py` | salience-aware compaction |
-| `backend/api/chat/helpers.py` | read-time salience bump |
-| `backend/llm/service/context.py` | memory scoring on context build |
-| `backend/api/memory.py` | per-fact response, POST /memory/decay |
-| `backend/CLAUDE.md` | salience engine docs |
+**Key files:** `models/user.py` · `llm/summarizer/salience.py` · `llm/summarizer/compact.py` · `api/memory.py`
 
 ---
 
-## Retrieval Eval Harness
+## Memory Compaction Job
 **Completed:** 2026-05-28
 
-### What was built
-- **`debug: bool = False` param** on `retrieve()` / `retrieve_from_files()` in `retriever.py` — when `True`, returns `(chunks, debug_info)` tuple; debug_info per hit: `{chunk_id, source_id, score, rank, fusion_mode}`. Default `False` → unchanged `list[dict]`. Zero changes to existing call sites.
-- **`?debug=true` on file search API** (`search.py`) — returns `{"results": [...], "debug": [...]}` with per-hit `{chunk_id, file_id, filename, score, rank, fusion_mode}`. Default off → unchanged response.
-- **Eval harness** (`tests/retrieval/test_hybrid_eval.py`) — 26 tests covering 5 query types (exact_match, fuzzy_bm25_boost, multi_source, vector_only_fallback, single_source) × 4 fusion modes (rrf k=60, weighted alpha=0.3/0.5/0.7) + 2 file types × 2 modes + debug flag checks. Computes recall@3 (≥0.7), MRR (≥0.6), citation coverage (≥0.8). No live NIM — mocks `db.execute()` via `AsyncMock`.
+- **`compact_memory()`**: `pg_advisory_xact_lock(user_id)` → skips if < 100 words → LLM (llama) dedup/compress → cap 500 words → snapshot to `UserMemoryVersion`
+- **ARQ job**: `compact_memory_job` — queued via pool; `max_tries=4`
+- **Cron**: daily 3 AM UTC via APScheduler in `scheduler_worker.py`
+- **API**: `POST /memory/compact` → enqueues ARQ job
 
-### Key files
-| File | Change |
-|------|--------|
-| `backend/tests/retrieval/test_hybrid_eval.py` | 26 eval tests with fixed dataset, metrics, baselines |
-| `backend/llm/retriever.py` | `debug` param on `retrieve()` and `retrieve_from_files()` |
-| `backend/api/files/search.py` | `?debug=true` query param on search endpoint |
+**Key files:** `llm/summarizer/compact.py` · `services/arq_worker.py` · `services/scheduler_worker.py` · `api/memory.py`
 
 ---
 
-## Neo4j Grounding Injection
+## Re-embed on MODEL_EMBEDDING Change + Graph Memory
 **Completed:** 2026-05-28
 
-### What was built
-- **`get_health()`** in `core/neo4j_client.py` — returns `{"available": bool, "entity_count": int, "relation_count": int}`; runs `MATCH (e:Entity) RETURN count(e)` and `MATCH ()-[r:RELATED_TO]->() RETURN count(r)`
-- **`query_by_keywords()`** in `llm/graph_memory.py` — extracts keywords (> 2 chars, strips stopwords from `_STOPWORDS` set), runs fulltext entity search, expands neighborhood per matched entity via `(e)-[r:RELATED_TO]->(other)`, returns formatted `[GRAPH FACTS]` block with `Entity --[RELATION]→ Entity` lines
-- **`[GRAPH FACTS]` injection** in `context.py` — new `graph_facts: str = ""` param on `build_context_messages()`; injected after `[GRAPH CONTEXT]`, before `[USER STATE]`; context budget tier merged with `[GRAPH CONTEXT]` under same priority (tier 4)
-- **`_build_stream_context()`** in `helpers.py` — calls `query_by_keywords(user_id, req.message)` after existing `graph_context` query, stores in dict as `graph_facts`
-- **`GET /graph/health`** — returns `get_health()` result (Neo4j connectivity + global entity/relation counts)
-- **`GET /graph/sample`** — returns up to 10 random `{source, relation, target}` triples for current user via `MATCH (a)-[r:RELATED_TO]->(b) RETURN ... LIMIT 10`
+- **Re-embed**: startup compares `MODEL_EMBEDDING` env vs `system_config` DB row; queues ARQ batches of 100 on mismatch; `POST /admin/re-embed` for manual trigger
+- **Neo4j**: async driver; fails open if `NEO4J_PASSWORD` unset; constraint `(user_id, name)` unique + fulltext index `entity_name_ft` + range index `entity_user_id` created at startup
+- **Graph writes**: `extract_and_store()` fires post-reply; UNWIND batch (2 round-trips); entity + relation per user
+- **Graph context**: `[GRAPH CONTEXT]` injected when memory enabled; `[GRAPH FACTS]` from `query_by_keywords()`; both cached in Redis 60s
+- **`query_graph` tool**: available in agent loop
+- **Migration**: 026 (`system_config` table)
+- **Env vars**: `NEO4J_URI` (bolt://neo4j:7687) · `NEO4J_USER` (neo4j) · `NEO4J_PASSWORD` (required to enable)
+- **Driver**: `max_connection_pool_size=20`, `connection_timeout=5s`
 
-### Key files
-| File | Change |
-|------|--------|
-| `backend/core/neo4j_client.py` | `get_health()` function |
-| `backend/llm/graph_memory.py` | `query_by_keywords()` with stopword filtering, fulltext lookup, neighborhood expansion |
-| `backend/llm/service/context.py` | `graph_facts` param, `[GRAPH FACTS]` injection block, budget tier |
-| `backend/api/chat/helpers.py` | `query_by_keywords()` call in `_build_stream_context()` |
-| `backend/api/chat/router.py` | passes `graph_facts` to `generate_stream()` |
-| `backend/api/graph.py` | `GET /graph/health`, `GET /graph/sample` endpoints |
-| `backend/llm/service/stream.py` | forwards `graph_facts` to `build_context_messages()` |
-
----
-
-## RAG Provenance Pipeline
-**Completed:** 2026-05-28
-
-### What was built
-- All retrieval functions return `chunk_id`, `source_id`, `dense_score`, `sparse_score`, `final_score`, `retrieval_type` on every hit
-- Fields propagated through `ctx["retrieved"]` and `ctx["file_chunks"]`
-
-### Key files
-| File | Change |
-|------|--------|
-| `backend/llm/retriever.py` | provenance fields on all retrieve fns |
-| `backend/llm/service/context.py` | passes hits with provenance into ctx |
-
----
-
-## Provenance in `done` SSE Event
-**Completed:** 2026-05-28
-
-### What was built
-- `POST /chat/stream` `done` event now includes `provenance` field
-- Built from deduped merge of `ctx["retrieved"]` + `ctx["file_chunks"]`; `content` stripped; UUIDs stringified; deduped by `chunk_id`
-- Empty list `[]` when no RAG hits
-
-### Shape
-```json
-"provenance": [
-  {
-    "chunk_id":       "uuid-str",
-    "source_id":      "uuid-str or null",
-    "dense_score":    0.015748,
-    "sparse_score":   0.0,
-    "final_score":    0.015748,
-    "retrieval_type": "vector"
-  }
-]
-```
-
-### Key files
-| File | Change |
-|------|--------|
-| `backend/api/chat/router.py` | provenance block before `event["conversation_id"]` in `done` handler |
-| `backend/CLAUDE.md` | documented provenance field in API Routes |
-
----
-
-## Re-embed on MODEL_EMBEDDING change + Graph Memory (Neo4j)
-**Completed:** 2026-05-28
-
-### What was built
-- **Neo4j** service in docker-compose; async driver; fails open if `NEO4J_PASSWORD` unset
-- **Graph extraction**: `extract_and_store()` fires post-reply; entities + relations stored per user
-- **Graph context**: injected as `[GRAPH CONTEXT]` in system messages when memory enabled
-- **`query_graph` tool**: available in agent loop; calls `query_by_term(user_id, term)`
-- **`GET /api/graph/stats`**: returns `{available, entities, relations}` scoped to current user
-- **Graph tab**: 5th tab in Memory panel; auto-refreshes 2s after each AI reply
-- **Re-embed**: startup compares `MODEL_EMBEDDING` env vs `system_config` DB row; queues ARQ batches of 100 on mismatch
-- **`POST /api/admin/re-embed`**: manual trigger; admin-only; returns `{"queued": <int>}`
-- **↺ Re-embed All** button in admin Invite panel
-
-### Key files
-| File | Role |
-|------|------|
-| `backend/core/neo4j_client.py` | async driver, init/close, constraint + fulltext index setup |
-| `backend/llm/graph_memory.py` | extract_and_store, query_context, query_by_term |
-| `backend/api/graph.py` | GET /api/graph/stats |
-| `backend/services/re_embed.py` | check_and_queue_re_embed, queue_re_embed_force |
-| `backend/alembic/versions/026_system_config.py` | system_config table migration |
-| `backend/models.py` | SystemConfig model |
-
-### Env vars added
-| Var | Default | Notes |
-|-----|---------|-------|
-| `NEO4J_URI` | `bolt://neo4j:7687` | |
-| `NEO4J_USER` | `neo4j` | |
-| `NEO4J_PASSWORD` | — | required to enable graph; blank = disabled |
-
----
-
-## Graph Memory — Fulltext Index + Big Limit + Score Threshold
-**Completed:** 2026-05-28
-
-### What was built
-- **Fulltext index**: `entity_name_ft` created at startup in `neo4j_client.py` (Lucene-backed)
-- **`query_context`**: swapped `CONTAINS` scan → `db.index.fulltext.queryNodes`; limit raised 8→50; added `min_score=0.5` Cypher filter
-- **`query_by_term`**: forwards `min_score` param
-- Call site `api/chat/helpers.py:212` passes `limit=50`
-
-### Key files
-| File | Change |
-|------|--------|
-| `backend/core/neo4j_client.py` | CREATE FULLTEXT INDEX entity_name_ft |
-| `backend/llm/graph_memory.py` | fulltext query, limit=50, min_score=0.5 |
-| `backend/llm/service/context.py` | call site updated to limit=50 |
-
----
-
-## Hybrid Fusion Tuning
-**Completed:** 2026-05-28
-
-### What was built
-- **Weighted fusion mode**: new `_weighted_merge()` — normalizes raw cosine sim + ts_rank to [0,1], final score = `alpha * dense + (1 - alpha) * sparse`
-- **Configurable params**: `fusion_mode` (rrf|weighted), `k_dense` (1-100), `k_sparse` (1-100), `alpha` (0-1) exposed on all retrieve functions
-- **RRF k=60**: `_RRF_K` constant set to 60 (was implicit default, now documented)
-- **`_FETCH_N` removed**: replaced by `k_dense`/`k_sparse` params per retrieval path
-- **Fallback**: pure vector search when BM25 fails or query is empty
-- **Params exposed** on file search API: `?fusion_mode=&k_dense=&k_sparse=&alpha=`
-
-### Key files
-| File | Change |
-|------|--------|
-| `backend/llm/retriever.py` | `_weighted_merge()`, `_RRF_K=60`, fusion params on all 4 retrieve functions |
-| `backend/api/files/router.py` | search route passes fusion params |
-
----
-
-## Bug fixes — 8 confirmed
-**Completed:** 2026-05-28
-
-### What was fixed
-1. **Rate limiter keying** — `rate_limiter/rate_limiter.py`: decode JWT in `get_key()`; key by `user:<sub>`, fallback to IP
-2. **File upload workspace trust** — `api/files/router.py`: UUID parse + `ws.user_id == current_user.id` check
-3. **Observability schema mismatch** — `observability/metrics_worker.py`: `"type"` → `"event_type"`, `"action"` → `"operation"`, `"circuit"` → `"circuit_breaker"`
-4. **Retrieval grounding** — `llm/retriever.py`, `llm/service/context.py`: `_rrf_merge` returns `list[dict]` with `{content, score, source}`
-5. **Chat persistence partial-fail** — `api/chat/router.py`, `api/chat/helpers.py`: flush before stream, single commit covers user+assistant, embed retries once
-6. **Memory write race** — `api/memory.py`: `SELECT ... FOR UPDATE` on UserMemory row
-7. **Processor marks ready too early** — `services/processor.py`: `saved == 0` → status `"error"`; mark `"ready"` only when `saved > 0`
-8. **Usage N+1** — `api/usage.py`: single `GROUP BY` query replaces per-conv loop
+**Key files:** `core/neo4j_client.py` · `llm/graph_memory.py` · `services/re_embed.py` · `api/graph.py` · `alembic/026_system_config.py`

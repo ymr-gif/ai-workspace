@@ -147,13 +147,13 @@ async def query_context(user_id: int, query_text: str, limit: int = 50, min_scor
     try:
         async with driver.session() as session:
             result = await session.run(
-                "CALL db.index.fulltext.queryNodes('entity_name_ft', $query) YIELD node AS e, score "
+                "CALL db.index.fulltext.queryNodes('entity_name_ft', $ft) YIELD node AS e, score "
                 "WHERE e.user_id = $uid AND score >= $min_score "
                 "OPTIONAL MATCH (e)-[r:RELATED_TO]->(other:Entity {user_id: $uid}) "
                 "RETURN e.name AS name, e.type AS type, "
                 "       collect({rel: r.type, target: other.name}) AS rels "
                 "ORDER BY score DESC LIMIT $limit",
-                uid=user_id, query=ft_query, limit=limit, min_score=min_score,
+                uid=user_id, ft=ft_query, limit=limit, min_score=min_score,
             )
             rows = await result.data()
 
@@ -200,12 +200,12 @@ async def query_by_keywords(user_id: int, query_text: str, limit: int = 30) -> s
     try:
         async with driver.session() as session:
             result = await session.run(
-                "CALL db.index.fulltext.queryNodes('entity_name_ft', $query) YIELD node AS e, score "
+                "CALL db.index.fulltext.queryNodes('entity_name_ft', $ft) YIELD node AS e, score "
                 "WHERE e.user_id = $uid "
                 "OPTIONAL MATCH (e)-[r:RELATED_TO]->(other:Entity {user_id: $uid}) "
                 "RETURN e.name AS source, r.type AS rel, other.name AS target, score "
                 "ORDER BY score DESC LIMIT $limit",
-                uid=user_id, query=ft_query, limit=limit,
+                uid=user_id, ft=ft_query, limit=limit,
             )
             rows = await result.data()
 

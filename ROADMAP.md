@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-05-28
+Last updated: 2026-05-29
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -47,7 +47,8 @@ Last updated: 2026-05-28
 | Hybrid retrieval — vector + BM25, RRF/weighted fusion, provenance | ✅ |
 | File storage — SHA256 dedup, versioning, chunk quality states | ✅ |
 | File formats — PDF, DOCX, XLSX, text/code/markdown | ✅ |
-| AI agent tool loop (10 tools, ask_user, query_graph) | ✅ |
+| AI agent tool loop (10 tools, ask_user, query_graph, write_memory) | ✅ |
+| Autonomous memory writing (write_memory tool, user-confirm green card) | ✅ |
 | Proactive suggestions + insight generation (ARQ background) | ✅ |
 | Scheduled prompts (PromptTemplate, ScheduledPrompt) | ✅ |
 | Workspace layer (isolated system prompts + workspace memory) | ✅ |
@@ -67,7 +68,7 @@ Last updated: 2026-05-28
 | Behavioral pattern learning | No tracking of what user asks most, preferred style, domain habits |
 | Preference extraction | No structured extraction of user preferences from conversations |
 | Memory timeline/chronicle | No temporal view of how memory evolved across sessions |
-| Autonomous memory writing | AI reads memory but never writes it; all writes are user-triggered |
+| ~~Autonomous memory writing~~ | ~~AI reads memory but never writes it; all writes are user-triggered~~ ✅ |
 | Cross-session continuity signal | No "last seen," session gap detection, or re-entry continuity summary |
 
 ### Dimension 2 — Unified Interface
@@ -127,10 +128,10 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 
 ### P0 — Core Cognition
 
-#### Autonomous Memory Writing
-Allow AI to propose memory writes mid-conversation. Uses new `write_memory` tool in tool loop. On trigger, yields an `ask_user`-style confirmation card (green). On confirm, AI writes directly to `UserMemory.content`.
-- Backend: `write_memory` tool in `llm/tools/`; memory write path already exists
-- Frontend: green confirmation card variant distinct from amber ask_user
+#### ~~Autonomous Memory Writing~~ ✅
+~~Allow AI to propose memory writes mid-conversation. Uses new `write_memory` tool in tool loop. On trigger, yields an `ask_user`-style confirmation card (green). On confirm, AI writes directly to `UserMemory.content`.~~
+~~- Backend: `write_memory` tool in `llm/tools/`; memory write path already exists~~
+~~- Frontend: green confirmation card variant distinct from amber ask_user~~
 
 #### User Preference Extraction
 After every N conversations, ARQ job runs an LLM pass over recent history to extract preferences (verbosity, tone, domain vocabulary, response style). Writes structured result into `UserMemory.project_summary` or dedicated preference field.
@@ -245,7 +246,7 @@ Store image embeddings in pgvector. OCR + entity extraction from images. Graph e
 
 ```
 P0 — now
-  1. Autonomous Memory Writing        closes the biggest gap ("private AI mind" that learns)
+  ~~1. Autonomous Memory Writing        closes the biggest gap ("private AI mind" that learns)~~ ✅
   2. User Preference Extraction       personalizes every response
   3. Behavioral Pattern Tracker       feeds agency + adaptive retrieval
   4. Cross-Session Continuity Summary immediate UX win, very low cost
@@ -281,9 +282,9 @@ P3 — future
 
 | Dimension | Coverage | Blocker |
 |-----------|----------|---------|
-| 1. Persistent Memory | 70% | No behavioral patterns, no auto-write |
+| 1. Persistent Memory | 80% | No behavioral patterns, no preference extraction |
 | 2. Unified Interface | 55% | No unified search, no graph UI, no timeline UI |
 | 3. Reasoning Loop | 65% | No grounding confidence, no intent classification |
 | 4. Autonomous Agency | 35% | No patterns, no goals, no user-defined agents |
 | 5. Real-Time Perception | 10% | No web search, no external integrations |
-| **Overall** | **~47%** | P0+P1 would bring this to ~75% |
+| **Overall** | **~50%** | P0 remaining + P1 would bring this to ~75% |
