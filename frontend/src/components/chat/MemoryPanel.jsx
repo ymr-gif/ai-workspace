@@ -72,7 +72,7 @@ export default function MemoryPanel({
                       <span style={{
                         fontSize:'0.65rem', color: f.salience >= 0.7 ? '#34d399' : f.salience >= 0.4 ? '#fbbf24' : '#475569',
                         flexShrink:0, marginTop:'1px',
-                      }}>{Math.round(f.salience * 100)}%</span>
+                      }}>{Math.min(Math.round(f.salience * 100), 100)}%</span>
                     )}
                   </div>
                 ))}
