@@ -30,23 +30,36 @@ def _rrf_merge(
     bm25_rows:   list[tuple],
     top_k:       int,
 ) -> list[dict]:
-    """Reciprocal Rank Fusion: combine (id, content) lists from both sources."""
-    scores:   dict = {}
-    contents: dict = {}
-    sources:  dict = {}
-    for rank, (rid, content) in enumerate(vector_rows):
-        scores[rid]   = scores.get(rid, 0.0) + 1.0 / (_RRF_K + rank + 1)
+    """Reciprocal Rank Fusion: combine (id, source_id, content) triples from both sources."""
+    dense:      dict = {}
+    sparse:     dict = {}
+    contents:   dict = {}
+    source_ids: dict = {}
+    for rank, (rid, src_id, content) in enumerate(vector_rows):
+        dense[rid]      = 1.0 / (_RRF_K + rank + 1)
+        contents[rid]   = content
+        source_ids[rid] = src_id
+    for rank, (rid, src_id, content) in enumerate(bm25_rows):
+        sparse[rid] = 1.0 / (_RRF_K + rank + 1)
         contents[rid] = content
-        sources.setdefault(rid, set()).add("vector")
-    for rank, (rid, content) in enumerate(bm25_rows):
-        scores[rid]   = scores.get(rid, 0.0) + 1.0 / (_RRF_K + rank + 1)
-        contents[rid] = content
-        sources.setdefault(rid, set()).add("bm25")
-    sorted_ids = sorted(scores, key=lambda x: -scores[x])
-    return [
-        {"content": contents[i], "score": round(scores[i], 6), "source": "+".join(sorted(sources[i]))}
-        for i in sorted_ids[:top_k]
-    ]
+        source_ids.setdefault(rid, src_id)
+    all_ids    = set(dense) | set(sparse)
+    sorted_ids = sorted(all_ids, key=lambda x: -(dense.get(x, 0.0) + sparse.get(x, 0.0)))
+    result = []
+    for i in sorted_ids[:top_k]:
+        d   = round(dense.get(i, 0.0), 6)
+        s   = round(sparse.get(i, 0.0), 6)
+        rtype = "+".join(sorted(filter(None, ["bm25" if s else "", "vector" if d else ""])))
+        result.append({
+            "chunk_id":      i,
+            "source_id":     source_ids.get(i),
+            "content":       contents[i],
+            "dense_score":   d,
+            "sparse_score":  s,
+            "final_score":   round(d + s, 6),
+            "retrieval_type": rtype,
+        })
+    return result
 
 
 async def _bm25_file_chunks(
@@ -56,14 +69,14 @@ async def _bm25_file_chunks(
     limit:    int,
 ) -> list[tuple]:
     result = await db.execute(
-        select(FileChunk.id, FileChunk.content)
+        select(FileChunk.id, FileChunk.file_id, FileChunk.content)
         .where(FileChunk.file_id.in_(file_ids))
         .where(text("content_tsv @@ websearch_to_tsquery('simple', :q)"))
         .order_by(text("ts_rank(content_tsv, websearch_to_tsquery('simple', :q)) DESC"))
         .limit(limit)
         .params(q=query)
     )
-    return [(r.id, r.content) for r in result.all()]
+    return [(r.id, r.file_id, r.content) for r in result.all()]
 
 
 async def _bm25_message_embeddings(
@@ -73,14 +86,14 @@ async def _bm25_message_embeddings(
     limit: int,
 ) -> list[tuple]:
     result = await db.execute(
-        select(MessageEmbedding.id, MessageEmbedding.content_snippet)
+        select(MessageEmbedding.id, MessageEmbedding.conversation_id, MessageEmbedding.content_snippet)
         .where(*where)
         .where(text("content_tsv @@ websearch_to_tsquery('simple', :q)"))
         .order_by(text("ts_rank(content_tsv, websearch_to_tsquery('simple', :q)) DESC"))
         .limit(limit)
         .params(q=query)
     )
-    return [(r.id, r.content_snippet) for r in result.all()]
+    return [(r.id, r.conversation_id, r.content_snippet) for r in result.all()]
 
 
 async def retrieve(
@@ -92,12 +105,12 @@ async def retrieve(
 ) -> list[str]:
     try:
         vec_result = await db.execute(
-            select(MessageEmbedding.id, MessageEmbedding.content_snippet)
+            select(MessageEmbedding.id, MessageEmbedding.conversation_id, MessageEmbedding.content_snippet)
             .where(MessageEmbedding.conversation_id == conversation_id)
             .order_by(MessageEmbedding.embedding.cosine_distance(query_embedding))
             .limit(_FETCH_N)
         )
-        vector_rows = [(r.id, r.content_snippet) for r in vec_result.all()]
+        vector_rows = [(r.id, r.conversation_id, r.content_snippet) for r in vec_result.all()]
 
         bm25_rows: list[tuple] = []
         if query_text.strip():
@@ -114,8 +127,16 @@ async def retrieve(
         if bm25_rows:
             return _rrf_merge(vector_rows, bm25_rows, top_k)
         return [
-            {"content": c, "score": round(1.0 / (_RRF_K + rank + 1), 6), "source": "vector"}
-            for rank, (_, c) in enumerate(vector_rows[:top_k])
+            {
+                "chunk_id":      rid,
+                "source_id":     src_id,
+                "content":       c,
+                "dense_score":   round(1.0 / (_RRF_K + rank + 1), 6),
+                "sparse_score":  0.0,
+                "final_score":   round(1.0 / (_RRF_K + rank + 1), 6),
+                "retrieval_type": "vector",
+            }
+            for rank, (rid, src_id, c) in enumerate(vector_rows[:top_k])
         ]
 
     except Exception as e:
@@ -133,7 +154,7 @@ async def retrieve_global(
 ) -> list[str]:
     try:
         vec_result = await db.execute(
-            select(MessageEmbedding.id, MessageEmbedding.content_snippet)
+            select(MessageEmbedding.id, MessageEmbedding.conversation_id, MessageEmbedding.content_snippet)
             .join(Conversation, MessageEmbedding.conversation_id == Conversation.id)
             .where(
                 Conversation.user_id == user_id,
@@ -142,7 +163,7 @@ async def retrieve_global(
             .order_by(MessageEmbedding.embedding.cosine_distance(query_embedding))
             .limit(_FETCH_N)
         )
-        vector_rows = [(r.id, r.content_snippet) for r in vec_result.all()]
+        vector_rows = [(r.id, r.conversation_id, r.content_snippet) for r in vec_result.all()]
 
         bm25_rows: list[tuple] = []
         if query_text.strip():
@@ -165,8 +186,16 @@ async def retrieve_global(
         if bm25_rows:
             return _rrf_merge(vector_rows, bm25_rows, top_k)
         return [
-            {"content": c, "score": round(1.0 / (_RRF_K + rank + 1), 6), "source": "vector"}
-            for rank, (_, c) in enumerate(vector_rows[:top_k])
+            {
+                "chunk_id":      rid,
+                "source_id":     src_id,
+                "content":       c,
+                "dense_score":   round(1.0 / (_RRF_K + rank + 1), 6),
+                "sparse_score":  0.0,
+                "final_score":   round(1.0 / (_RRF_K + rank + 1), 6),
+                "retrieval_type": "vector",
+            }
+            for rank, (rid, src_id, c) in enumerate(vector_rows[:top_k])
         ]
 
     except Exception as e:
@@ -230,13 +259,13 @@ async def retrieve_from_files(
         return []
     try:
         vec_result = await db.execute(
-            select(FileChunk.id, FileChunk.content)
+            select(FileChunk.id, FileChunk.file_id, FileChunk.content)
             .where(FileChunk.file_id.in_(file_ids))
             .where(FileChunk.embedding.isnot(None))
             .order_by(FileChunk.embedding.cosine_distance(query_embedding))
             .limit(_FETCH_N)
         )
-        vector_rows = [(r.id, r.content) for r in vec_result.all()]
+        vector_rows = [(r.id, r.file_id, r.content) for r in vec_result.all()]
 
         bm25_rows: list[tuple] = []
         if query_text.strip():
@@ -249,8 +278,16 @@ async def retrieve_from_files(
             chunks = _rrf_merge(vector_rows, bm25_rows, top_k)
         else:
             chunks = [
-                {"content": c, "score": round(1.0 / (_RRF_K + rank + 1), 6), "source": "vector"}
-                for rank, (_, c) in enumerate(vector_rows[:top_k])
+                {
+                    "chunk_id":      rid,
+                    "source_id":     src_id,
+                    "content":       c,
+                    "dense_score":   round(1.0 / (_RRF_K + rank + 1), 6),
+                    "sparse_score":  0.0,
+                    "final_score":   round(1.0 / (_RRF_K + rank + 1), 6),
+                    "retrieval_type": "vector",
+                }
+                for rank, (rid, src_id, c) in enumerate(vector_rows[:top_k])
             ]
 
         logger.info("[retriever] retrieve_from_files files=%d vector=%d bm25=%d merged=%d",
@@ -270,13 +307,25 @@ async def retrieve_files_sequential(
         return []
     try:
         result = await db.execute(
-            select(FileChunk.content)
+            select(FileChunk.id, FileChunk.file_id, FileChunk.content)
             .where(FileChunk.file_id.in_(file_ids))
             .where(FileChunk.embedding.isnot(None))
             .order_by(FileChunk.chunk_index.asc())
             .limit(top_k)
         )
-        chunks = list(result.scalars().all())
+        rows   = result.all()
+        chunks = [
+            {
+                "chunk_id":      r.id,
+                "source_id":     r.file_id,
+                "content":       r.content,
+                "dense_score":   0.0,
+                "sparse_score":  0.0,
+                "final_score":   0.0,
+                "retrieval_type": "sequential",
+            }
+            for r in rows
+        ]
         logger.info("[retriever] retrieve_files_sequential files=%d chunks=%d", len(file_ids), len(chunks))
         return chunks
     except Exception as e:
