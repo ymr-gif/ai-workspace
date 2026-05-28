@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import MODEL_PRICING, MODELS
+from config import MODELS
 from llm import retriever
 from llm.embeddings import embed as embed_text
 from models import Conversation, Message, User, UserMemory, Workspace, WorkspaceMemory
@@ -37,26 +37,6 @@ def _extract_model_params(req: ChatRequest) -> dict | None:
     if req.max_tokens  is not None: p["max_tokens"]  = req.max_tokens
     if req.top_p       is not None: p["top_p"]       = req.top_p
     return p or None
-
-
-async def _embed_exchange(
-    message_id:      uuid.UUID,
-    conversation_id: uuid.UUID,
-    user_text:       str,
-    assistant_text:  str,
-) -> None:
-    for attempt in range(2):
-        try:
-            exchange = f"{user_text[:300]}\n{assistant_text[:400]}"
-            emb = await embed_text(exchange, input_type="passage")
-            if emb:
-                await retriever.store_exchange(message_id, conversation_id, user_text, assistant_text, emb)
-            return
-        except Exception:
-            if attempt == 0:
-                logger.warning("[embed_exchange] retry msg=%s", message_id)
-            else:
-                logger.exception("[embed_exchange] failed msg=%s", message_id)
 
 
 async def _check_cost_cap(user: User, db: AsyncSession) -> None:
@@ -95,7 +75,6 @@ async def _resolve_conversation(
             raise HTTPException(status_code=404, detail="Conversation not found")
         return conv
 
-    # Resolve workspace for new conversation
     workspace_id: uuid.UUID | None = None
     if req.workspace_id:
         try:
@@ -106,7 +85,6 @@ async def _resolve_conversation(
         except ValueError:
             pass
     if workspace_id is None:
-        # Fall back to user's Default workspace
         result = await db.execute(
             select(Workspace)
             .where(Workspace.user_id == current_user.id, Workspace.name == "Default")
@@ -136,7 +114,6 @@ async def _build_stream_context(
 
     is_ref = retriever.is_reference_query(req.message)
 
-    # Start embedding concurrently — HTTP call; runs while DB queries execute below
     embed_task = None
     if req.conversation_id or is_ref:
         embed_task = asyncio.create_task(embed_text(req.message, input_type="query"))
@@ -152,7 +129,6 @@ async def _build_stream_context(
         )
         candidates = list(reversed(cand_result.scalars().all()))
 
-    # Collect embedding — ran concurrently with the DB query above
     query_emb = (await embed_task) if embed_task else None
 
     history: list[dict] = []
@@ -201,8 +177,7 @@ async def _build_stream_context(
             else:
                 logger.warning("[file_ctx] rid=%s file_ids=%d but NO chunks retrieved", rid, len(file_ids))
 
-    # Load workspace memory if conversation belongs to a workspace
-    workspace_memory   = ""
+    workspace_memory    = ""
     workspace_sysprompt = None
     if conv.workspace_id:
         ws = await db.get(Workspace, conv.workspace_id)
@@ -216,12 +191,18 @@ async def _build_stream_context(
                 workspace_memory = ws_mem.content
 
     graph_context = ""
+    graph_facts   = ""
     if memory_enabled:
         try:
             from llm.graph_memory import query_context as graph_query
             graph_context = await graph_query(current_user.id, req.message, limit=50)
         except Exception:
             logger.exception("[graph] query_context failed")
+        try:
+            from llm.graph_memory import query_by_keywords
+            graph_facts = await query_by_keywords(current_user.id, req.message)
+        except Exception:
+            logger.exception("[graph] query_by_keywords failed")
 
     return {
         "memory_enabled":      memory_enabled,
@@ -236,66 +217,5 @@ async def _build_stream_context(
         "workspace_memory":    workspace_memory,
         "workspace_sysprompt": workspace_sysprompt,
         "graph_context":       graph_context,
+        "graph_facts":         graph_facts,
     }
-
-
-async def _generate_proactive(user_msg: str, ai_msg: str) -> str | None:
-    from llm.agency import generate_proactive_suggestion
-    try:
-        return await generate_proactive_suggestion(user_msg, ai_msg)
-    except Exception:
-        logger.exception("[proactive] failed")
-        return None
-
-
-async def _auto_title(conv_id: uuid.UUID, user_msg: str, ai_msg: str) -> None:
-    from core.db import AsyncSessionLocal
-    from llm.nim import call
-    prompt = (
-        f"Summarize this exchange in 6 words or fewer:\n"
-        f"User: {user_msg[:200]}\nAI: {ai_msg[:200]}"
-    )
-    try:
-        result = await call(
-            model      = MODELS["llama"],
-            messages   = [{"role": "user", "content": prompt}],
-            request_id = f"title-{conv_id}",
-        )
-        title = (result.get("content") or "").strip().strip('"').strip("'")
-        if title and len(title) <= 80:
-            async with AsyncSessionLocal() as db:
-                conv = await db.get(Conversation, conv_id)
-                if conv:
-                    conv.title = title
-                    await db.commit()
-    except Exception:
-        logger.exception("[auto_title] failed conv=%s", conv_id)
-
-
-def _calculate_tokens_and_cost(
-    event:       dict,
-    ctx:         dict,
-    req:         ChatRequest,
-    full_response: str,
-    model_used:  str,
-) -> tuple[int, int, int, float]:
-    pricing = MODEL_PRICING.get(model_used, {})
-    nim_usage = event.get("usage")
-    if nim_usage and isinstance(nim_usage, dict):
-        prompt_tokens     = nim_usage.get("prompt_tokens", 0)
-        completion_tokens = nim_usage.get("completion_tokens", 0)
-        total_tokens      = nim_usage.get("total_tokens", prompt_tokens + completion_tokens)
-    else:
-        prompt_tokens     = _estimate_tokens(
-            ctx["memory_sheet"], ctx["project_summary"],
-            ctx["history_summary"],
-            *[m["content"] for m in ctx["history"]],
-            req.message,
-        )
-        completion_tokens = len(full_response) // 4
-        total_tokens      = prompt_tokens + completion_tokens
-    cost_usd = (
-        prompt_tokens     / 1_000_000 * pricing.get("input",  0.0) +
-        completion_tokens / 1_000_000 * pricing.get("output", 0.0)
-    )
-    return prompt_tokens, completion_tokens, total_tokens, cost_usd

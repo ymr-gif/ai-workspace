@@ -3,7 +3,7 @@
 ## What This Is
 FastAPI backend routing chat messages to NVIDIA NIM models via keyword classification.
 React/Vite frontend. Docker Compose stack: Postgres + pgvector, Redis, Neo4j, Prometheus, Grafana.
-Features: SSE streaming, conversation history, multi-tier memory, pgvector RAG, file knowledge base, AI agent tool loop, model control, markdown rendering, workspace layer, invite-gated registration, conversation search + export, auto-title, graph memory (Neo4j), re-embed on MODEL_EMBEDDING change.
+Features: SSE streaming, conversation history, multi-tier memory, pgvector RAG, file knowledge base, AI agent tool loop, model control, markdown rendering, workspace layer, invite-gated registration, conversation search + export, auto-title, graph memory (Neo4j), re-embed on MODEL_EMBEDDING change, retrieval eval harness (`tests/retrieval/test_hybrid_eval.py`).
 
 > Subdir details: `backend/CLAUDE.md` · `docker/CLAUDE.md` · `frontend/CLAUDE.md`
 > Commands: `COMMANDS.md` · HANDOFF workflow: `HANDOFF_PROTOCOL.md`
@@ -61,7 +61,7 @@ ai-api/
 ---
 
 ## Known Issues
-- No integration tests — `/chat` not covered without live NIM API
+- No chat integration tests — `/chat` requires live NIM API; retrieval is covered by `tests/retrieval/test_hybrid_eval.py` (26 tests, mocked DB)
 - `passlib` crypt warning on Python 3.13+ — harmless on 3.11
 - File RAG requires explicit attachment (Library → + button); upload alone is not enough
 - `_needs_file_tools` is keyword-based — may miss implicit file requests

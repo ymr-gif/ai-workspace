@@ -40,3 +40,25 @@ async def close_neo4j() -> None:
 
 def get_driver():
     return _driver
+
+
+async def get_health() -> dict:
+    driver = get_driver()
+    if not driver:
+        return {"available": False, "entity_count": 0, "relation_count": 0}
+
+    try:
+        from neo4j.exceptions import ServiceUnavailable
+
+        async with driver.session() as session:
+            e_result = await session.run("MATCH (e:Entity) RETURN count(e) AS cnt")
+            r_result = await session.run("MATCH ()-[r:RELATED_TO]->() RETURN count(r) AS cnt")
+            e_row = await e_result.single()
+            r_row = await r_result.single()
+            return {
+                "available": True,
+                "entity_count": int(e_row["cnt"]) if e_row else 0,
+                "relation_count": int(r_row["cnt"]) if r_row else 0,
+            }
+    except ServiceUnavailable:
+        return {"available": False, "entity_count": 0, "relation_count": 0}

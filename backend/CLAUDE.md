@@ -4,30 +4,72 @@
 ```
 ├── main.py                 — lifespan, middleware, router includes
 ├── config.py               — env vars loaded from ../.env via find_dotenv()
-├── models.py               — ORM (User, File, Message, Conversation, AdminAuditLog, …)
+├── models/                 — ORM (20 classes across 8 sub-modules)
+│   ├── __init__.py         — re-exports all models
+│   ├── workspace.py        — Workspace, WorkspaceMemory
+│   ├── auth.py             — Invitation
+│   ├── user.py             — User, UserInsight, AdminAuditLog, UserMemory, UserMemoryVersion
+│   ├── file.py             — File, FileChunk, FileVersion
+│   ├── chat.py             — Conversation, Message, MessageEmbedding, ConversationFile
+│   ├── tools.py            — ToolCallLog
+│   ├── prompts_scheduled.py — PromptTemplate, ScheduledPrompt, ScheduledPromptRun
+│   └── system.py           — SystemConfig
 ├── alembic/versions/       — 026 migrations; latest: 026_system_config.py
 ├── auth/                   — JWT, bcrypt, API key fallback, invite validation
+├── tests/
+│   ├── test.py             — 21 unit tests (standalone, no docker)
+│   └── retrieval/
+│       ├── conftest.py     — shared fixtures, dataset, mock helpers, metric utils
+│       └── test_hybrid_eval.py — 26 tests (mock DB, no NIM)
 ├── llm/
 │   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=10)
 │   ├── nim.py              — NIM API call, accumulates tool_call deltas
-│   ├── tools.py            — 10 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
-│   ├── graph_memory.py     — Neo4j entity extraction/query; limit=50, min_score=0.5
+│   ├── tools/              — 10 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
+│   │   ├── schemas.py      — tool definitions
+│   │   ├── executor.py     — execute_tool() dispatch
+│   │   ├── file_ops.py     — read/write/append/patch/create file ops
+│   │   └── search.py       — search_in_file + search_across_files
+│   ├── graph_memory.py     — Neo4j extraction/query + query_by_keywords (stopwords, fulltext, neighborhood expansion); limit=50, min_score=0.5
 │   ├── router.py           — keyword classify(), model route(), get_context_limit()
 │   ├── circuit_breaker.py  — 3 failures → 30s cooldown
 │   ├── embeddings.py       — embed(text, input_type) → list[float]; timeout=15s
-│   ├── retriever.py        — hybrid vector+BM25 fusion (rrf|weighted); stores provenance per hit
-│   ├── summarizer.py       — memory compression, compaction, workspace memory updates
+│   ├── retriever/          — hybrid vector+BM25 fusion (rrf|weighted); debug param
+│   │   ├── fusion.py       — rrf + weighted fusion, score normalization
+│   │   ├── queries.py      — SQL query builders for vector + BM25
+│   │   ├── main.py         — retrieve() entry point, provenance tracking
+│   │   └── attachments.py  — retrieve_from_files() for conversation attachments
+│   ├── summarizer/         — memory compression, compaction, workspace memory updates
+│   │   ├── prompts.py      — summarization prompt templates
+│   │   ├── memory.py       — workspace memory read/write
+│   │   ├── history.py      — history summarization
+│   │   ├── project.py      — project summary updates
+│   │   └── compact.py      — compact_memory() LLM-driven dedup
 │   └── agency.py           — proactive suggestions + insight generation (ARQ)
 ├── cache/                  — Redis primary + LRU fallback; cache-bypass on file/image/model-param
-├── core/                   — db (pgbouncer: prepared_statement_cache_size=0), redis, arq, neo4j
+├── core/                   — db (pgbouncer: prepared_statement_cache_size=0), redis, arq, neo4j (get_health)
 ├── rate_limiter/           — sliding-window per user + per-model; reuses request.state.current_user
 ├── observability/          — Prometheus counters/histograms; Redis-stream metrics worker
 ├── api/
-│   ├── chat/               — /chat + /chat/stream; auto-title, cost-cap, early-cache check
+│   ├── chat/
+│   │   ├── __init__.py     — combines router + stream_router
+│   │   ├── schemas.py      — ChatRequest model
+│   │   ├── router.py       — POST /chat (non-streaming)
+│   │   ├── stream.py       — POST /chat/stream SSE endpoint + event_generator
+│   │   ├── helpers.py      — context build, model resolve, cost cap, conversation resolve
+│   │   └── background.py   — auto-title, embed, proactive, token/cost calc
 │   ├── workspaces.py       — /workspaces CRUD + memory routes
 │   ├── files/              — upload, ingest-url, search, versions, workspace assign; sha256 dedup
-│   ├── conversations.py    — list (?q=), export, PATCH, delete; file attach/detach
-│   ├── admin.py            — require_role("admin"); users, cost-limit, audit-log, re-embed, dotenv mgmt
+│   ├── conversations/      — list (?q=), export, PATCH, delete; file attach/detach
+│   │   ├── __init__.py     — combines crud + files sub-routers
+│   │   ├── crud.py         — list, messages, PATCH, export, delete
+│   │   └── files.py        — attach/detach files
+│   ├── admin/              — require_role("admin"); users, cost-limit, audit-log, env mgmt
+│   │   ├── __init__.py     — combines all sub-routers
+│   │   ├── utils.py        — _audit(), _user_row(), _fetch_user_stats(), _mask()
+│   │   ├── users.py        — GET/PATCH user routes
+│   │   ├── audit.py        — GET /audit-log
+│   │   ├── env.py          — GET/PUT env vars, reload
+│   │   └── system.py       — POST /re-embed
 │   ├── graph.py / compat.py / templates.py / scheduled_prompts.py / usage.py / memory.py / system.py / tool_logs.py
 ├── services/
 │   ├── processor.py        — extract→chunk→embed; CPU work in asyncio.to_thread()
@@ -36,33 +78,17 @@
 │   ├── file_service.py     — fuzzy-patch, save-version-before-mutate; sync I/O in asyncio.to_thread()
 │   └── scheduler_worker.py — APScheduler cron runner; daily memory compaction at 3 AM UTC
 ├── storage/                — SHA256 streaming write
-└── tests/test.py           — 21 unit tests (standalone, no docker)
+└── HANDOFF_PROTOCOL.md     — worker handoff protocol (shared from root)
 ```
 
 ---
 
-## Key Models (models.py)
-- **User**: is_active, cost_limit_usd (null=no cap), cost_window_days (null=all-time), api_key
-- **File**: sha256_hash (dedup key), workspace_id UUID FK
-- **Message**: content_tsv GENERATED tsvector GIN — full-text search; token + cost fields
-- **Conversation**: workspace_id UUID FK SET NULL
-- **UserInsight**: id UUID, user_id, content, is_read, created_at
-- **AdminAuditLog**: id UUID, admin_id, action str64, target_user_id, detail JSONB, created_at
-- **SystemConfig**: key VARCHAR PK, value TEXT, updated_at TIMESTAMPTZ — used for MODEL_EMBEDDING tracking
-- Others: FileChunk · FileVersion · UserMemory · MessageEmbedding · UserMemoryVersion · ConversationFile · ToolCallLog · PromptTemplate · ScheduledPrompt · ScheduledPromptRun · Workspace · WorkspaceMemory · Invitation
-
----
-
-## API Routes (groups — see api/ routers for full signatures)
-- **Auth**: token, register, me, me/api-key; invite + invites (admin)
-- **Chat**: POST /chat · /chat/stream · /v1/chat/completions; `/chat/stream` `done` event includes `provenance: [{chunk_id, source_id, dense_score, sparse_score, final_score, retrieval_type}]` (deduped from retrieved+file_chunks; `[]` when no RAG)
-- **Files**: upload, ingest-url, search (?fusion_mode=&k_dense=&k_sparse=&alpha=), list, workspaces; /{id}: content, status[/stream], download, rename, workspace; versions
-- **Conversations**: list (?q= ?workspace_id=), export, messages, PATCH, delete; files attach/detach
-- **Workspaces**: CRUD; /{id}/conversations · files · memory
-- **Admin**: users list/usage; active toggle; cost-limit; audit-log (?action=&target_user_id=); re-embed; env vars list/get/update/reload
-- **Graph**: GET /graph/stats — entity/relation counts for current user (Neo4j)
-- **Misc**: health · metrics[/overview|models|latency] · tool-calls · usage[/history] · memory · insights · templates · scheduled-prompts
-- **Memory**: GET `""` · PUT `""` · GET `/export` · POST `/import` · GET `/history` · POST `/compact` (enqueues ARQ compact_memory_job for current user)
+## Key Models
+- **User**: cost_limit_usd/cost_window_days cap, api_key auth, is_active gate
+- **File**: sha256_hash dedup `(user_id, hash)`, workspace_id FK SET NULL
+- **Message**: content_tsv GIN for full-text search; tracks token + cost
+- **SystemConfig**: key/value store — tracks MODEL_EMBEDDING for re-embed triggers
+- Others: 15 more in `models/` (chat, file, workspace, memory, tools, scheduled, auth)
 
 ---
 
@@ -86,28 +112,24 @@ Injection order:
 1. workspace_sysprompt merged with conv_sysprompt + file list
 2. [USER STATE] · [WORKSPACE STATE] · [PROJECT STATE]
 3. [GRAPH CONTEXT] — Neo4j entity/relation context (when memory_enabled + Neo4j up); limit=50, min_score=0.5
-4. [RELEVANT CONTEXT] cosine top-K · [EARLIER IN CONV] history_summary
+4. [GRAPH FACTS] — keyword-triggered neighborhood expansion via query_by_keywords (strips stopwords, fulltext search, relation paths)
+5. [RELEVANT CONTEXT] cosine top-K · [EARLIER IN CONV] history_summary
 5. last 10 importance-weighted messages
 6. [FILE CONTEXT] top-5 chunks — last for recency bias
 7. current message
 
-- Triggers: >3000 tok OR every 10 asst msgs; project summary >4000 OR every 15
-- Auto-title: after 2nd message → llama "6 words or fewer" via `asyncio.create_task`
+- Triggers: >3000 tok OR every 10 asst msgs; auto-title after 2nd msg via `asyncio.create_task`
 - Lock: `pg_advisory_xact_lock(user_id)` prevents version races
-- ws_sysprompt precedence: merged as `ws + "\n\n" + conv` when both set
-- Compaction: `summarizer.compact_memory(user_id)` — strips stale/duplicate/low-salience, keeps high-salience; LLM-driven; skips < 100 words; creates `UserMemoryVersion` snapshot; queued via ARQ `compact_memory_job`
-- Manual trigger: `POST /memory/compact` enqueues compaction for current user
-- Scheduled compaction: scheduler runs `run_memory_compaction()` daily at 3 AM UTC; enqueues `compact_memory_job` per user with ≥ 100 words
-- Context budget: `apply_context_budget()` in `service/context.py` drops lowest-tier sources first (file chunks → history → RAG → graph → workspace → project → user state) when estimated tokens exceed `context_window - max_output_tokens - 10%`; re-applied after each tool iteration
+- Compaction: LLM-driven dedup via `compact_memory()`; creates `UserMemoryVersion` snapshot; queued via ARQ or daily cron at 3 AM UTC
+- Context budget: drops lowest-tier sources when estimated tokens exceed `context_window - max_output_tokens - 10%`; re-applied after each tool iteration
 
 ---
 
 ## Files & Knowledge
-- Upload: SHA256 while streaming → dedup `(user_id, sha256_hash)` → ARQ job or inline fallback
+- Upload: SHA256 while streaming → dedup `(user_id, hash)` → ARQ job or inline fallback
 - Formats: PDF · DOCX (+tables after paragraphs) · XLSX/XLS · text/code/markdown
 - Chunks: 1600 chars, 200 overlap, sentence-aligned tail
-- Retrieval: vector + BM25 parallel → RRF (k=60) or weighted fusion; params: fusion_mode (rrf|weighted), k_dense, k_sparse (1-100), alpha (0-1); fallback to pure vector
-- Weighted mode: normalizes raw cosine sim + ts_rank to [0,1], final = alpha*dense + (1-alpha)*sparse
+- Retrieval: vector + BM25 parallel → RRF (k=60) or weighted fusion; fallback to pure vector
 - Status SSE: polls `db.refresh` + Redis `proc_progress:{file_id}` every 0.8s → terminates on ready/error
 - `file_service`: save_version before every mutation; `_fuzzy_replace`: exact → `\r\n` norm → stripped edges
 
@@ -132,6 +154,8 @@ Injection order:
 - `passlib` crypt warning on Python 3.13+ — harmless on 3.11
 - Dotenv admin: `/admin/env` masks sensitive keys; PUT writes `.env` + updates running config; `POST /admin/env/reload` does `importlib.reload(config)`
 - `.env` merge script in root CLAUDE.md — adds missing keys from `.env.example` as commented-out
+- Debug mode: `retriever.retrieve()` / `retrieve_from_files(debug=True)` returns `(chunks, debug_info)` tuple; `/search?debug=true` returns `{"results": [...], "debug": [...]}`
+- Eval harness: `tests/retrieval/test_hybrid_eval.py` — 26 tests, mock DB (AsyncMock), no NIM deps; run with `pytest tests/retrieval/ -v`
 
 ---
 
