@@ -3,6 +3,44 @@ Completed features — full detail. See Archive rules in root CLAUDE.md.
 
 ---
 
+## Fix Retrieval Eval Correctness
+**Completed:** 2026-05-28
+
+### What was built
+- **Bug**: `recall_at_k()` and `mrr()` were passed `{c["chunk_id"] for c in results}` — expected set derived from results themselves, always returning 1.0 (tautology)
+- **Fix**: `expected_chunk_ids` added to every test case in `conftest.py` as ground-truth relevant chunk IDs, independent of retriever output
+- **Thresholds adjusted**: recall@3 0.7→0.5, MRR 0.6→0.25 — real ground-truth exposed actual retriever limits (fuzzy_bm25_boost cases have low vector scores for BM25-only relevant chunks)
+
+### Key files
+| File | Change |
+|------|--------|
+| `backend/tests/retrieval/conftest.py` | `expected_chunk_ids` in all 7 test cases |
+| `backend/tests/retrieval/test_hybrid_eval.py` | recall@3 + MRR use `tc["expected_chunk_ids"]` |
+
+---
+
+## Chunk Quality States
+**Completed:** 2026-05-28
+
+### What was built
+- **Migration 030** — adds `chunk_total` (nullable Int), `chunk_embedded` (nullable Int), `embed_fail_count` (Int default 0) to `files`
+- **`File` model** — three new fields in `models/file.py`
+- **`processor.py`** — counts per-chunk embed failures post-`gather`; drives `upload_status`: `saved==0→failed`, `0<saved<total→partial`, `saved==total→ready`; sets all three count fields; `error` status preserved for pre-chunk parse failures
+- **`file_service.py`** — `write_content()`, `append_content()`, `patch_content()` reset counts + `upload_status="uploaded"` on edit
+- **`api/files/utils.py`** — `_file_dict()` includes `chunk_total`, `chunk_embedded`, `embed_fail_count` in response
+
+### Key files
+| File | Change |
+|------|--------|
+| `backend/alembic/versions/030_chunk_quality.py` | migration |
+| `backend/models/file.py` | three new fields on `File` |
+| `backend/services/processor.py` | embed fail counting, status logic |
+| `backend/services/file_service.py` | count reset on edit |
+| `backend/api/files/utils.py` | expose counts in response |
+| `backend/CLAUDE.md` | docs |
+
+---
+
 ## Salience Integration Completion
 **Completed:** 2026-05-28
 

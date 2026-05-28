@@ -255,6 +255,7 @@ async def _process(db, file_id: uuid.UUID, storage_path: str, mime_type: str) ->
     # Embed all chunks concurrently (bounded by MAX_CONCURRENT_REQUESTS semaphore in llm/client.py)
     embeddings = await asyncio.gather(*[embed(c, input_type="passage") for c in chunks])
 
+    fail_count = 0
     for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
         if emb:
             db.add(FileChunk(
@@ -265,6 +266,8 @@ async def _process(db, file_id: uuid.UUID, storage_path: str, mime_type: str) ->
                 embedding   = emb,
             ))
             saved += 1
+        else:
+            fail_count += 1
 
         if redis and total > 0:
             try:
@@ -272,16 +275,24 @@ async def _process(db, file_id: uuid.UUID, storage_path: str, mime_type: str) ->
             except Exception:
                 redis = None
 
+    row.chunk_total = total
+    row.chunk_embedded = saved
+    row.embed_fail_count = fail_count
+
     if saved == 0:
-        row.upload_status = "error"
+        row.upload_status = "failed"
         await db.commit()
         logger.error("[processor] no chunks saved file_id=%s total=%d", file_id, total)
         return
 
-    row.upload_status = "ready"
+    if saved < total:
+        row.upload_status = "partial"
+    else:
+        row.upload_status = "ready"
+
     await db.commit()
     record_chunks(saved)
-    logger.info("[processor] done file_id=%s chunks=%d/%d", file_id, saved, total)
+    logger.info("[processor] done file_id=%s chunks=%d/%d status=%s", file_id, saved, total, row.upload_status)
 
     if redis:
         try:

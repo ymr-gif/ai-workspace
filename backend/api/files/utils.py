@@ -15,13 +15,16 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 def _file_dict(f: FileModel) -> dict:
     return {
-        "id":           str(f.id),
-        "filename":     f.filename,
-        "mime_type":    f.mime_type,
-        "size_bytes":   f.size_bytes,
-        "status":       f.upload_status,
-        "workspace_id": f.workspace_id or "",
-        "created_at":   f.created_at.isoformat(),
+        "id":              str(f.id),
+        "filename":        f.filename,
+        "mime_type":       f.mime_type,
+        "size_bytes":      f.size_bytes,
+        "status":          f.upload_status,
+        "workspace_id":    f.workspace_id or "",
+        "chunk_total":     f.chunk_total,
+        "chunk_embedded":  f.chunk_embedded,
+        "embed_fail_count": f.embed_fail_count,
+        "created_at":      f.created_at.isoformat(),
     }
 
 
