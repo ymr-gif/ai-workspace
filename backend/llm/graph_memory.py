@@ -1,9 +1,38 @@
+import hashlib
 import json
 import logging
 from datetime import datetime, timezone
 
-from config import MODELS
+from redis.exceptions import RedisError
+
+from config import MODELS, USE_REDIS
 from core.neo4j_client import get_driver
+from core.redis_client import get_redis
+
+_GRAPH_CACHE_TTL = 60  # seconds
+
+
+def _cache_key(user_id: int, query_text: str) -> str:
+    digest = hashlib.sha256(query_text.lower().strip().encode()).hexdigest()[:20]
+    return f"graph:{user_id}:{digest}"
+
+
+async def _cache_get(key: str) -> str | None:
+    if not USE_REDIS:
+        return None
+    try:
+        return await get_redis().get(key)
+    except RedisError:
+        return None
+
+
+async def _cache_set(key: str, value: str) -> None:
+    if not USE_REDIS:
+        return
+    try:
+        await get_redis().set(key, value, ex=_GRAPH_CACHE_TTL)
+    except RedisError:
+        pass
 
 logger = logging.getLogger("graph_memory")
 
@@ -55,31 +84,40 @@ async def extract_and_store(user_id: int, message: str, response: str) -> None:
 
         now = datetime.now(timezone.utc).isoformat()
 
-        async with driver.session() as session:
-            for e in entities:
-                name  = (e.get("name") or "").strip()
-                etype = (e.get("type") or "OTHER").strip()
-                if not name:
-                    continue
-                await session.run(
-                    "MERGE (e:Entity {user_id: $uid, name: $name}) "
-                    "SET e.type = $type, e.updated_at = $ts",
-                    uid=user_id, name=name, type=etype, ts=now,
-                )
+        entity_batch = [
+            {"name": (e.get("name") or "").strip(), "type": (e.get("type") or "OTHER").strip()}
+            for e in entities
+            if (e.get("name") or "").strip()
+        ]
 
-            valid_names = {(e.get("name") or "").strip() for e in entities}
-            for r in relations:
-                src   = (r.get("from") or "").strip()
-                dst   = (r.get("to")   or "").strip()
-                rtype = (r.get("type") or "RELATED_TO").strip().upper().replace(" ", "_")
-                if not src or not dst or src not in valid_names or dst not in valid_names:
-                    continue
+        valid_names = {e["name"] for e in entity_batch}
+        rel_batch = [
+            {
+                "src":   (r.get("from") or "").strip(),
+                "dst":   (r.get("to")   or "").strip(),
+                "rtype": (r.get("type") or "RELATED_TO").strip().upper().replace(" ", "_"),
+            }
+            for r in relations
+            if (r.get("from") or "").strip() in valid_names
+            and (r.get("to") or "").strip() in valid_names
+        ]
+
+        async with driver.session() as session:
+            if entity_batch:
                 await session.run(
-                    "MATCH (a:Entity {user_id: $uid, name: $src}), "
-                    "      (b:Entity {user_id: $uid, name: $dst}) "
-                    "MERGE (a)-[rel:RELATED_TO {type: $rtype}]->(b) "
+                    "UNWIND $batch AS e "
+                    "MERGE (n:Entity {user_id: $uid, name: e.name}) "
+                    "SET n.type = e.type, n.updated_at = $ts",
+                    batch=entity_batch, uid=user_id, ts=now,
+                )
+            if rel_batch:
+                await session.run(
+                    "UNWIND $batch AS r "
+                    "MATCH (a:Entity {user_id: $uid, name: r.src}), "
+                    "      (b:Entity {user_id: $uid, name: r.dst}) "
+                    "MERGE (a)-[rel:RELATED_TO {type: r.rtype}]->(b) "
                     "SET rel.updated_at = $ts",
-                    uid=user_id, src=src, dst=dst, rtype=rtype, ts=now,
+                    batch=rel_batch, uid=user_id, ts=now,
                 )
 
         logger.info("[graph] stored %d entities %d rels user=%d", len(entities), len(relations), user_id)
@@ -98,6 +136,11 @@ async def query_context(user_id: int, query_text: str, limit: int = 50, min_scor
     words = [w for w in query_text.split() if len(w) > 2]
     if not words:
         return ""
+
+    cache_key = _cache_key(user_id, f"ctx:{query_text}:{limit}:{min_score}")
+    cached = await _cache_get(cache_key)
+    if cached is not None:
+        return cached
 
     ft_query = " ".join(words)
 
@@ -125,7 +168,9 @@ async def query_context(user_id: int, query_text: str, limit: int = 50, min_scor
                 line += ": " + ", ".join(f"{r['rel']} {r['target']}" for r in rels[:4])
             lines.append(line)
 
-        return "\n".join(lines)
+        output = "\n".join(lines)
+        await _cache_set(cache_key, output)
+        return output
 
     except Exception:
         logger.exception("[graph] query_context failed user=%d", user_id)
@@ -144,6 +189,11 @@ async def query_by_keywords(user_id: int, query_text: str, limit: int = 30) -> s
     words = [w for w in query_text.split() if len(w) > 2 and w.lower() not in _STOPWORDS]
     if not words:
         return ""
+
+    cache_key = _cache_key(user_id, f"kw:{query_text}:{limit}")
+    cached = await _cache_get(cache_key)
+    if cached is not None:
+        return cached
 
     ft_query = " ".join(words)
 
@@ -170,16 +220,18 @@ async def query_by_keywords(user_id: int, query_text: str, limit: int = 30) -> s
             tgt = row.get("target")
             if not src or not rel or not tgt:
                 continue
-            key = (src, rel, tgt)
-            if key in seen:
+            edge = (src, rel, tgt)
+            if edge in seen:
                 continue
-            seen.add(key)
+            seen.add(edge)
             lines.append(f"{src} --[{rel}]→ {tgt}")
 
         if not lines:
             return ""
 
-        return "\n".join(lines)
+        output = "\n".join(lines)
+        await _cache_set(cache_key, output)
+        return output
 
     except Exception:
         logger.exception("[graph] query_by_keywords failed user=%d", user_id)

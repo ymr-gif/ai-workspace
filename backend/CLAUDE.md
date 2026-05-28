@@ -29,7 +29,7 @@
 │   │   ├── executor.py     — execute_tool() dispatch
 │   │   ├── file_ops.py     — read/write/append/patch/create file ops
 │   │   └── search.py       — search_in_file + search_across_files
-│   ├── graph_memory.py     — Neo4j extraction/query + query_by_keywords (stopwords, fulltext, neighborhood expansion); limit=50, min_score=0.5
+│   ├── graph_memory.py     — Neo4j extraction/query + query_by_keywords (stopwords, fulltext, neighborhood expansion); limit=50, min_score=0.5; UNWIND batch writes; Redis cache 60s (USE_REDIS gated)
 │   ├── router.py           — keyword classify(), model route(), get_context_limit()
 │   ├── circuit_breaker.py  — 3 failures → 30s cooldown
 │   ├── embeddings.py       — embed(text, input_type) → list[float]; timeout=15s
@@ -46,7 +46,7 @@
 │   │   └── compact.py      — compact_memory() LLM-driven dedup
 │   └── agency.py           — proactive suggestions + insight generation (ARQ)
 ├── cache/                  — Redis primary + LRU fallback; cache-bypass on file/image/model-param
-├── core/                   — db (pgbouncer: prepared_statement_cache_size=0), redis, arq, neo4j (get_health)
+├── core/                   — db (pgbouncer: prepared_statement_cache_size=0), redis, arq, neo4j (get_health; pool size=20, timeout=5s)
 ├── rate_limiter/           — sliding-window per user + per-model; reuses request.state.current_user
 ├── observability/          — Prometheus counters/histograms; Redis-stream metrics worker
 ├── api/
@@ -111,8 +111,8 @@
 Injection order:
 1. workspace_sysprompt merged with conv_sysprompt + file list
 2. [USER STATE] · [WORKSPACE STATE] · [PROJECT STATE]
-3. [GRAPH CONTEXT] — Neo4j entity/relation context (when memory_enabled + Neo4j up); limit=50, min_score=0.5
-4. [GRAPH FACTS] — keyword-triggered neighborhood expansion via query_by_keywords (strips stopwords, fulltext search, relation paths)
+3. [GRAPH CONTEXT] — Neo4j entity/relation context (when memory_enabled + Neo4j up); limit=50, min_score=0.5; results cached in Redis 60s per (user_id, query_text)
+4. [GRAPH FACTS] — keyword-triggered neighborhood expansion via query_by_keywords (strips stopwords, fulltext search, relation paths); cached in Redis 60s
 5. [RELEVANT CONTEXT] cosine top-K · [EARLIER IN CONV] history_summary
 5. last 10 importance-weighted messages
 6. [FILE CONTEXT] top-5 chunks — last for recency bias
@@ -163,6 +163,7 @@ Injection order:
 - `.env` merge script in root CLAUDE.md — adds missing keys from `.env.example` as commented-out
 - Debug mode: `retriever.retrieve()` / `retrieve_from_files(debug=True)` returns `(chunks, debug_info)` tuple; `/search?debug=true` returns `{"results": [...], "debug": [...]}`
 - Eval harness: `tests/retrieval/test_hybrid_eval.py` — 26 tests, mock DB (AsyncMock), no NIM deps; run with `pytest tests/retrieval/ -v`
+- Neo4j indexes created on startup: unique constraint `(user_id, name)`, fulltext `entity_name_ft` on `e.name`, range index `entity_user_id` on `e.user_id`; writes use UNWIND batch (2 round-trips regardless of entity/rel count); graph query results cached in Redis (key `graph:{user_id}:{sha256[:20]}`, TTL 60s, USE_REDIS gated)
 
 ---
 
