@@ -3,8 +3,9 @@
 ## Stack
 - React + Vite; `vite.config.js` proxies `/api` → `localhost:8000`
 - `src/App.jsx` — login form, JWT in localStorage as `nim_token`
-- `src/components/Chat.jsx` — full UI
+- `src/components/` — Chat.jsx (full UI), Files.jsx, Memory.jsx, ToolLog.jsx
 - **All fetch calls must use `/api/` prefix** — bare paths bypass proxy and 404 silently
+- **JWT flow:** login → `POST /api/auth/token` → store token as `nim_token` in localStorage → `Authorization: Bearer` on all fetch calls
 
 ---
 
@@ -51,41 +52,12 @@ Scoped to `.md-body` via `<style>` tag. Covers: p · h1-h4 · code/pre · ul/ol/
 
 ---
 
-## HANDOFF Protocol
+## HANDOFF Protocol — Quick Reference
 
-### Role
-Worker for `frontend/` only. Root plans; this agent implements.
+- **Role:** frontend worker. Do not plan or delegate.
+- **Scope:** `frontend/` files only. Cross-dir → `HANDOFF.md` section + pass.
+- **Root escalation:** do not edit `.env` `.env.example` `.gitignore` `.dockerignore` root `CLAUDE.md` `README.md` `ROADMAP.md`. Set `status: needs-root`.
+- **Session start:** `ls HANDOFF.md` → if exists, read `## frontdir` + `## backdir → Recorded`, execute tasks, fill `### Recorded`, update this file, append History, `mv HANDOFF.md ../docker/HANDOFF.md` or `../HANDOFF.md`.
+- **Append only** — never rewrite this file.
 
-**Scope rule:** If a task belongs outside `frontend/` — do not implement it. Instead:
-1. Note it in `HANDOFF.md` under the correct dir section (`## backdir` or `## dockdir`)
-2. Pass the file to that dir when done with frontend tasks
-
-**Root escalation:** Do not edit root-level files directly. Pass back to root (`../HANDOFF.md`, status: needs-root) for any changes to:
-`.env` · `.env.example` · `.gitignore` · `.dockerignore` · `CLAUDE.md` (root) · `README.md` · `ROADMAP.md`
-or any file not clearly owned by `backend/`, `frontend/`, or `docker/`.
-
-**CRITICAL — never delete or overwrite root files.** `CLAUDE.md` at repo root is root-owned. Do not touch it under any circumstances.
-
-**CRITICAL — never rewrite this file.** When updating `frontend/CLAUDE.md`, append to existing sections only. Do not truncate, replace, or delete content.
-
----
-
-On session start — check if `frontend/HANDOFF.md` exists:
-```bash
-ls HANDOFF.md 2>/dev/null && echo "YOUR TURN" || echo "no handoff"
-```
-
-If it exists:
-1. Read `## frontdir` Tasks section
-2. Read `## backdir → Recorded` — use exact endpoint shapes, SSE event names, env vars listed there
-3. Execute all tasks (check off as done); add addenda if Recorded reveals extra work
-4. Fill `### Recorded` with facts for dockdir if applicable
-5. **Update `frontend/CLAUDE.md`** — add any new panels, tabs, buttons, or fetch endpoints introduced by the feature
-6. Append a History row
-7. Move file:
-   ```bash
-   mv HANDOFF.md ../docker/HANDOFF.md   # if dockdir has tasks
-   mv HANDOFF.md ../HANDOFF.md          # if done — set status: done
-   ```
-
-All fetch calls use `/api/` prefix.
+> Full protocol: `../HANDOFF_PROTOCOL.md`

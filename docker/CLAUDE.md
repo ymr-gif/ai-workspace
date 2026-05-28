@@ -42,49 +42,31 @@
 
 ---
 
-## Grafana Dashboard
-24 panels in `grafana/provisioning/dashboards/nim-gateway.json`
-
-Two datasources intentionally split:
-- **Prometheus** (panels 1-17, 23-24) — rate queries, timeseries; resets on restart
-- **PostgreSQL** (panels 19-22) — all-time token/cost totals; survives restarts
-
-Panel groups: requests/errors/cache stats · latency p50/p95/p99 · model usage/latency · file uploads/chunks/tool calls · token usage + cost by model
-
----
-
-## HANDOFF Protocol
-
-### Role
-Worker for `docker/` only. Root plans; this agent implements.
-
-**Scope rule:** If a task belongs outside `docker/` — do not implement it. Instead:
-1. Note it in `HANDOFF.md` under the correct dir section (`## backdir` or `## frontdir`)
-2. Pass the file to that dir when done with docker tasks
-
-**Root escalation:** Do not edit root-level files directly. Pass back to root (`../HANDOFF.md`, status: needs-root) for any changes to:
-`.env` · `.env.example` · `.gitignore` · `.dockerignore` · `CLAUDE.md` (root) · `README.md` · `ROADMAP.md`
-or any file not clearly owned by `backend/`, `frontend/`, or `docker/`.
-
-**CRITICAL — never delete or overwrite root files.** `CLAUDE.md` at repo root is root-owned. Do not touch it under any circumstances.
-
-**CRITICAL — never rewrite this file.** When updating `docker/CLAUDE.md`, append to existing sections only. Do not truncate, replace, or delete content.
-
----
-
-On session start — check if `docker/HANDOFF.md` exists:
+## Commands
 ```bash
-ls HANDOFF.md 2>/dev/null && echo "YOUR TURN" || echo "no handoff"
+docker compose up -d                                         # start stack
+docker compose down -v --remove-orphans                      # full reset (wipes volumes)
+docker compose build --no-cache api && docker compose up -d api   # rebuild api
+docker compose logs -f api                                   # tail api logs
+./backup.sh                                                  # pg_dump → storage/backups/
 ```
 
-If it exists:
-1. Read `## dockdir` Tasks section
-2. Read all prior `### Recorded` sections — watch for new env vars, ports, volumes, services
-3. Execute all tasks (check off as done)
-4. Fill `### Recorded` with infra facts (service names, ports, env var defaults)
-5. **Update `docker/CLAUDE.md`** — add any new services, ports, volumes, or env vars introduced by the feature
-6. Append a History row
-7. Move file back to root (set status: done first):
-   ```bash
-   mv HANDOFF.md ../HANDOFF.md
-   ```
+## Persistence
+- Postgres: `postgresdata` volume
+- Neo4j: `neo4jdata` volume
+- Redis: ephemeral by default; `docker-compose.prod.yml` adds `redisdata` with append-only file
+
+## Grafana
+24 panels, 2 datasources: Prometheus (rates, resets on restart) + PostgreSQL (all-time totals, survives restarts).
+
+---
+
+## HANDOFF Protocol — Quick Reference
+
+- **Role:** docker worker. Do not plan or delegate.
+- **Scope:** `docker/` files only. Cross-dir → `HANDOFF.md` section + pass.
+- **Root escalation:** do not edit `.env` `.env.example` `.gitignore` `.dockerignore` root `CLAUDE.md` `README.md` `ROADMAP.md`. Set `status: needs-root`.
+- **Session start:** `ls HANDOFF.md` → if exists, read `## dockdir`, execute tasks, fill `### Recorded` (ports, volumes, env var defaults), update this file, append History, `mv HANDOFF.md ../HANDOFF.md`.
+- **Append only** — never rewrite this file.
+
+> Full protocol: `../HANDOFF_PROTOCOL.md`
