@@ -115,6 +115,63 @@ Update the memory sheet. Reply with the full updated sheet or {_NO_UPDATE}.\
         await _update_workspace_memory(db, conv.workspace_id, exchanges)
 
 
+async def restructure_memory(user_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        try:
+            await _restructure_memory(db, user_id)
+        except Exception:
+            logger.exception("[summarizer] restructure_memory failed user_id=%s", user_id)
+
+
+async def _restructure_memory(db: AsyncSession, user_id: int) -> None:
+    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": user_id})
+    row = await db.get(UserMemory, user_id)
+    if not row or not row.content:
+        return
+
+    current = row.content.strip()
+    prompt = (
+        f"Memory content to restructure:\n{current}\n\n"
+        f"Convert into proper key:value format under the correct headers. "
+        f"Deduplicate. Preserve all information. "
+        f"Reply with the full restructured sheet or {_NO_UPDATE}."
+    )
+
+    result = await call(
+        model      = _MODEL,
+        messages   = [
+            {"role": "system", "content": _MEMORY_SYSTEM},
+            {"role": "user",   "content": prompt},
+        ],
+        request_id = f"restructure-{user_id}",
+    )
+
+    if not result.get("ok"):
+        logger.warning("[summarizer] restructure nim failed user_id=%s", user_id)
+        return
+
+    updated = (result.get("content") or "").strip()
+    if not updated or updated == _NO_UPDATE:
+        return
+
+    words = updated.split()
+    if len(words) > 500:
+        updated = " ".join(words[:500])
+
+    now = datetime.now(timezone.utc)
+    db.add(UserMemoryVersion(
+        user_id         = user_id,
+        version         = row.version,
+        content         = row.content or "",
+        project_summary = row.project_summary or "",
+    ))
+    row.content    = updated
+    row.version   += 1
+    row.updated_at = now
+    await db.commit()
+    logger.info("[summarizer] restructure done user_id=%s", user_id)
+
+
 async def _update_workspace_memory(db: AsyncSession, workspace_id: uuid.UUID, exchanges: str) -> None:
     result = await db.execute(
         select(WorkspaceMemory).where(WorkspaceMemory.workspace_id == workspace_id)

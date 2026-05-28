@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -12,6 +13,7 @@ from core.arq_pool import get_arq_pool
 from core.db import get_db
 from llm.summarizer.salience import decay_salience
 from llm.summarizer.conflicts import detect_conflicts, resolve_conflict
+from llm.summarizer.memory import restructure_memory
 from models import MemoryConflict, User, UserMemory, UserMemoryVersion
 
 router = APIRouter(prefix="/memory", tags=["memory"])
@@ -123,6 +125,7 @@ async def write_memory_fact(
         db.add(row)
 
     await db.commit()
+    asyncio.create_task(restructure_memory(current_user.id))
     return {"status": "ok", "fact": fact}
 
 
