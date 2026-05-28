@@ -35,5 +35,10 @@ When `HANDOFF_ARCHIVE.md` reaches **~20 entries**:
    `## Pre-YYYY-QN: N features completed (see git log for detail)`
 2. Delete those individual entries
 
+## Updating subdir CLAUDE.md (workers)
+- **Append only** — add new entries to existing sections; never rewrite or truncate the file
+- Never touch root `CLAUDE.md` — it is root-owned; deleting or replacing it breaks all future sessions
+- If a CLAUDE.md update requires removing stale info, note it in `### Recorded` and let root decide
+
 ## Multi-agent (future)
 Extract shared rules into `AGENTS.md`; slim `CLAUDE.md` to root-only concerns; add `.cursorrules` pointing to `AGENTS.md` for Cursor workers.
