@@ -113,17 +113,19 @@
 ---
 
 ## Memory System
-Injection order:
-1. workspace_sysprompt merged with conv_sysprompt + file list
-2. [USER STATE] · [WORKSPACE STATE] · [PROJECT STATE]
-3. [GRAPH CONTEXT] — Neo4j entity/relation context (when memory_enabled + Neo4j up); limit=50, min_score=0.5; results cached in Redis 60s per (user_id, query_text)
-4. [GRAPH FACTS] — keyword-triggered neighborhood expansion via query_by_keywords (strips stopwords, fulltext search, relation paths); cached in Redis 60s
-5. [RELEVANT CONTEXT] cosine top-K · [EARLIER IN CONV] history_summary
-5. last 10 importance-weighted messages
-6. [FILE CONTEXT] top-5 chunks — last for recency bias
-7. current message
+Injection order (build_context_messages):
+1. system message — workspace_sysprompt + conv_sysprompt + file list/rules
+2. [GRAPH CONTEXT] — Neo4j entity/relation context (when memory_enabled + Neo4j up); limit=50, min_score=0.5; cached in Redis 60s per (user_id, query_text)
+3. [GRAPH FACTS] — keyword-triggered neighborhood expansion via query_by_keywords; cached in Redis 60s
+4. [USER STATE] — memory_sheet (top 20 facts by salience; conflicted facts suppressed)
+5. [WORKSPACE STATE] · [PROJECT STATE]
+6. [RELEVANT CONTEXT FROM EARLIER] — cosine top-K retrieved chunks
+7. [EARLIER IN THIS CONVERSATION] — history_summary
+8. last 10 importance-weighted messages (history)
+9. [FILE CONTEXT] — policy["top_k"] chunks (varies: factual=weighted, relational=RRF etc.); fallback top_k=10 sequential; appended last for recency bias
+10. current user message
 
-- Triggers: >3000 tok OR every 10 asst msgs; auto-title after 2nd msg via `asyncio.create_task`
+- Triggers: memory update >3000 tok OR every 10 asst msgs; history compression + project summary update >4000 tok OR every 15 total msgs (all_count > 10); auto-title after 2nd msg via `asyncio.create_task`
 - Lock: `pg_advisory_xact_lock(user_id)` prevents version races
 - Compaction: LLM-driven dedup via `compact_memory()`; creates `UserMemoryVersion` snapshot; queued via ARQ or daily cron at 3 AM UTC
 - Context budget: drops lowest-tier sources when estimated tokens exceed `context_window - max_output_tokens - 10%`; re-applied after each tool iteration
