@@ -8,10 +8,22 @@ _FILE_OP_KEYWORDS = frozenset({
     "correct", "improve", "refactor", "rename", "review", "check",
 })
 
+_MEMORY_WRITE_PHRASES = (
+    "save to memory", "add to memory", "store in memory", "write to memory",
+    "put in memory", "save this to", "remember this", "save it inside",
+    "save it to", "memorize this", "memorize these", "save these",
+    "store this", "keep this in memory", "add this to memory",
+)
+
 
 def _needs_file_tools(message: str) -> bool:
     tokens = set(message.lower().split())
     return bool(tokens & _FILE_OP_KEYWORDS)
+
+
+def _needs_memory_tool(message: str) -> bool:
+    msg_lower = message.lower()
+    return any(p in msg_lower for p in _MEMORY_WRITE_PHRASES)
 
 
 def build_context_messages(
@@ -47,7 +59,8 @@ def build_context_messages(
                 "- To CREATE a new file: use create_file — only for genuinely new files, never to reconstruct missing context\n"
                 "- After any write/append/patch/create succeeds, respond to the user immediately — do NOT read the file back to verify\n"
                 "- Never call the same tool more than twice in a single turn\n"
-                "- If information is not in your current context (file detached, not in memory, not in conversation history): say so directly. Never fabricate content, invent logs, or create files to substitute for missing context."
+                "- If information is not in your current context (file detached, not in memory, not in conversation history): say so directly. Never fabricate content, invent logs, or create files to substitute for missing context.\n"
+                "- NEVER say 'Memory updated', 'Saved to memory', or any variant. Memory is only saved when the system shows a green confirmation card with Accept/Dismiss buttons. Without that card, nothing is saved — do not pretend otherwise."
             )
         else:
             file_notice = f"The user has attached these files: {', '.join(file_names)}. Use file tools to read or edit them."
@@ -58,7 +71,10 @@ def build_context_messages(
     else:
         messages.append({"role": "system", "content": (
             "If information is not present in your current context (not in memory, not in conversation history): "
-            "say so directly and concisely. Never fabricate answers, invent logs, or guess at content that should come from files or prior sessions."
+            "say so directly and concisely. Never fabricate answers, invent logs, or guess at content that should come from files or prior sessions. "
+            "NEVER say 'Memory updated', 'Saved to memory', or any variant. "
+            "Memory is only saved when the system displays a green confirmation card with Accept/Dismiss buttons — that is the only real memory save path. "
+            "Without that card, nothing is persisted. Do not simulate or pretend to save memory."
         )})
 
     if memory_enabled:
