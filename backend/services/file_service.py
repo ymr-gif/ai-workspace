@@ -53,6 +53,9 @@ async def write_content(db: AsyncSession, user_id: int, file_id: uuid.UUID, cont
         await asyncio.to_thread(_sync_write, f.storage_path, content)
         await db.execute(delete(FileChunk).where(FileChunk.file_id == file_id))
         f.upload_status = "uploaded"
+        f.chunk_total = None
+        f.chunk_embedded = None
+        f.embed_fail_count = 0
         await db.commit()
         asyncio.create_task(process_file_async(file_id, f.storage_path, f.mime_type))
         record_tool_call("write_file")
@@ -73,6 +76,9 @@ async def append_content(db: AsyncSession, user_id: int, file_id: uuid.UUID, con
         await asyncio.to_thread(_sync_append, f.storage_path, separator + content)
         await db.execute(delete(FileChunk).where(FileChunk.file_id == file_id))
         f.upload_status = "uploaded"
+        f.chunk_total = None
+        f.chunk_embedded = None
+        f.embed_fail_count = 0
         await db.commit()
         asyncio.create_task(process_file_async(file_id, f.storage_path, f.mime_type))
         record_tool_call("append_to_file")
@@ -118,6 +124,9 @@ async def patch_content(
         await asyncio.to_thread(_sync_write, f.storage_path, updated)
         await db.execute(delete(FileChunk).where(FileChunk.file_id == file_id))
         f.upload_status = "uploaded"
+        f.chunk_total = None
+        f.chunk_embedded = None
+        f.embed_fail_count = 0
         await db.commit()
         asyncio.create_task(process_file_async(file_id, f.storage_path, f.mime_type))
         record_tool_call("patch_file")

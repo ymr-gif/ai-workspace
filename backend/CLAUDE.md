@@ -14,7 +14,7 @@
 │   ├── tools.py            — ToolCallLog
 │   ├── prompts_scheduled.py — PromptTemplate, ScheduledPrompt, ScheduledPromptRun
 │   └── system.py           — SystemConfig
-├── alembic/versions/       — 026 migrations; latest: 026_system_config.py
+├── alembic/versions/       — 030 migrations; latest: 030_chunk_quality.py
 ├── auth/                   — JWT, bcrypt, API key fallback, invite validation
 ├── tests/
 │   ├── test.py             — 21 unit tests (standalone, no docker)
@@ -134,6 +134,7 @@ Injection order:
 - Upload: SHA256 while streaming → dedup `(user_id, hash)` → ARQ job or inline fallback
 - Formats: PDF · DOCX (+tables after paragraphs) · XLSX/XLS · text/code/markdown
 - Chunks: 1600 chars, 200 overlap, sentence-aligned tail
+- Chunk quality states: `upload_status` values are `uploaded|processing|ready|partial|failed|error`; `partial` = some chunks embedded, some failed; `File` has `chunk_total`, `chunk_embedded`, `embed_fail_count`; status reset and counts cleared on file edit
 - Retrieval: vector + BM25 parallel → RRF (k=60) or weighted fusion; fallback to pure vector
 - Adaptive policy: `classify_query(msg)` in `router.py` returns `factual|relational|temporal|broad`; mapped in `retriever/policy.py` to fusion_mode/alpha/k values (factual=weighted 0.7, relational=RRF, temporal=RRF low-k, broad=weighted 0.3); applied per-query in `_build_stream_context()`; logged with query_type + params
 - Status SSE: polls `db.refresh` + Redis `proc_progress:{file_id}` every 0.8s → terminates on ready/error

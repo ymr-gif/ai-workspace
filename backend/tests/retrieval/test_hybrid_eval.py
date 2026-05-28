@@ -42,13 +42,13 @@ async def test_retrieve_fusion_modes(tc, fusion_mode, alpha):
         assert expected_id in chunk_ids, \
             f"[{tc['name']}/{fusion_mode}] expected {expected_id} in results, got {chunk_ids}"
 
-    r = recall_at_k(results, {c["chunk_id"] for c in results}, 3)
-    assert r >= 0.7, \
-        f"[{tc['name']}/{fusion_mode}] recall@3 {r:.3f} < 0.7"
+    r = recall_at_k(results, tc["expected_chunk_ids"], 3)
+    assert r >= 0.5, \
+        f"[{tc['name']}/{fusion_mode}] recall@3 {r:.3f} < 0.5"
 
-    mr = mrr(results, {c["chunk_id"] for c in results})
-    assert mr >= 0.6, \
-        f"[{tc['name']}/{fusion_mode}] MRR {mr:.3f} < 0.6"
+    mr = mrr(results, tc["expected_chunk_ids"])
+    assert mr >= 0.25, \
+        f"[{tc['name']}/{fusion_mode}] MRR {mr:.3f} < 0.25"
 
     cc = citation_coverage(results, tc["expected_sources"])
     assert cc >= 0.8, \
@@ -98,9 +98,9 @@ async def test_retrieve_from_files_fusion_modes(tc, fusion_mode, alpha):
     assert expected_id in chunk_ids, \
         f"[{tc['name']}/{fusion_mode}] expected {expected_id} in results, got {chunk_ids}"
 
-    r = recall_at_k(results, {c["chunk_id"] for c in results}, 3)
-    assert r >= 0.7, \
-        f"[{tc['name']}/{fusion_mode}] recall@3 {r:.3f} < 0.7"
+    r = recall_at_k(results, tc["expected_chunk_ids"], 3)
+    assert r >= 0.5, \
+        f"[{tc['name']}/{fusion_mode}] recall@3 {r:.3f} < 0.5"
 
     cc = citation_coverage(results, tc["expected_sources"])
     assert cc >= 0.8, \
