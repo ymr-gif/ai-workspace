@@ -6,10 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import MODELS
 from core.db import AsyncSessionLocal
-from models import UserMemory, UserMemoryVersion
+from models import MemoryConflict, UserMemory, UserMemoryVersion
 from llm.nim import call
 from .prompts import _COMPACT_SYSTEM, _NO_UPDATE
 from .salience import decay_salience
+from .conflicts import detect_conflicts
 
 logger = logging.getLogger("summarizer")
 
@@ -97,6 +98,19 @@ Keep high-salience facts only. Output the full compacted sheet or {_NO_UPDATE}.\
     row.salience      = min(row.salience + 0.1, 2.0)
     row.confidence    = min(row.confidence + 0.05, 1.0)
     row.updated_at    = now
+
+    conflicts = await detect_conflicts(updated)
+    for c in conflicts:
+        db.add(MemoryConflict(
+            user_id=user_id,
+            fact_a=c["fact_a"],
+            fact_b=c["fact_b"],
+            conflict_type=c["conflict_type"],
+            resolution="unresolved",
+        ))
+    if conflicts:
+        await db.flush()
+    logger.info("[conflicts] user_id=%s detected=%d", user_id, len(conflicts))
 
     await db.commit()
     logger.info("[summarizer] compact done user_id=%s words=%d->%d salience=%.4f", user_id, len(current.split()), len(words), row.salience)

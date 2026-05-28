@@ -13,7 +13,7 @@ from llm.embeddings import embed as embed_text
 from llm.router import classify_query
 from llm.retriever.policy import get_policy
 from llm.summarizer.salience import compute_salience
-from models import Conversation, Message, User, UserMemory, Workspace, WorkspaceMemory
+from models import Conversation, MemoryConflict, Message, User, UserMemory, Workspace, WorkspaceMemory
 
 from .schemas import ChatRequest
 
@@ -214,6 +214,18 @@ async def _build_stream_context(
             if ws_mem and ws_mem.content:
                 workspace_memory = ws_mem.content
 
+    conflicted_facts: frozenset[str] = frozenset()
+    if memory_enabled and memory_sheet:
+        result = await db.execute(
+            select(MemoryConflict)
+            .where(MemoryConflict.user_id == current_user.id, MemoryConflict.resolution == "unresolved")
+        )
+        conflicts = result.scalars().all()
+        if conflicts:
+            conflicted_facts = frozenset(
+                f for c in conflicts for f in (c.fact_a, c.fact_b)
+            )
+
     graph_context = ""
     graph_facts   = ""
     if memory_enabled:
@@ -246,5 +258,6 @@ async def _build_stream_context(
         "workspace_sysprompt": workspace_sysprompt,
         "graph_context":       graph_context,
         "graph_facts":         graph_facts,
+        "conflicted_facts":    conflicted_facts,
         "policy_used":         query_type,
     }

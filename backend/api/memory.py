@@ -11,7 +11,8 @@ from auth import get_current_user
 from core.arq_pool import get_arq_pool
 from core.db import get_db
 from llm.summarizer.salience import decay_salience
-from models import User, UserMemory, UserMemoryVersion
+from llm.summarizer.conflicts import detect_conflicts, resolve_conflict
+from models import MemoryConflict, User, UserMemory, UserMemoryVersion
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 logger = logging.getLogger("memory")
@@ -20,6 +21,10 @@ logger = logging.getLogger("memory")
 class MemoryUpdate(BaseModel):
     content:         str = ""
     project_summary: str = ""
+
+
+class ResolveBody(BaseModel):
+    strategy: str
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -175,6 +180,78 @@ async def decay_memory(
         "salience_before": before,
         "salience_after":  row.salience,
     }
+
+
+@router.get("/conflicts")
+async def list_conflicts(
+    resolution:   str         = "unresolved",
+    current_user: User         = Depends(get_current_user),
+    db:           AsyncSession = Depends(get_db),
+):
+    q = select(MemoryConflict).where(MemoryConflict.user_id == current_user.id)
+    if resolution != "all":
+        q = q.where(MemoryConflict.resolution == resolution)
+    result = await db.execute(q.order_by(MemoryConflict.created_at.desc()))
+    rows = result.scalars().all()
+    return [
+        {
+            "id":            str(r.id),
+            "fact_a":        r.fact_a,
+            "fact_b":        r.fact_b,
+            "conflict_type": r.conflict_type,
+            "resolution":    r.resolution,
+            "created_at":    r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/conflicts/{conflict_id}/resolve")
+async def resolve_conflict_endpoint(
+    conflict_id:  str,
+    body:         ResolveBody,
+    current_user: User         = Depends(get_current_user),
+    db:           AsyncSession = Depends(get_db),
+):
+    import uuid as _uuid
+    try:
+        cid = _uuid.UUID(conflict_id)
+    except ValueError:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid conflict_id")
+    conflict = await db.get(MemoryConflict, cid)
+    if not conflict or conflict.user_id != current_user.id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Conflict not found")
+    valid = {"keep_a", "keep_b", "merge", "discard_both"}
+    if body.strategy not in valid:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"strategy must be one of {valid}")
+    await resolve_conflict(conflict, body.strategy, db)
+    await db.commit()
+    return {"status": "ok", "resolution": body.strategy}
+
+
+@router.post("/conflicts/scan")
+async def scan_conflicts(
+    current_user: User         = Depends(get_current_user),
+    db:           AsyncSession = Depends(get_db),
+):
+    mem = await db.get(UserMemory, current_user.id)
+    if not mem or not mem.content:
+        return {"detected": 0}
+    conflicts = await detect_conflicts(mem.content)
+    for c in conflicts:
+        db.add(MemoryConflict(
+            user_id=current_user.id,
+            fact_a=c["fact_a"],
+            fact_b=c["fact_b"],
+            conflict_type=c["conflict_type"],
+            resolution="unresolved",
+        ))
+    if conflicts:
+        await db.commit()
+    return {"detected": len(conflicts)}
 
 
 @router.get("/history")

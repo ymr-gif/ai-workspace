@@ -21,13 +21,14 @@ def build_context_messages(
     history_summary:  str,
     history:          list[dict],
     memory_enabled:   bool,
-    system_prompt:    str | None = None,
-    file_chunks:      list[str]  = (),
-    file_names:       list[str]  = (),
-    file_ids:         list       = (),
-    workspace_memory: str        = "",
-    graph_context:    str        = "",
-    graph_facts:      str        = "",
+    system_prompt:    str | None      = None,
+    file_chunks:      list[str]       = (),
+    file_names:       list[str]       = (),
+    file_ids:         list            = (),
+    workspace_memory: str             = "",
+    graph_context:    str             = "",
+    graph_facts:      str             = "",
+    conflicted_facts: frozenset[str]  = frozenset(),
 ) -> list[dict]:
     messages = []
 
@@ -61,7 +62,16 @@ def build_context_messages(
             messages.append({"role": "user",      "content": f"[GRAPH FACTS]\n{graph_facts}"})
             messages.append({"role": "assistant", "content": "Understood."})
         if memory_sheet:
-            messages.append({"role": "system",    "content": f"[USER STATE]\n{memory_sheet}"})
+            # conflicted facts suppressed until resolved
+            if conflicted_facts:
+                filtered = "\n".join(
+                    l for l in memory_sheet.split("\n")
+                    if l.strip() not in conflicted_facts
+                )
+            else:
+                filtered = memory_sheet
+            if filtered.strip():
+                messages.append({"role": "system", "content": f"[USER STATE]\n{filtered}"})
         if workspace_memory:
             messages.append({"role": "user",      "content": f"[WORKSPACE STATE]\n{workspace_memory}"})
             messages.append({"role": "assistant", "content": "Understood."})

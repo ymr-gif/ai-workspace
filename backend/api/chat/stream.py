@@ -142,6 +142,7 @@ async def chat_stream(
             workspace_memory=ctx.get("workspace_memory", ""),
             graph_context=ctx.get("graph_context", ""),
             graph_facts=ctx.get("graph_facts", ""),
+            conflicted_facts=ctx.get("conflicted_facts", frozenset()),
         )
         t_cmp = metrics.record_request_start()
 
@@ -190,6 +191,7 @@ async def chat_stream(
                 workspace_memory=ctx.get("workspace_memory", ""),
                 graph_context=ctx.get("graph_context", ""),
                 graph_facts=ctx.get("graph_facts", ""),
+                conflicted_facts=ctx.get("conflicted_facts", frozenset()),
             ):
                 if event["type"] == "token":
                     accumulated.append(event["content"])

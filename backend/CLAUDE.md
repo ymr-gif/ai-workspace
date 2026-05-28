@@ -124,6 +124,7 @@ Injection order:
 - Context budget: drops lowest-tier sources when estimated tokens exceed `context_window - max_output_tokens - 10%`; re-applied after each tool iteration
 - Salience: `UserMemory` has `salience` (float, default 1.0) and `confidence` (float, default 1.0); bumped on every context load via `compute_salience()`, decayed 0.95/cycle during compaction; memory cleared when salience <0.3
 - `POST /memory/decay`: manual decay pass; GET /memory returns per-fact `facts` array with per-line scores
+- Conflict resolver: `MemoryConflict` table stores `fact_a/fact_b/conflict_type/resolution`; detected post-compaction and via `POST /memory/conflicts/scan`; unresolved facts suppressed from context injection; resolve via `POST /memory/conflicts/{id}/resolve` with strategy `keep_a|keep_b|merge|discard_both`
 
 ---
 
