@@ -6,13 +6,14 @@ backend/
 ├── main.py                 ← app factory: lifespan, middleware, router includes
 ├── config.py               ← env vars, REQUIRE_INVITE, MODEL_PRICING, _int_env()
 ├── models.py               ← ORM (see Key Models below)
-├── alembic/versions/       ← 025 migrations; latest: 025_cost_window.py
+├── alembic/versions/       ← 026 migrations; latest: 026_system_config.py
 ├── auth/                   ← JWT, bcrypt, invite validation, Default workspace on register
 ├── llm/
-│   ├── service/context.py  ← _needs_file_tools() + _FILE_OP_KEYWORDS; workspace_memory injection
+│   ├── service/context.py  ← _needs_file_tools() + _FILE_OP_KEYWORDS; workspace_memory + graph_context injection
 │   ├── service/stream.py   ← MAX_TOOL_ITERATIONS=10; priority: image→override→file_tools(70B)→router
 │   ├── nim.py              ← NIM API; accumulates tool_call deltas; yields __tool_calls__ + __usage__
-│   ├── tools.py            ← 9 TOOL_SCHEMAS + execute_tool(); logs ToolCallLog on every call
+│   ├── tools.py            ← 10 TOOL_SCHEMAS + execute_tool(); logs ToolCallLog on every call
+│   ├── graph_memory.py     ← extract_and_store(); query_context(limit=8); query_by_term(limit=10)
 │   ├── router.py           ← keyword classify() + route()
 │   ├── circuit_breaker.py  ← threshold=3, cooldown=30s
 │   ├── embeddings.py       ← embed(text, input_type) → list[float]; timeout=15s
@@ -20,7 +21,7 @@ backend/
 │   ├── summarizer.py       ← update_memory() + _update_workspace_memory() + compress_history()
 │   └── agency.py           ← generate_proactive_suggestion(); generate_insight_job (ARQ)
 ├── cache/                  ← Redis primary + LRU fallback; CACHE_VERSION=v2
-├── core/                   ← db.py, redis_client.py, arq_pool.py, logger.py
+├── core/                   ← db.py, redis_client.py, arq_pool.py, logger.py, neo4j_client.py
 ├── rate_limiter/           ← sliding-window; check_model_rate(model, username); fails open
 ├── observability/          ← Prometheus counters/histograms; see prom_metrics.py
 ├── api/
@@ -28,14 +29,16 @@ backend/
 │   ├── workspaces.py       ← /workspaces CRUD + memory routes
 │   ├── files/              ← upload, ingest-url, search, versions, workspace assign; sha256 dedup
 │   ├── conversations.py    ← list (?q= full-text), export (md/json), PATCH, file attach/detach
-│   ├── admin.py            ← require_role("admin"); users, cost-limit, audit-log; _audit() helper
+│   ├── admin.py            ← require_role("admin"); users, cost-limit, audit-log, re-embed; _audit() helper
+│   ├── graph.py            ← GET /graph/stats → {available, entities, relations}; scoped by user_id
 │   ├── compat.py           ← POST /v1/chat/completions (OpenAI-compat; JWT or API key)
 │   ├── templates.py        ← prompt templates CRUD + /apply/{conv_id}
 │   ├── scheduled_prompts.py ← CRUD + run history + manual trigger
 │   └── usage.py / memory.py / system.py / tool_logs.py
 ├── services/
 │   ├── processor.py        ← extract→chunk(1600/200 overlap)→concurrent embed; ARQ or inline
-│   ├── arq_worker.py       ← max_tries=4; retries 5s/30s/120s; generate_insight_job every 10 msgs
+│   ├── arq_worker.py       ← max_tries=4; retries 5s/30s/120s; generate_insight_job every 10 msgs; re_embed_batch_job
+│   └── re_embed.py         ← check_and_queue_re_embed() on startup; queue_re_embed_force(); batches of 100
 │   ├── file_service.py     ← write/append/patch/restore; _fuzzy_replace 3-pass; save_version before mutate
 │   └── scheduler_worker.py ← APScheduler cron runner
 ├── storage/storage_manager.py ← SHA256 while streaming; save_file→4-tuple, save_text→3-tuple
@@ -51,6 +54,7 @@ backend/
 - **Conversation**: workspace_id UUID FK SET NULL
 - **UserInsight**: id UUID, user_id, content, is_read, created_at
 - **AdminAuditLog**: id UUID, admin_id, action str64, target_user_id, detail JSONB, created_at
+- **SystemConfig**: key VARCHAR PK, value TEXT, updated_at TIMESTAMPTZ — used for MODEL_EMBEDDING tracking
 - Others: FileChunk · FileVersion · UserMemory · MessageEmbedding · UserMemoryVersion · ConversationFile · ToolCallLog · PromptTemplate · ScheduledPrompt · ScheduledPromptRun · Workspace · WorkspaceMemory · Invitation
 
 ---
@@ -61,7 +65,8 @@ backend/
 - **Files**: upload, ingest-url, search, list, workspaces; /{id}: content, status[/stream], download, rename, workspace; versions
 - **Conversations**: list (?q= ?workspace_id=), export, messages, PATCH, delete; files attach/detach
 - **Workspaces**: CRUD; /{id}/conversations · files · memory
-- **Admin**: users list/usage; active toggle; cost-limit; audit-log (?action=&target_user_id=)
+- **Admin**: users list/usage; active toggle; cost-limit; audit-log (?action=&target_user_id=); re-embed
+- **Graph**: GET /graph/stats — entity/relation counts for current user (Neo4j)
 - **Misc**: health · metrics[/overview|models|latency] · tool-calls · usage[/history] · memory · insights · templates · scheduled-prompts
 
 ---
@@ -75,7 +80,7 @@ backend/
 
 ## AI Agent Tool Loop
 - Trigger: `_needs_file_tools(message)` keyword gate → forces reasoning model (70B)
-- Tools: `list_files` · `read_file` (100k cap) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user`
+- Tools: `list_files` · `read_file` (100k cap) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph`
 - Guards: same tool >3× → abort · MAX_TOOL_ITERATIONS=10
 - `ask_user` yields `{type:"ask_user"}` SSE + done → pauses loop; amber card in UI
 
@@ -85,10 +90,11 @@ backend/
 Injection order:
 1. workspace_sysprompt merged with conv_sysprompt + file list
 2. [USER STATE] · [WORKSPACE STATE] · [PROJECT STATE]
-3. [RELEVANT CONTEXT] cosine top-K · [EARLIER IN CONV] history_summary
-4. last 10 importance-weighted messages
-5. [FILE CONTEXT] top-5 chunks — last for recency bias
-6. current message
+3. [GRAPH CONTEXT] — Neo4j entity/relation context (when memory_enabled + Neo4j up); limit=8 entities
+4. [RELEVANT CONTEXT] cosine top-K · [EARLIER IN CONV] history_summary
+5. last 10 importance-weighted messages
+6. [FILE CONTEXT] top-5 chunks — last for recency bias
+7. current message
 
 - Triggers: >3000 tok OR every 10 asst msgs; project summary >4000 OR every 15
 - Auto-title: after 2nd message → llama "6 words or fewer" via `asyncio.create_task`
@@ -140,8 +146,9 @@ If it exists:
    - New env vars (name + purpose)
    - New SSE event types/fields
    - New DB columns or migration numbers
-4. Append a History row
-5. Move file to next dir:
+4. **Update `backend/CLAUDE.md`** — add any new files, routes, models, tools, or invariants introduced by the feature
+5. Append a History row
+6. Move file to next dir:
    ```bash
    mv HANDOFF.md ../frontend/HANDOFF.md   # or ../docker/HANDOFF.md or ../HANDOFF.md
    ```

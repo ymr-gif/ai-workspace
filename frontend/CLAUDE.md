@@ -38,7 +38,8 @@
 - **Proactive suggestion**: indigo card below chat feed on `{type:"proactive"}` SSE; ✕ dismiss; clears on next send
 - **Insights**: 💡 button; unread badge; `GET /api/insights`; click → mark read; 🗑 delete; indigo dot for unread
 - **ask_user**: amber card "NEEDS CLARIFICATION" on `{type:"ask_user"}` SSE; user reply resumes with full context
-- **Memory panel**: tabs User / Workspace / History; Workspace tab: `GET/PUT /api/workspaces/{id}/memory`
+- **Memory panel**: tabs View / Edit / History / Graph (5th tab); Graph tab: `GET /api/graph/stats` → `{available, entities, relations}`; auto-refreshes 2s after each AI reply if tab open
+- **Re-embed button**: ↺ Re-embed All in Invite panel admin section → `POST /api/admin/re-embed`
 
 ## Model Control Toolbar
 - Pills: Auto / LLaMA 8B / DeepSeek / 70B · ⊞ Compare · ⚙ params (temp, max_tokens, top_p with per-slider enable)
@@ -62,8 +63,9 @@ If it exists:
 2. Read `## backdir → Recorded` — use exact endpoint shapes, SSE event names, env vars listed there
 3. Execute all tasks (check off as done); add addenda if Recorded reveals extra work
 4. Fill `### Recorded` with facts for dockdir if applicable
-5. Append a History row
-6. Move file:
+5. **Update `frontend/CLAUDE.md`** — add any new panels, tabs, buttons, or fetch endpoints introduced by the feature
+6. Append a History row
+7. Move file:
    ```bash
    mv HANDOFF.md ../docker/HANDOFF.md   # if dockdir has tasks
    mv HANDOFF.md ../HANDOFF.md          # if done — set status: done
