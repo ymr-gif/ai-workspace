@@ -37,11 +37,10 @@ For every change:
 
 ## What This Is
 FastAPI backend routing chat messages to NVIDIA NIM models via keyword classification.
-React/Vite frontend. Docker Compose stack: Postgres + pgvector, Redis, Prometheus, Grafana.
-Features: SSE streaming, conversation history, multi-tier memory, pgvector RAG, file knowledge base, AI agent tool loop, model control, markdown rendering, **workspace layer** (conversations + files scoped to workspaces), invite-gated registration, conversation search + export, auto-title.
+React/Vite frontend. Docker Compose stack: Postgres + pgvector, Redis, Neo4j, Prometheus, Grafana.
+Features: SSE streaming, conversation history, multi-tier memory, pgvector RAG, file knowledge base, AI agent tool loop, model control, markdown rendering, **workspace layer** (conversations + files scoped to workspaces), invite-gated registration, conversation search + export, auto-title, **graph memory** (Neo4j entity/relationship extraction per user), **re-embed on MODEL_EMBEDDING change**.
 
 > Subdir details: `backend/CLAUDE.md` · `docker/CLAUDE.md` · `frontend/CLAUDE.md`
-> Completed plan (workspace layer, invites, search, export, auto-title): `~/.claude/plans/since-we-are-in-smooth-lobster.md`
 
 ---
 
@@ -99,6 +98,25 @@ ai-api/
 | Tool repetition guard | >3 calls same tool → abort | `llm/service/stream.py` |
 | Tool keyword gate | `_needs_file_tools(message)` | `llm/service/context.py` |
 | Max file read (tool) | 100,000 chars | `llm/tools.py` |
+
+---
+
+## Graph Memory (Neo4j)
+| Setting | Value | Location |
+|---------|-------|----------|
+| Neo4j URI | `bolt://neo4j:7687` | `NEO4J_URI` env |
+| Neo4j auth | `neo4j / changeme` (default) | `NEO4J_PASSWORD` env |
+| Neo4j Browser | `http://localhost:7474` | |
+| Entity schema | `(:Entity {user_id, name, type, updated_at})` | `core/neo4j_client.py` |
+| Relation schema | `[:RELATED_TO {type, updated_at}]` | `llm/graph_memory.py` |
+| Context injection | `[GRAPH CONTEXT]` block in system prompt | `llm/service/context.py` |
+| Context limit | 8 entities per query | `llm/graph_memory.py:query_context` |
+| Tool | `query_graph(query)` — agent tool loop | `llm/tools.py` |
+| Fails open | blank `NEO4J_PASSWORD` → all graph calls no-op | `core/neo4j_client.py` |
+| Stats endpoint | `GET /api/graph/stats` → `{available, entities, relations}` | `api/graph.py` |
+| Re-embed trigger | startup compares `MODEL_EMBEDDING` vs `system_config` row | `services/re_embed.py` |
+| Re-embed endpoint | `POST /api/admin/re-embed` → `{"queued": int}` — admin only | `api/admin.py` |
+| Re-embed batch | ARQ job `re_embed_batch_job`, batches of 100 | `services/arq_worker.py` |
 
 ---
 
