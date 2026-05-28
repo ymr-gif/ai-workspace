@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
@@ -9,9 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth import get_current_user
 from core.arq_pool import get_arq_pool
 from core.db import get_db
+from llm.summarizer.salience import decay_salience
 from models import User, UserMemory, UserMemoryVersion
 
 router = APIRouter(prefix="/memory", tags=["memory"])
+logger = logging.getLogger("memory")
 
 
 class MemoryUpdate(BaseModel):
@@ -80,12 +83,30 @@ async def get_memory(
 ):
     row = await db.get(UserMemory, current_user.id)
     if not row:
-        return {"content": "", "project_summary": "", "version": 0, "updated_at": None}
+        return {
+            "content":         "",
+            "project_summary": "",
+            "version":         0,
+            "updated_at":      None,
+            "salience":        0.0,
+            "confidence":      0.0,
+            "last_used_at":    None,
+            "facts":           [],
+        }
+    facts = [
+        {"content": line.strip(), "salience": row.salience, "last_used_at": row.last_used_at.isoformat() if row.last_used_at else None, "confidence": row.confidence}
+        for line in (row.content or "").split("\n")
+        if line.strip()
+    ]
     return {
         "content":         row.content         or "",
         "project_summary": row.project_summary or "",
         "version":         row.version,
         "updated_at":      row.updated_at.isoformat() if row.updated_at else None,
+        "salience":        row.salience,
+        "confidence":      row.confidence,
+        "last_used_at":    row.last_used_at.isoformat() if row.last_used_at else None,
+        "facts":           facts,
     }
 
 
@@ -134,6 +155,26 @@ async def compact_memory(
         await pool.enqueue_job("compact_memory_job", current_user.id)
         return {"status": "queued"}
     return {"status": "skipped", "reason": "arq pool unavailable"}
+
+
+@router.post("/decay")
+async def decay_memory(
+    current_user: User         = Depends(get_current_user),
+    db:           AsyncSession = Depends(get_db),
+):
+    row = await db.get(UserMemory, current_user.id)
+    if not row:
+        return {"status": "ok", "salience_before": None, "salience_after": None}
+    before = row.salience
+    row.salience = decay_salience(row.salience)
+    row.last_used_at = None
+    await db.commit()
+    logger.info("[decay] user_id=%s salience=%.4f->%.4f", current_user.id, before, row.salience)
+    return {
+        "status":          "ok",
+        "salience_before": before,
+        "salience_after":  row.salience,
+    }
 
 
 @router.get("/history")

@@ -3,6 +3,94 @@ Completed features — full detail. See Archive rules in root CLAUDE.md.
 
 ---
 
+## Adaptive Retrieval Policy
+**Completed:** 2026-05-28
+
+### What was built
+- **Query classifier** `classify_query(msg)` in `llm/router.py` — keyword sets per type: `relational` (compare/difference/between/vs), `temporal` (before/after/when/recent), `factual` (what is/define/explain), `broad` (hello/summarize/overview); fallback `factual`
+- **Policy map** in `llm/retriever/policy.py`:
+  - `factual` → fusion=weighted, alpha=0.7, k_dense=20, k_sparse=20, top_k=5
+  - `relational` → fusion=rrf, alpha=0.5, k_dense=20, k_sparse=20, top_k=8, use_graph=true
+  - `temporal` → fusion=rrf, alpha=0.5, k_dense=20, k_sparse=10, top_k=6
+  - `broad` → fusion=weighted, alpha=0.3, k_dense=5, k_sparse=20, top_k=3
+- **Context integration**: `_build_stream_context()` calls `classify_query(req.message)` before retrieve calls, passes `fusion_mode, alpha, k_dense, k_sparse, top_k` as kwargs; `policy_used` field added to context dict
+- **Logging**: per-request `[policy] rid=... query_type=... fusion=... alpha=... k_dense=... k_sparse=... top_k=...`
+
+### Key files
+| File | Change |
+|------|--------|
+| `backend/llm/router.py` | classify_query() |
+| `backend/llm/retriever/policy.py` | policy map |
+| `backend/api/chat/helpers.py` | classify_query call, policy kwargs on retrieve |
+| `backend/llm/retriever/__init__.py` | export policy |
+| `backend/llm/service/context.py` | policy_used in context |
+| `backend/CLAUDE.md` | adaptive policy docs |
+
+---
+
+## Context Budget Allocator
+**Completed:** 2026-05-28
+
+### What was built
+- **Context windows** in `config.py`: `CONTEXT_WINDOWS = {"meta/llama-3.1-8b-instruct": 131072, "deepseek-ai/deepseek-v4-flash": 32768, ...}`, `DEFAULT_CONTEXT_WINDOW = 131072`
+- **`get_context_limit(model_name)`** in `router.py` — returns per-model context window from env-configured models; fallback to `DEFAULT_CONTEXT_WINDOW`
+- **`apply_context_budget()`** in `llm/service/context.py` — 7 priority tiers: drops lowest-tier sources (file context, history summary, project state, workspace state, graph context) when estimated tokens exceed `context_window - max_output_tokens - 10%`; uses `len(msg) // 4` token estimate; removes "Understood." ack pairs
+- **Tool loop re-apply**: budget re-applied after each tool iteration in `stream.py` per fallback model
+
+### Key files
+| File | Change |
+|------|--------|
+| `backend/config.py` | CONTEXT_WINDOWS dict, DEFAULT_CONTEXT_WINDOW |
+| `backend/llm/router.py` | get_context_limit() |
+| `backend/llm/service/context.py` | apply_context_budget(), priority tiers |
+| `backend/llm/service/stream.py` | budget re-applied per fallback model |
+
+---
+
+## Memory Compaction Job
+**Completed:** 2026-05-28
+
+### What was built
+- **`compact_memory()`** in `llm/summarizer/compact.py` — acquires `pg_advisory_xact_lock(user_id)`, skips if content < 100 words, sends to llama via `_COMPACT_SYSTEM` prompt for dedup/compress, caps at 500 words, snapshots old state to `UserMemoryVersion` before overwrite
+- **ARQ job** `compact_memory_job` in `services/arq_worker.py` — queues compaction per user via pool
+- **Daily cron** `run_memory_compaction()` in `services/scheduler_worker.py` — daily 3 AM UTC cron
+- **API** `POST /memory/compact` in `api/memory.py` — enqueues ARQ job, returns `{"status": "queued"}`
+
+### Key files
+| File | Change |
+|------|--------|
+| `backend/llm/summarizer/compact.py` | compact_memory(), _compact_memory() |
+| `backend/services/arq_worker.py` | compact_memory_job |
+| `backend/services/scheduler_worker.py` | run_memory_compaction() daily cron |
+| `backend/api/memory.py` | POST /memory/compact |
+
+---
+
+## Memory Salience Engine
+**Completed:** 2026-05-28
+
+### What was built
+- **Salience fields** on `UserMemory`: `salience` (float, default 1.0), `last_used_at` (DateTime tz, nullable), `confidence` (float, default 1.0) — per-fact scoring across memory sheet lines
+- **Scoring function** `compute_salience()` in `backend/llm/summarizer/salience.py`: factors recency (exponential decay 0.05), frequency (cap +10% per access), explicit emphasis, clamped [0,2]
+- **Compaction update**: `compact_memory()` decays salience ×0.95 per cycle before LLM call; if salience < 0.3, clears memory entirely instead of compacting
+- **Read-time update**: `_build_stream_context()` / `build_context_messages()` bumps salience on accessed facts when memory is loaded into context
+- **API**: `GET /memory` returns per-fact array `{content, salience, last_used_at, confidence}`; `POST /memory/decay` applies decay pass, returns `{status, salience_before, salience_after}`
+- **Alembic migration** 027 added columns to `user_memory`
+
+### Key files
+| File | Change |
+|------|--------|
+| `backend/models/user.py` | salience, confidence, last_used_at on UserMemory |
+| `backend/alembic/versions/027_salience.py` | migration |
+| `backend/llm/summarizer/salience.py` | compute_salience() |
+| `backend/llm/summarizer/compact.py` | salience-aware compaction |
+| `backend/api/chat/helpers.py` | read-time salience bump |
+| `backend/llm/service/context.py` | memory scoring on context build |
+| `backend/api/memory.py` | per-fact response, POST /memory/decay |
+| `backend/CLAUDE.md` | salience engine docs |
+
+---
+
 ## Retrieval Eval Harness
 **Completed:** 2026-05-28
 

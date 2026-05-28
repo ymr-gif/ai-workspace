@@ -10,6 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import MODELS
 from llm import retriever
 from llm.embeddings import embed as embed_text
+from llm.router import classify_query
+from llm.retriever.policy import get_policy
+from llm.summarizer.salience import compute_salience
 from models import Conversation, Message, User, UserMemory, Workspace, WorkspaceMemory
 
 from .schemas import ChatRequest
@@ -112,7 +115,13 @@ async def _build_stream_context(
     memory_sheet    = (memory_row.content         if memory_row and memory_row.content         else "") if memory_enabled else ""
     project_summary = (memory_row.project_summary if memory_row and memory_row.project_summary else "") if memory_enabled else ""
 
-    is_ref = retriever.is_reference_query(req.message)
+    if memory_row and memory_enabled:
+        memory_row.salience   = compute_salience(memory_row.salience, access_count=1)
+        memory_row.last_used_at = datetime.now(timezone.utc)
+
+    is_ref    = retriever.is_reference_query(req.message)
+    query_type = classify_query(req.message)
+    policy     = get_policy(query_type)
 
     embed_task = None
     if req.conversation_id or is_ref:
@@ -148,12 +157,22 @@ async def _build_stream_context(
         top_msgs.sort(key=lambda m: m.created_at)
         history = [{"role": m.role, "content": m.content} for m in top_msgs]
 
-    top_k     = 8 if is_ref else 3
+    top_k     = max(policy["top_k"], 8 if is_ref else 0)
     retrieved: list[str] = []
     if query_emb:
-        retrieved = await retriever.retrieve(db, query_emb, conv.id, top_k=top_k, query_text=req.message)
+        retrieved = await retriever.retrieve(
+            db, query_emb, conv.id,
+            top_k=top_k, query_text=req.message,
+            fusion_mode=policy["fusion_mode"], k_dense=policy["k_dense"],
+            k_sparse=policy["k_sparse"], alpha=policy["alpha"],
+        )
         if is_ref and not retrieved:
-            retrieved = await retriever.retrieve_global(db, query_emb, conv.id, current_user.id, query_text=req.message)
+            retrieved = await retriever.retrieve_global(
+                db, query_emb, conv.id, current_user.id,
+                query_text=req.message,
+                fusion_mode=policy["fusion_mode"], k_dense=policy["k_dense"],
+                k_sparse=policy["k_sparse"], alpha=policy["alpha"],
+            )
 
     file_chunks: list[str] = []
     file_names:  list[str] = []
@@ -162,7 +181,12 @@ async def _build_stream_context(
         file_ids, file_names = await retriever.get_conversation_files(db, conv.id)
         if file_ids:
             if query_emb:
-                file_chunks = await retriever.retrieve_from_files(db, query_emb, file_ids, top_k=5, query_text=req.message)
+                file_chunks = await retriever.retrieve_from_files(
+                    db, query_emb, file_ids,
+                    top_k=policy["top_k"], query_text=req.message,
+                    fusion_mode=policy["fusion_mode"], k_dense=policy["k_dense"],
+                    k_sparse=policy["k_sparse"], alpha=policy["alpha"],
+                )
             else:
                 file_chunks = await retriever.retrieve_files_sequential(db, file_ids, top_k=10)
             if file_chunks:
@@ -204,6 +228,10 @@ async def _build_stream_context(
         except Exception:
             logger.exception("[graph] query_by_keywords failed")
 
+    logger.info("[policy] rid=%s query_type=%s fusion=%s alpha=%s k_dense=%d k_sparse=%d top_k=%d",
+                rid, query_type, policy["fusion_mode"], policy["alpha"],
+                policy["k_dense"], policy["k_sparse"], policy["top_k"])
+
     return {
         "memory_enabled":      memory_enabled,
         "memory_sheet":        memory_sheet,
@@ -218,4 +246,5 @@ async def _build_stream_context(
         "workspace_sysprompt": workspace_sysprompt,
         "graph_context":       graph_context,
         "graph_facts":         graph_facts,
+        "policy_used":         query_type,
     }

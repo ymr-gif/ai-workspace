@@ -122,6 +122,8 @@ Injection order:
 - Lock: `pg_advisory_xact_lock(user_id)` prevents version races
 - Compaction: LLM-driven dedup via `compact_memory()`; creates `UserMemoryVersion` snapshot; queued via ARQ or daily cron at 3 AM UTC
 - Context budget: drops lowest-tier sources when estimated tokens exceed `context_window - max_output_tokens - 10%`; re-applied after each tool iteration
+- Salience: `UserMemory` has `salience` (float, default 1.0) and `confidence` (float, default 1.0); bumped on every context load via `compute_salience()`, decayed 0.95/cycle during compaction; memory cleared when salience <0.3
+- `POST /memory/decay`: manual decay pass; GET /memory returns per-fact `facts` array with per-line scores
 
 ---
 
@@ -130,6 +132,7 @@ Injection order:
 - Formats: PDF · DOCX (+tables after paragraphs) · XLSX/XLS · text/code/markdown
 - Chunks: 1600 chars, 200 overlap, sentence-aligned tail
 - Retrieval: vector + BM25 parallel → RRF (k=60) or weighted fusion; fallback to pure vector
+- Adaptive policy: `classify_query(msg)` in `router.py` returns `factual|relational|temporal|broad`; mapped in `retriever/policy.py` to fusion_mode/alpha/k values (factual=weighted 0.7, relational=RRF, temporal=RRF low-k, broad=weighted 0.3); applied per-query in `_build_stream_context()`; logged with query_type + params
 - Status SSE: polls `db.refresh` + Redis `proc_progress:{file_id}` every 0.8s → terminates on ready/error
 - `file_service`: save_version before every mutation; `_fuzzy_replace`: exact → `\r\n` norm → stripped edges
 
