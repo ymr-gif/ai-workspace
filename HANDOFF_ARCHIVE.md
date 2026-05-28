@@ -3,6 +3,32 @@ Completed features — full detail. See Archive rules in root CLAUDE.md.
 
 ---
 
+## Memory Conflict Resolver
+**Completed:** 2026-05-28
+
+### What was built
+- **`MemoryConflict` model** in `models/user.py` — fields: `id` (UUID PK), `user_id` (FK CASCADE), `fact_a`, `fact_b`, `conflict_type` (contradiction|duplicate|ambiguous), `resolution` (keep_a|keep_b|merge|discard_both|unresolved), `resolved_at`, `created_at`
+- **Migration 028** — `memory_conflicts` table + index on `(user_id, resolution)`
+- **`detect_conflicts(content)`** in `llm/summarizer/conflicts.py` — pairwise LLM (llama) check on all fact combinations; skips `"none"` pairs; returns `[{fact_a, fact_b, conflict_type}]`
+- **`resolve_conflict(conflict, strategy, db)`** — applies patch to `UserMemory.content` (removes losing fact, appends merged); bumps `version`
+- **Compaction hook** in `compact.py` — post-compaction runs `detect_conflicts()`; stores new `MemoryConflict` rows; rides existing commit via `flush()`
+- **Context suppression** in `llm/service/context.py` — queries unresolved conflicts; filters `fact_a`+`fact_b` lines from `memory_sheet` before `[USER STATE]` injection
+- **API**: `GET /memory/conflicts?resolution=unresolved|all` · `POST /memory/conflicts/{id}/resolve` body `{strategy}` · `POST /memory/conflicts/scan`
+
+### Key files
+| File | Change |
+|------|--------|
+| `backend/models/user.py` | MemoryConflict model |
+| `backend/models/__init__.py` | export MemoryConflict |
+| `backend/alembic/versions/028_memory_conflicts.py` | migration |
+| `backend/llm/summarizer/conflicts.py` | detect_conflicts(), resolve_conflict() |
+| `backend/llm/summarizer/compact.py` | post-compaction detection hook |
+| `backend/llm/service/context.py` | unresolved fact suppression |
+| `backend/api/memory.py` | 3 new endpoints |
+| `backend/CLAUDE.md` | conflict resolver docs |
+
+---
+
 ## Adaptive Retrieval Policy
 **Completed:** 2026-05-28
 

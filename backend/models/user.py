@@ -51,6 +51,18 @@ class UserMemory(Base):
     last_summarized_at:   Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class MemoryConflict(Base):
+    __tablename__ = "memory_conflicts"
+    id:            Mapped[uuid.UUID]      = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id:       Mapped[int]            = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    fact_a:        Mapped[str]            = mapped_column(Text, nullable=False)
+    fact_b:        Mapped[str]            = mapped_column(Text, nullable=False)
+    conflict_type: Mapped[str]            = mapped_column(String(32), nullable=False)
+    resolution:    Mapped[str | None]     = mapped_column(String(32), nullable=True, default="unresolved")
+    resolved_at:   Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at:    Mapped[datetime]       = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class UserMemoryVersion(Base):
     __tablename__ = "user_memory_versions"
     id:              Mapped[int]        = mapped_column(Integer, primary_key=True, autoincrement=True)

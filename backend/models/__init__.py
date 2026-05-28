@@ -1,6 +1,6 @@
 from .workspace import Workspace, WorkspaceMemory
 from .auth import Invitation
-from .user import User, UserInsight, AdminAuditLog, UserMemory, UserMemoryVersion
+from .user import User, UserInsight, AdminAuditLog, UserMemory, UserMemoryVersion, MemoryConflict
 from .file import File, FileChunk, FileVersion
 from .chat import Conversation, Message, MessageEmbedding, ConversationFile
 from .tools import ToolCallLog
@@ -9,7 +9,7 @@ from .system import SystemConfig
 
 __all__ = [
     "AdminAuditLog", "Conversation", "ConversationFile", "File", "FileChunk",
-    "FileVersion", "Invitation", "Message", "MessageEmbedding", "PromptTemplate",
+    "FileVersion", "Invitation", "MemoryConflict", "Message", "MessageEmbedding", "PromptTemplate",
     "ScheduledPrompt", "ScheduledPromptRun", "SystemConfig", "ToolCallLog",
     "User", "UserInsight", "UserMemory", "UserMemoryVersion", "Workspace", "WorkspaceMemory",
 ]
