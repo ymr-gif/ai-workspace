@@ -57,16 +57,16 @@ def build_context_messages(
             file_notice = (
                 f"The user has attached these files:\n{files_list}\n"
                 "Rules for file tools:\n"
-                "- ONLY use tools when the user explicitly asks to read, edit, write, search, or create files.\n"
-                "- For conversational messages, acknowledgments, or questions not about file content: respond normally with NO tool calls.\n"
-                "- To ADD content (new paragraph, section, notes): use append_to_file — safest, never loses existing content\n"
+                "- To ANSWER a question about file content: use read_file or search_in_file, then reply in chat. For specific sections of large files, prefer search_in_file over read_file.\n"
+                "- NEVER use write tools (write_file, append_to_file, patch_file) to answer questions. If asked to 'list', 'show', 'explain', 'display', 'summarize', or 'describe' — respond in chat text, not by writing to the file.\n"
+                "- To ADD new content to a file: use append_to_file — ONLY when user explicitly asks to add/write/append to the file.\n"
                 "- To EDIT a specific passage: use read_file first, then patch_file(old_text=<exact passage>, new_text=<replacement>)\n"
                 "- To REWRITE the whole file: use read_file first, then write_file with the COMPLETE rewritten content — never write_file without reading first\n"
                 "- NEVER use write_file for partial updates — it permanently deletes everything not included. Use patch_file.\n"
                 "- To CREATE a new file: use create_file — only for genuinely new files, never to reconstruct missing context\n"
                 "- After any write/append/patch/create succeeds, respond to the user immediately — do NOT read the file back to verify\n"
                 "- Never call the same tool more than twice in a single turn\n"
-                "- If information is not in your current context (file detached, not in memory, not in conversation history): say so directly. Never fabricate content, invent logs, or create files to substitute for missing context.\n"
+                "- If information is not in your current context: say so directly. Never fabricate content, invent logs, or create files to substitute for missing context.\n"
                 "- NEVER say 'Memory updated', 'Saved to memory', or any variant. Memory is only saved when the system shows a green confirmation card with Accept/Dismiss buttons. Without that card, nothing is saved — do not pretend otherwise."
             )
         else:

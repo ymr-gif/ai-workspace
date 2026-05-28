@@ -61,7 +61,11 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "append_to_file",
-            "description": "Append text to the end of a file without touching existing content. Use this instead of write_file when adding new content (paragraphs, sections, notes).",
+            "description": (
+                "Append text to the end of a file without touching existing content. "
+                "ONLY use when the user explicitly asks to add, append, or write something INTO the file. "
+                "NEVER use to answer questions — if asked to 'list', 'show', 'explain', 'summarize', or 'describe' content, respond in chat text instead."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -158,11 +162,9 @@ WRITE_MEMORY_SCHEMA = {
         "name": "write_memory",
         "description": (
             "Propose saving a significant, durable fact about the user to long-term memory. "
-            "ONLY call this when the user has explicitly shared something that would be valuable "
-            "across many future conversations — e.g. a stated preference, personal background, "
-            "professional context, or explicit goal. "
-            "Do NOT call this for greetings, single-use context, transient questions, or anything "
-            "that would not be useful to recall in a completely different future conversation."
+            "ONLY call this when the user explicitly says 'remember', 'save', 'store', 'keep in memory', or similar direct instructions. "
+            "NEVER call this when answering a question, reading a file, summarizing content, or when the user simply states a fact mid-conversation. "
+            "The user must be directly instructing you to save something — inference is not enough."
         ),
         "parameters": {
             "type": "object",
