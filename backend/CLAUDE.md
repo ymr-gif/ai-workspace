@@ -100,11 +100,14 @@
 ---
 
 ## AI Agent Tool Loop
-- Trigger: `_needs_file_tools(message)` keyword gate → forces reasoning model (70B)
-- Tools: `list_files` · `read_file` (100k cap) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory`
-- Guards: same tool >3× → abort · MAX_TOOL_ITERATIONS=10
+- Trigger: any message when `file_ids` non-empty → always forces reasoning model (70B); 8B cannot reliably use tool results
+- File tools always available when files attached (not keyword-gated); `_needs_file_tools()` no longer gates tool availability
+- Tools: `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory`
+- Guards: same tool >3× → abort · MAX_TOOL_ITERATIONS=10 · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
 - `ask_user` yields `{type:"ask_user"}` SSE + done → pauses loop; amber card in UI
-- `write_memory`: always available when `memory_enabled=True`; yields `{type:"confirm_write_memory", fact}` SSE + done → pauses loop; green card in UI; user confirms → `POST /api/memory/write`
+- `write_memory`: available only on reasoning model when `memory_enabled=True`; requires explicit user instruction ("remember", "save", "store") — NEVER fires on inference or file content; yields `{type:"confirm_write_memory", fact}` SSE + done → pauses loop; green card in UI; user confirms → `POST /api/memory/write`
+- `append_to_file`: NEVER used to answer questions; only for explicit "add/append/write to file" requests
+- File tool rules in system prompt: write tools banned for informational responses; `search_in_file` preferred over `read_file` for specific section lookups in large files
 - `POST /api/memory/write` — body `{fact: str}`, reads existing `UserMemory`, appends fact as new line (trim to 500 chars), snapshots version, bumps version +1, boosts salience +0.1
 
 ---
@@ -138,7 +141,7 @@ Injection order:
 - Chunks: 1600 chars, 200 overlap, sentence-aligned tail
 - Chunk quality states: `upload_status` values are `uploaded|processing|ready|partial|failed|error`; `partial` = some chunks embedded, some failed; `File` has `chunk_total`, `chunk_embedded`, `embed_fail_count`; status reset and counts cleared on file edit
 - Retrieval: vector + BM25 parallel → RRF (k=60) or weighted fusion; fallback to pure vector
-- Adaptive policy: `classify_query(msg)` in `router.py` returns `factual|relational|temporal|broad`; mapped in `retriever/policy.py` to fusion_mode/alpha/k values (factual=weighted 0.7, relational=RRF, temporal=RRF low-k, broad=weighted 0.3); applied per-query in `_build_stream_context()`; logged with query_type + params
+- Adaptive policy: `classify_query(msg)` in `router.py` returns `factual|relational|temporal|broad`; mapped in `retriever/policy.py` to fusion_mode/alpha/k values (factual=weighted 0.7, relational=RRF, temporal=RRF low-k, broad=weighted 0.3); applied per-query in `_build_stream_context()`; logged with query_type + params; also emitted in `done` SSE event as `query_type` + `src_count` (number of retrieved provenance chunks)
 - Status SSE: polls `db.refresh` + Redis `proc_progress:{file_id}` every 0.8s → terminates on ready/error
 - `file_service`: save_version before every mutation; `_fuzzy_replace`: exact → `\r\n` norm → stripped edges
 

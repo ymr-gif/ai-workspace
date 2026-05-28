@@ -13,7 +13,7 @@
 
 ## Chat.jsx — Key Features
 - Streaming: raw `<p>` + blinking cursor → done → `<ReactMarkdown>` in `.md-body`
-- Per-bubble: `{totalTokens} tok · $x.xxxxx`; live from SSE "done", history from messages endpoint
+- Per-bubble: `{totalTokens} tok · $x.xxxxx · [query_type] · N src`; live from SSE "done" (`query_type`, `src_count`, `provenance[]` fields); `[query_type]` = factual/relational/temporal/broad; `· N src` badge green ≥3, amber 1–2, hidden if 0
 - **Workspace filter pills** — loaded from `GET /api/workspaces` on mount; "All" + per-workspace; ⚙ edit/delete + create; `workspace_id` sent in every `/api/chat/stream` request
 - **Workspace modal** — create/edit; fields: name, description, system_prompt; delete with confirm
 - **Conversation search** — debounced 300ms; `GET /api/conversations?q=`; clears on empty
@@ -42,7 +42,7 @@
 - **Insights**: 💡 button; unread badge; `GET /api/insights`; click → mark read; 🗑 delete; indigo dot for unread
 - **ask_user**: amber card "NEEDS CLARIFICATION" on `{type:"ask_user"}` SSE; user reply resumes with full context
 - **confirm_write_memory**: green card "MEMORY SUGGESTION" on `{type:"confirm_write_memory", fact}` SSE; Accept → `POST /api/memory/write {fact}`, Dismiss → null; clears on next send
-- **Memory panel**: tabs View / Edit / History / Graph (5th tab); Graph tab: `GET /api/graph/stats` → `{available, entities, relations}`; auto-refreshes 2s after each AI reply if tab open
+- **Memory panel**: tabs View / Edit / History / Graph (5th tab); View tab renders per-fact cards from `memData.facts[]` (each line of content = one card, salience % badge color-coded green/amber/grey); falls back to splitting `content` by newline if `facts` missing; structured `[SECTION]` format still renders as key-value pairs when present; Graph tab: `GET /api/graph/stats` → `{available, entities, relations}`; auto-refreshes 2s after each AI reply if tab open
 - **Re-embed button**: ↺ Re-embed All in Invite panel admin section → `POST /api/admin/re-embed`
 
 ## Model Control Toolbar
