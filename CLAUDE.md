@@ -182,24 +182,68 @@ cd backend && python -m pytest tests/test.py -v
 
 ## HANDOFF Protocol
 
-Root is coordinator. One physical `HANDOFF.md` exists in the repo at any time. Its location = current owner.
+### Roles
+- **Root** — coordinator and overseer. Plans features, writes task lists, sets execution order, moves file, manages archive.
+- **`backend/`** — worker. Implements backend tasks only.
+- **`frontend/`** — worker. Implements frontend tasks only.
+- **`docker/`** — worker. Implements infra/compose tasks only.
 
-**Locate file first:**
+Workers do not plan. Root does not implement.
+
+---
+
+### Files
+| File | Purpose |
+|------|---------|
+| `HANDOFF.md` | Active feature + last 5 History rows |
+| `HANDOFF_ARCHIVE.md` | All completed features, full detail |
+
+One physical `HANDOFF.md` exists at any time. Its location = current owner.
+
+---
+
+### Locate file first
 ```bash
 find . -name HANDOFF.md
 ```
 
-**Starting a feature:**
+---
+
+### Starting a feature
 1. Find HANDOFF.md (may be at root or in a subdir)
 2. Amend: set Active Feature, write task lists per agent, set execution order
 3. `mv HANDOFF.md backend/HANDOFF.md` (or whichever dir executes first)
 4. Append a History row
 
-**Returning to in-flight feature:**
+### Returning to in-flight feature
 1. Find file → read Recorded sections from prior agents
 2. Amend next agent's task list if new addenda needed
 3. Leave file in place (do not move — the owning agent moves it when done)
 
-**Task format:** one checkbox = one concrete action (small and specific)
+---
 
-**Execution order options:** `backdir → frontdir → dockdir` · adjust per feature · skip unused dirs · return to root when all done (set status: done)
+### Task format
+One checkbox = one concrete action (small and specific)
+
+### Execution order options
+`backdir → frontdir → dockdir` · adjust per feature · skip unused dirs · return to root when all done (set status: done)
+
+### Multi-agent (future)
+When prompted: extract shared rules into `AGENTS.md`; slim `CLAUDE.md` to root-only concerns; add `.cursorrules` pointing to `AGENTS.md` for Cursor workers.
+
+### Root escalation
+Workers must not edit root-level files. If a worker sets `status: needs-root`, root handles:
+`.env` · `.env.example` · `.gitignore` · `.dockerignore` · `CLAUDE.md` (root) · `README.md` · `ROADMAP.md`
+After root edits, set status back to in-progress and pass to next dir (or done if no more tasks).
+
+---
+
+### Archive rules
+When History in `HANDOFF.md` reaches **5 rows**:
+1. Move oldest rows to `HANDOFF_ARCHIVE.md` (keep last 5 in HANDOFF.md)
+2. In archive, preserve full feature detail
+
+When `HANDOFF_ARCHIVE.md` reaches **~20 entries**:
+1. Collapse entries older than 6 months into a single summary block at top:
+   `## Pre-YYYY-QN: N features completed (see git log for detail)`
+2. Delete those individual entries from archive

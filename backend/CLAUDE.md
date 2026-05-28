@@ -133,6 +133,19 @@ Injection order:
 
 ## HANDOFF Protocol
 
+### Role
+Worker for `backend/` only. Root plans; this agent implements.
+
+**Scope rule:** If a task belongs outside `backend/` — do not implement it. Instead:
+1. Note it in `HANDOFF.md` under the correct dir section (`## frontdir` or `## dockdir`)
+2. Pass the file to that dir when done with backend tasks
+
+**Root escalation:** Do not edit root-level files directly. Pass back to root (`../HANDOFF.md`, status: needs-root) for any changes to:
+`.env` · `.env.example` · `.gitignore` · `.dockerignore` · `CLAUDE.md` (root) · `README.md` · `ROADMAP.md`
+or any file not clearly owned by `backend/`, `frontend/`, or `docker/`.
+
+---
+
 On session start — check if `backend/HANDOFF.md` exists:
 ```bash
 ls HANDOFF.md 2>/dev/null && echo "YOUR TURN" || echo "no handoff"

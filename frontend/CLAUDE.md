@@ -53,6 +53,19 @@ Scoped to `.md-body` via `<style>` tag. Covers: p · h1-h4 · code/pre · ul/ol/
 
 ## HANDOFF Protocol
 
+### Role
+Worker for `frontend/` only. Root plans; this agent implements.
+
+**Scope rule:** If a task belongs outside `frontend/` — do not implement it. Instead:
+1. Note it in `HANDOFF.md` under the correct dir section (`## backdir` or `## dockdir`)
+2. Pass the file to that dir when done with frontend tasks
+
+**Root escalation:** Do not edit root-level files directly. Pass back to root (`../HANDOFF.md`, status: needs-root) for any changes to:
+`.env` · `.env.example` · `.gitignore` · `.dockerignore` · `CLAUDE.md` (root) · `README.md` · `ROADMAP.md`
+or any file not clearly owned by `backend/`, `frontend/`, or `docker/`.
+
+---
+
 On session start — check if `frontend/HANDOFF.md` exists:
 ```bash
 ls HANDOFF.md 2>/dev/null && echo "YOUR TURN" || echo "no handoff"

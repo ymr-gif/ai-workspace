@@ -1,6 +1,7 @@
 # HANDOFF
 - Updated: 2026-05-28
 - Status: done
+- Archive: `HANDOFF_ARCHIVE.md` (completed features; see Archive rules in root CLAUDE.md)
 
 ---
 

@@ -55,6 +55,19 @@ Panel groups: requests/errors/cache stats · latency p50/p95/p99 · model usage/
 
 ## HANDOFF Protocol
 
+### Role
+Worker for `docker/` only. Root plans; this agent implements.
+
+**Scope rule:** If a task belongs outside `docker/` — do not implement it. Instead:
+1. Note it in `HANDOFF.md` under the correct dir section (`## backdir` or `## frontdir`)
+2. Pass the file to that dir when done with docker tasks
+
+**Root escalation:** Do not edit root-level files directly. Pass back to root (`../HANDOFF.md`, status: needs-root) for any changes to:
+`.env` · `.env.example` · `.gitignore` · `.dockerignore` · `CLAUDE.md` (root) · `README.md` · `ROADMAP.md`
+or any file not clearly owned by `backend/`, `frontend/`, or `docker/`.
+
+---
+
 On session start — check if `docker/HANDOFF.md` exists:
 ```bash
 ls HANDOFF.md 2>/dev/null && echo "YOUR TURN" || echo "no handoff"
