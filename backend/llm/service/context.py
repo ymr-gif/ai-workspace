@@ -24,6 +24,7 @@ def build_context_messages(
     file_names:       list[str]  = (),
     file_ids:         list       = (),
     workspace_memory: str        = "",
+    graph_context:    str        = "",
 ) -> list[dict]:
     messages = []
 
@@ -50,6 +51,9 @@ def build_context_messages(
         messages.append({"role": "system", "content": system_prompt})
 
     if memory_enabled:
+        if graph_context:
+            messages.append({"role": "user",      "content": f"[GRAPH CONTEXT]\n{graph_context}"})
+            messages.append({"role": "assistant", "content": "Understood."})
         if memory_sheet:
             messages.append({"role": "system",    "content": f"[USER STATE]\n{memory_sheet}"})
         if workspace_memory:

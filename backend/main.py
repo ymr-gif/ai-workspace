@@ -9,6 +9,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 import llm.client as llm_client
 from api.admin import router as admin_router
+from api.graph import router as graph_router
 from api.compat import router as compat_router
 from api.insights import router as insights_router
 from api.workspaces import router as workspaces_router
@@ -56,6 +57,21 @@ async def lifespan(app: FastAPI):
 
     logger.info("[startup] init http client...")
     llm_client.client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
+
+    logger.info("[startup] check embedding model...")
+    try:
+        from services.re_embed import check_and_queue_re_embed
+        await check_and_queue_re_embed()
+    except Exception as e:
+        logger.error("[startup] re_embed check failed: %s", e)
+
+    logger.info("[startup] init neo4j...")
+    try:
+        from core.neo4j_client import init_neo4j
+        await init_neo4j()
+    except Exception as e:
+        logger.warning("[startup] neo4j unavailable: %s", e)
+
     logger.info("[startup] ready")
 
     yield
@@ -63,6 +79,13 @@ async def lifespan(app: FastAPI):
     logger.info("[shutdown] closing http client...")
     if llm_client.client:
         await llm_client.client.aclose()
+
+    try:
+        from core.neo4j_client import close_neo4j
+        await close_neo4j()
+    except Exception:
+        pass
+
     logger.info("[shutdown] complete")
 
 
@@ -83,6 +106,7 @@ app.include_router(usage_router)
 app.include_router(templates_router)
 app.include_router(scheduled_prompts_router)
 app.include_router(workspaces_router)
+app.include_router(graph_router)
 app.include_router(invite_router)
 
 Instrumentator().instrument(app).expose(app, endpoint="/prometheus")

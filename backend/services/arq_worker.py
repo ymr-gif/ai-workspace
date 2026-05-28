@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from config import REDIS_URL
 from core.db import AsyncSessionLocal
-from models import Conversation, File, Message, UserInsight, UserMemory
+from models import Conversation, File, FileChunk, Message, MessageEmbedding, UserInsight, UserMemory
 from services.processor import _process
 
 logger = logging.getLogger("arq_worker")
@@ -66,8 +66,38 @@ async def generate_insight_job(ctx, user_id: int) -> None:
         logger.info("[arq] insight generated user=%s", user_id)
 
 
+async def re_embed_batch_job(ctx, table: str, offset: int, batch_size: int) -> None:
+    from llm.embeddings import embed
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as db:
+        if table == "file_chunk":
+            result = await db.execute(
+                select(FileChunk).order_by(FileChunk.created_at).offset(offset).limit(batch_size)
+            )
+            rows = result.scalars().all()
+            for chunk in rows:
+                emb = await embed(chunk.content[:2000], input_type="passage")
+                if emb:
+                    chunk.embedding = emb
+            await db.commit()
+            logger.info("[re_embed] file_chunks offset=%d count=%d", offset, len(rows))
+
+        elif table == "message_embedding":
+            result = await db.execute(
+                select(MessageEmbedding).order_by(MessageEmbedding.created_at).offset(offset).limit(batch_size)
+            )
+            rows = result.scalars().all()
+            for me in rows:
+                emb = await embed(me.content_snippet[:2000], input_type="passage")
+                if emb:
+                    me.embedding = emb
+            await db.commit()
+            logger.info("[re_embed] message_embeddings offset=%d count=%d", offset, len(rows))
+
+
 class WorkerSettings:
-    functions = [process_file_job, generate_insight_job]
+    functions = [process_file_job, generate_insight_job, re_embed_batch_job]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 10
     max_tries = 4

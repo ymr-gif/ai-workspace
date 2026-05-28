@@ -80,6 +80,20 @@ async def _fetch_user_stats(db: AsyncSession, user_id: int | None = None) -> dic
     }
 
 
+# ── Re-embed ─────────────────────────────────────────────────────────────────
+
+@router.post("/re-embed")
+async def trigger_re_embed(
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(require_role("admin")),
+):
+    from services.re_embed import queue_re_embed_force
+    total = await queue_re_embed_force()
+    await _audit(db, current_user, "re_embed.triggered", detail={"queued": total})
+    await db.commit()
+    return {"queued": total}
+
+
 # ── User list ─────────────────────────────────────────────────────────────────
 
 @router.get("/users")

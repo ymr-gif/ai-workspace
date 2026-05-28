@@ -148,6 +148,20 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_graph",
+            "description": "Search the user's knowledge graph for entities and relationships related to a topic, person, or concept.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Topic, person, or concept to search for."},
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -178,6 +192,10 @@ async def execute_tool(
             result = await _search_across_files(db, conv_id, args["query"])
         elif name == "ask_user":
             result = f"{ASK_USER_PREFIX}{args.get('question', '')}"
+        elif name == "query_graph":
+            from llm.graph_memory import query_by_term
+            term   = args.get("query", "")
+            result = (await query_by_term(user_id, term)) or "No entities found for that query."
     except Exception as e:
         logger.warning("[tools] execute_tool failed name=%s err=%s", name, e)
         result = f"Error: {e}"

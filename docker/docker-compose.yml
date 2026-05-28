@@ -12,11 +12,15 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+      neo4j:
+        condition: service_healthy
     env_file:
       - ../.env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-scylla}:${POSTGRES_PASSWORD:-scylla}@pgbouncer:5432/${POSTGRES_DB:-nimrouter}
       REDIS_URL: redis://redis:6379
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
     ports:
       - "8000:8000"
     volumes:
@@ -94,13 +98,35 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-scylla}:${POSTGRES_PASSWORD:-scylla}@pgbouncer:5432/${POSTGRES_DB:-nimrouter}
       REDIS_URL: redis://redis:6379
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
     depends_on:
       pgbouncer:
         condition: service_started
       redis:
         condition: service_healthy
+      neo4j:
+        condition: service_healthy
     volumes:
       - ../backend/storage:/app/backend/storage
+    networks:
+      - backend
+
+  neo4j:
+    image: neo4j:5
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-changeme}
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4jdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
     networks:
       - backend
 
@@ -173,6 +199,7 @@ services:
 
 volumes:
   pgdata:
+  neo4jdata:
 
 networks:
   backend:

@@ -171,6 +171,7 @@ async def chat_stream(
                 user_id=current_user.id, db=db,
                 image_b64=req.image_b64, image_mime_type=req.image_mime_type,
                 workspace_memory=ctx.get("workspace_memory", ""),
+                graph_context=ctx.get("graph_context", ""),
             ):
                 if event["type"] == "token":
                     accumulated.append(event["content"])
@@ -200,6 +201,9 @@ async def chat_stream(
                         await db.commit()
                         record_tokens(model_used, pt, ct, cost)
                         asyncio.create_task(_embed_exchange(asst_msg.id, conv.id, req.message, full_response))
+                        if ctx.get("memory_enabled"):
+                            from llm.graph_memory import extract_and_store as _graph_extract
+                            asyncio.create_task(_graph_extract(current_user.id, req.message, full_response))
 
                         cnt       = await db.execute(select(func.count()).select_from(Message).where(Message.conversation_id == conv.id))
                         all_count = cnt.scalar_one()

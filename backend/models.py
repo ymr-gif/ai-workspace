@@ -322,6 +322,14 @@ class ScheduledPromptRun(Base):
     error:               Mapped[str | None]     = mapped_column(Text, nullable=True)
 
 
+class SystemConfig(Base):
+    __tablename__ = "system_config"
+
+    key:        Mapped[str]        = mapped_column(String(64), primary_key=True)
+    value:      Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime]   = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class FileChunk(Base):
     __tablename__ = "file_chunks"
 
