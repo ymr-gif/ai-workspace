@@ -88,6 +88,9 @@ ai-api/
 
 Workers do not plan. Root does not implement — it delegates.
 
+### HANDOFF.md — hard rule
+**Exactly one `HANDOFF.md` exists in the entire project at all times.** Its location = current owner. Never create a second copy. To pass to a subdir: edit the existing file in place, then `mv` it. Never `Write` a new HANDOFF.md if one already exists.
+
 ### Root-owned files (workers must not edit)
 `.env` · `.env.example` · `.gitignore` · `.dockerignore` · `CLAUDE.md` (root) · `README.md` · `ROADMAP.md`
 
