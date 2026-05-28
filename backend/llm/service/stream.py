@@ -10,7 +10,7 @@ from llm.router import route, get_context_limit
 from llm.nim import call, call_stream
 from llm.tools import TOOL_SCHEMAS, WRITE_MEMORY_SCHEMA, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX
 
-from .context import build_context_messages, _needs_file_tools, apply_context_budget
+from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, apply_context_budget
 
 MAX_TOOL_ITERATIONS = 10
 
@@ -121,13 +121,15 @@ async def generate_stream(
             yield {"type": "done",  "model": cached.get("model", "cache"), "cache_hit": True, "fallback_used": False}
             return
 
-    # Model selection priority: image → explicit override → file tools → router
+    # Model selection priority: image → explicit override → file tools → memory write → router
     if image_b64:
         fallback_chain = [MODEL_VISION]
     elif model_override:
         fallback_chain = [model_override]
     elif file_ids and _needs_file_tools(message):
         fallback_chain = [MODELS["reasoning"]]
+    elif _needs_memory_tool(message):
+        fallback_chain = [MODELS["reasoning"]] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != MODELS["reasoning"]]
     else:
         model, _ = await route(message, request_id)
         fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
