@@ -56,6 +56,9 @@ export default function MemoryPanel({
           <>
             {memLoading && !memData && <p style={s.emptyMem}>Loading…</p>}
             {!memLoading && !hasMemory && <p style={s.emptyMem}>No memory yet.<br /><span style={{ fontSize:'0.75rem' }}>Updates after a few exchanges.</span></p>}
+            {hasMemory && sections.length === 0 && memData?.content?.trim() && (
+              <pre style={{ fontSize:'0.78rem', color:'#cbd5e1', whiteSpace:'pre-wrap', margin:'0.5rem 0', lineHeight:1.6 }}>{memData.content}</pre>
+            )}
             {sections.map(sec => (
               <div key={sec.name} style={s.section}>
                 <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||'#94a3b8', background: (SECTION_COLORS[sec.name]||'#94a3b8')+'18' }}>{sec.name}</span>
