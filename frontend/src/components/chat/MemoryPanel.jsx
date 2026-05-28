@@ -56,8 +56,27 @@ export default function MemoryPanel({
           <>
             {memLoading && !memData && <p style={s.emptyMem}>Loading…</p>}
             {!memLoading && !hasMemory && <p style={s.emptyMem}>No memory yet.<br /><span style={{ fontSize:'0.75rem' }}>Updates after a few exchanges.</span></p>}
-            {hasMemory && sections.length === 0 && memData?.content?.trim() && (
-              <pre style={{ fontSize:'0.78rem', color:'#cbd5e1', whiteSpace:'pre-wrap', margin:'0.5rem 0', lineHeight:1.6 }}>{memData.content}</pre>
+            {hasMemory && sections.length === 0 && (memData?.facts?.length > 0 || memData?.content?.trim()) && (
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem', marginTop:'0.5rem' }}>
+                {(memData.facts?.length > 0
+                  ? memData.facts
+                  : (memData.content || '').split('\n').filter(Boolean).map(line => ({ content: line }))
+                ).map((f, i) => (
+                  <div key={i} style={{
+                    background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px',
+                    padding:'0.5rem 0.75rem', fontSize:'0.78rem', color:'#cbd5e1', lineHeight:1.5,
+                    display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'0.5rem',
+                  }}>
+                    <span style={{ flex:1 }}>{f.content}</span>
+                    {f.salience != null && (
+                      <span style={{
+                        fontSize:'0.65rem', color: f.salience >= 0.7 ? '#34d399' : f.salience >= 0.4 ? '#fbbf24' : '#475569',
+                        flexShrink:0, marginTop:'1px',
+                      }}>{Math.round(f.salience * 100)}%</span>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
             {sections.map(sec => (
               <div key={sec.name} style={s.section}>

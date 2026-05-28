@@ -126,7 +126,7 @@ export default function Chat({ token, onLogout }) {
                   ? { ...m, responses: Object.fromEntries(Object.entries(m.responses).map(([k,v]) => [k, { ...v, streaming: false }])) }
                   : m))
               } else {
-                conv.setMessages(prev => prev.map(m => m.id === aiId ? { ...m, model: event.model, streaming: false, promptTokens: event.prompt_tokens, completionTokens: event.completion_tokens, totalTokens: event.total_tokens, costUsd: event.cost_usd } : m))
+                conv.setMessages(prev => prev.map(m => m.id === aiId ? { ...m, model: event.model, streaming: false, promptTokens: event.prompt_tokens, completionTokens: event.completion_tokens, totalTokens: event.total_tokens, costUsd: event.cost_usd, provenance: event.provenance || [], queryType: event.query_type || '', srcCount: event.src_count ?? 0 } : m))
                 mem.setMemTick(t => t + 1)
                 setTimeout(() => { if (mem.memTab === 'graph') insights.loadGraphStats() }, 2000)
               }
