@@ -25,7 +25,13 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": "Overwrite a file with new content. You MUST call this to save any changes — outputting text alone does not modify the file.",
+            "description": (
+                "Overwrite a file with COMPLETE new content. "
+                "WARNING: this replaces the ENTIRE file — any content not included is permanently lost. "
+                "NEVER use this for partial updates or section edits — use patch_file instead. "
+                "ALWAYS call read_file first to get the full current content, then rewrite it in full. "
+                "Only use write_file when you intend to replace everything."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
