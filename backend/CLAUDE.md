@@ -105,7 +105,7 @@
 - Tools: `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory`
 - Guards: same tool >3× → abort · MAX_TOOL_ITERATIONS=10 · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
 - `ask_user` yields `{type:"ask_user"}` SSE + done → pauses loop; amber card in UI
-- `write_memory`: available only on reasoning model when `memory_enabled=True`; requires explicit user instruction ("remember", "save", "store") — NEVER fires on inference or file content; yields `{type:"confirm_write_memory", fact}` SSE + done → pauses loop; green card in UI; user confirms → `POST /api/memory/write`
+- `write_memory`: offered ONLY when reasoning model selected AND `_needs_memory_tool(message)` returns True (user explicitly says "remember", "memorize", or verb+memory target) — tool is not in the schema at all for other messages, so 70B cannot spontaneously save; yields `{type:"confirm_write_memory", fact}` SSE + done → pauses loop; green card in UI; user confirms → `POST /api/memory/write`
 - `append_to_file`: NEVER used to answer questions; only for explicit "add/append/write to file" requests
 - File tool rules in system prompt: write tools banned for informational responses; `search_in_file` preferred over `read_file` for specific section lookups in large files
 - `POST /api/memory/write` — body `{fact: str}`, reads existing `UserMemory`, appends fact as new line (trim to 500 chars), snapshots version, bumps version +1, boosts salience +0.1
