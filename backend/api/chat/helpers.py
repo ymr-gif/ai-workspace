@@ -191,8 +191,13 @@ async def _build_stream_context(
                 file_chunks = await retriever.retrieve_files_sequential(db, file_ids, top_k=10)
             if file_chunks:
                 for i, chunk in enumerate(file_chunks):
-                    logger.info("[file_ctx] rid=%s chunk=%d/%d preview=%s",
-                                rid, i + 1, len(file_chunks), repr(chunk[:120]))
+                    preview = chunk["content"][:120] if isinstance(chunk, dict) else chunk[:120]
+                    logger.info("[file_ctx] rid=%s chunk=%d/%d chunk_id=%s source_id=%s score=%.6f preview=%s",
+                                rid, i + 1, len(file_chunks),
+                                chunk.get("chunk_id") if isinstance(chunk, dict) else None,
+                                chunk.get("source_id") if isinstance(chunk, dict) else None,
+                                chunk.get("final_score", 0.0) if isinstance(chunk, dict) else 0.0,
+                                repr(preview))
             else:
                 logger.warning("[file_ctx] rid=%s file_ids=%d but NO chunks retrieved", rid, len(file_ids))
 
