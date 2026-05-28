@@ -8,12 +8,14 @@ _FILE_OP_KEYWORDS = frozenset({
     "correct", "improve", "refactor", "rename", "review", "check",
 })
 
-_MEMORY_WRITE_PHRASES = (
-    "save to memory", "add to memory", "store in memory", "write to memory",
-    "put in memory", "save this to", "remember this", "save it inside",
-    "save it to", "memorize this", "memorize these", "save these",
-    "store this", "keep this in memory", "add this to memory",
-)
+_MEMORY_WRITE_VERBS = frozenset({
+    "save", "add", "store", "write", "put", "keep", "insert",
+    "remember", "memorize", "record",
+})
+
+_MEMORY_WRITE_TARGETS = frozenset({
+    "memory", "memories",
+})
 
 
 def _needs_file_tools(message: str) -> bool:
@@ -21,9 +23,14 @@ def _needs_file_tools(message: str) -> bool:
     return bool(tokens & _FILE_OP_KEYWORDS)
 
 
+_MEMORY_STANDALONE_TRIGGERS = frozenset({"remember", "memorize"})
+
+
 def _needs_memory_tool(message: str) -> bool:
-    msg_lower = message.lower()
-    return any(p in msg_lower for p in _MEMORY_WRITE_PHRASES)
+    tokens = set(message.lower().split())
+    if tokens & _MEMORY_STANDALONE_TRIGGERS:
+        return True
+    return bool(tokens & _MEMORY_WRITE_VERBS) and bool(tokens & _MEMORY_WRITE_TARGETS)
 
 
 def build_context_messages(
