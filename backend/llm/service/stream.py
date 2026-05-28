@@ -126,7 +126,8 @@ async def generate_stream(
         fallback_chain = [MODEL_VISION]
     elif model_override:
         fallback_chain = [model_override]
-    elif file_ids and _needs_file_tools(message):
+    elif file_ids:
+        # Always use reasoning model when files attached — 8B cannot reliably use tool results
         fallback_chain = [MODELS["reasoning"]]
     elif _needs_memory_tool(message):
         fallback_chain = [MODELS["reasoning"]] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != MODELS["reasoning"]]
@@ -134,7 +135,7 @@ async def generate_stream(
         model, _ = await route(message, request_id)
         fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
 
-    file_tools = TOOL_SCHEMAS if (file_ids and db is not None and _needs_file_tools(message)) else []
+    file_tools = TOOL_SCHEMAS if (file_ids and db is not None) else []
     # write_memory only on reasoning model — 8B emits raw token soup instead of structured tool calls
     _is_reasoning = fallback_chain[0] == MODELS["reasoning"]
     mem_tools = [WRITE_MEMORY_SCHEMA] if (memory_enabled and db is not None and _is_reasoning) else []
@@ -238,7 +239,7 @@ async def generate_stream(
 
                     yield {"type": "tool_result", "name": fn_name, "content": result[:500]}
                     tool_messages.append({"role": "assistant", "tool_calls": [tc]})
-                    tool_messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
+                    tool_messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result[:12000]})
 
                 if ask_user_triggered:
                     return
