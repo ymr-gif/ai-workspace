@@ -13,7 +13,7 @@ backend/
 │   ├── service/stream.py   ← MAX_TOOL_ITERATIONS=10; priority: image→override→file_tools(70B)→router
 │   ├── nim.py              ← NIM API; accumulates tool_call deltas; yields __tool_calls__ + __usage__
 │   ├── tools.py            ← 10 TOOL_SCHEMAS + execute_tool(); logs ToolCallLog on every call
-│   ├── graph_memory.py     ← extract_and_store(); query_context(limit=8); query_by_term(limit=10)
+│   ├── graph_memory.py     ← extract_and_store(); query_context(limit=50, min_score=0.5); query_by_term(limit=10, min_score=0.5)
 │   ├── router.py           ← keyword classify() + route()
 │   ├── circuit_breaker.py  ← threshold=3, cooldown=30s
 │   ├── embeddings.py       ← embed(text, input_type) → list[float]; timeout=15s

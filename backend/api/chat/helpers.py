@@ -209,7 +209,7 @@ async def _build_stream_context(
     if memory_enabled:
         try:
             from llm.graph_memory import query_context as graph_query
-            graph_context = await graph_query(current_user.id, req.message)
+            graph_context = await graph_query(current_user.id, req.message, limit=50)
         except Exception:
             logger.exception("[graph] query_context failed")
 

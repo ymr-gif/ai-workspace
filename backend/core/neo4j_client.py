@@ -23,6 +23,10 @@ async def init_neo4j() -> None:
             "CREATE CONSTRAINT entity_key IF NOT EXISTS "
             "FOR (e:Entity) REQUIRE (e.user_id, e.name) IS UNIQUE"
         )
+        await session.run(
+            "CREATE FULLTEXT INDEX entity_name_ft IF NOT EXISTS "
+            "FOR (e:Entity) ON EACH [e.name]"
+        )
 
     logger.info("[neo4j] connected to %s", NEO4J_URI)
 
