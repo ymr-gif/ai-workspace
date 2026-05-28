@@ -987,6 +987,7 @@ export default function Chat({ token, onLogout }) {
               } else {
                 setMessages(prev => prev.map(m => m.id === aiId ? { ...m, model: event.model, streaming: false, promptTokens: event.prompt_tokens, completionTokens: event.completion_tokens, totalTokens: event.total_tokens, costUsd: event.cost_usd } : m))
                 setMemTick(t => t + 1)
+                setTimeout(() => { if (memTab === 'graph') loadGraphStats() }, 2000)
               }
               const cid = event.conversation_id
               if (cid) {
