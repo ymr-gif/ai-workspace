@@ -9,9 +9,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
+from cache import get_cached_response
 from core.db import get_db
 from llm import service
-from models import Conversation, Message, User
+from models import Conversation, ConversationFile, Message, User, Workspace
 from observability import events, metrics, observability
 from observability.prom_metrics import (
     ERROR_COUNT, LATENCY, MODEL_LATENCY, MODEL_USAGE,
@@ -106,11 +107,83 @@ async def chat_stream(
     await _check_cost_cap(current_user, db)
 
     conv            = await _resolve_conversation(req, current_user, db)
-    ctx             = await _build_stream_context(req, conv, current_user, db, rid)
     model_params    = _extract_model_params(req)
     effective_model = _resolve_model(req.model_override) or _resolve_model(conv.locked_model)
     if effective_model:
         await check_model_rate(effective_model, current_user.username)
+
+    # Early cache check — skip expensive context building on hit
+    if not req.image_b64 and not model_params:
+        has_files = False
+        if conv.id:
+            cnt = await db.execute(
+                select(func.count()).select_from(ConversationFile)
+                .where(ConversationFile.conversation_id == conv.id)
+            )
+            has_files = cnt.scalar_one() > 0
+        if not has_files:
+            history_tail = ""
+            if conv.id:
+                rows = await db.execute(
+                    select(Message.content)
+                    .where(Message.conversation_id == conv.id)
+                    .order_by(Message.created_at.desc())
+                    .limit(4)
+                )
+                history_tail = "\n".join(reversed(rows.scalars().all()))
+            cache_model = effective_model or ""
+            sys_prompt = conv.system_prompt or ""
+            if conv.workspace_id:
+                ws = await db.get(Workspace, conv.workspace_id)
+                ws_sp = ws.system_prompt if ws else None
+                if ws_sp and sys_prompt:
+                    sys_prompt = ws_sp + "\n\n" + sys_prompt
+                elif ws_sp:
+                    sys_prompt = ws_sp
+            cached = await get_cached_response(
+                req.message, model=cache_model,
+                history_tail=history_tail, system_prompt=sys_prompt,
+            )
+            if cached:
+                t_start = metrics.record_request_start()
+                conv_id_str = str(conv.id)
+                user_msg = Message(conversation_id=conv.id, role="user", content=req.message)
+                db.add(user_msg)
+                conv.updated_at = datetime.now(timezone.utc)
+                await db.flush()
+
+                async def cached_generator():
+                    resp = cached["response"]
+                    model_used = cached.get("model", "cache")
+                    yield f"data: {_json.dumps({'type': 'token', 'content': resp})}\n\n"
+                    asst_msg = Message(
+                        conversation_id=conv.id, role="assistant",
+                        content=resp, model=model_used,
+                    )
+                    db.add(asst_msg)
+                    await db.commit()
+                    cnt = await db.execute(select(func.count()).select_from(Message).where(Message.conversation_id == conv.id))
+                    if cnt.scalar_one() == 2:
+                        asyncio.create_task(_auto_title(conv.id, req.message, resp))
+                    done = {
+                        "type": "done", "model": model_used, "cache_hit": True,
+                        "fallback_used": False, "conversation_id": conv_id_str, "provenance": [],
+                    }
+                    yield f"data: {_json.dumps(done)}\n\n"
+                    latency_ms = metrics.record_request_end(
+                        start=t_start, model=model_used, status="success", cache_hit=True,
+                    )
+                    REQUEST_LATENCY.observe(latency_ms / 1000)
+                    LATENCY.observe(latency_ms / 1000)
+                    REQUEST_COUNT.labels(status="success").inc()
+
+                return StreamingResponse(
+                    cached_generator(),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
+
+    ctx = await _build_stream_context(req, conv, current_user, db, rid)
     # Workspace system_prompt takes precedence; merge with conv system_prompt if both set
     ws_sysprompt  = ctx.get("workspace_sysprompt")
     conv_sysprompt = conv.system_prompt or None
@@ -246,6 +319,23 @@ async def chat_stream(
                             yield f"data: {_json.dumps({'type': 'proactive', 'content': suggestion})}\n\n"
                     except Exception:
                         pass
+
+                    seen: set = set()
+                    provenance = []
+                    for hit in ctx.get("retrieved", []) + ctx.get("file_chunks", []):
+                        cid = str(hit.get("chunk_id", ""))
+                        if not cid or cid in seen:
+                            continue
+                        seen.add(cid)
+                        provenance.append({
+                            "chunk_id":       cid,
+                            "source_id":      str(hit["source_id"]) if hit.get("source_id") is not None else None,
+                            "dense_score":    hit.get("dense_score", 0.0),
+                            "sparse_score":   hit.get("sparse_score", 0.0),
+                            "final_score":    hit.get("final_score", 0.0),
+                            "retrieval_type": hit.get("retrieval_type", ""),
+                        })
+                    event["provenance"] = provenance
 
                     event["conversation_id"] = conv_id_str
                     yield f"data: {_json.dumps(event)}\n\n"

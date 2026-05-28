@@ -233,13 +233,17 @@ async def _list_files(db: AsyncSession, conv_id: uuid.UUID) -> str:
     return "\n".join(lines)
 
 
+def _sync_read_file_content(path: str, max_size: int) -> str:
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        return fh.read(max_size)
+
+
 async def _read_file(db: AsyncSession, user_id: int, file_id: uuid.UUID) -> str:
     f = await db.get(FileModel, file_id)
     if not f or f.user_id != user_id:
         return "Error: file not found or access denied."
     try:
-        with open(f.storage_path, "r", encoding="utf-8", errors="replace") as fh:
-            content = fh.read(MAX_FILE_READ)
+        content = await asyncio.to_thread(_sync_read_file_content, f.storage_path, MAX_FILE_READ)
         truncated = len(content) == MAX_FILE_READ
         logger.info("[tools] read_file file_id=%s chars=%d truncated=%s", file_id, len(content), truncated)
         if truncated:
