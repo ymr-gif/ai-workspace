@@ -1,7 +1,7 @@
 import logging
 import time
 
-from config import MODELS
+from config import CONTEXT_WINDOWS, DEFAULT_CONTEXT_WINDOW, MODELS
 
 logger = logging.getLogger("router")
 
@@ -34,3 +34,7 @@ async def route(message: str, request_id: str) -> tuple[str, float]:
     latency_ms = (time.monotonic() - start) * 1000
     logger.info("[route] rid=%s model=%s latency_ms=%.2f", request_id, model, latency_ms)
     return model, latency_ms
+
+
+def get_context_limit(model_name: str) -> int:
+    return CONTEXT_WINDOWS.get(model_name, DEFAULT_CONTEXT_WINDOW)

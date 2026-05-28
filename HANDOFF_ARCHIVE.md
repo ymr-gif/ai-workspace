@@ -99,6 +99,25 @@ Completed features — full detail. See Archive rules in root CLAUDE.md.
 
 ---
 
+## Hybrid Fusion Tuning
+**Completed:** 2026-05-28
+
+### What was built
+- **Weighted fusion mode**: new `_weighted_merge()` — normalizes raw cosine sim + ts_rank to [0,1], final score = `alpha * dense + (1 - alpha) * sparse`
+- **Configurable params**: `fusion_mode` (rrf|weighted), `k_dense` (1-100), `k_sparse` (1-100), `alpha` (0-1) exposed on all retrieve functions
+- **RRF k=60**: `_RRF_K` constant set to 60 (was implicit default, now documented)
+- **`_FETCH_N` removed**: replaced by `k_dense`/`k_sparse` params per retrieval path
+- **Fallback**: pure vector search when BM25 fails or query is empty
+- **Params exposed** on file search API: `?fusion_mode=&k_dense=&k_sparse=&alpha=`
+
+### Key files
+| File | Change |
+|------|--------|
+| `backend/llm/retriever.py` | `_weighted_merge()`, `_RRF_K=60`, fusion params on all 4 retrieve functions |
+| `backend/api/files/router.py` | search route passes fusion params |
+
+---
+
 ## Bug fixes — 8 confirmed
 **Completed:** 2026-05-28
 

@@ -15,7 +15,7 @@ from config import MODELS, REQUEST_TIMEOUT
 from core.db import AsyncSessionLocal, init_db
 from core.logger import setup_logging
 from llm.nim import call as nim_call
-from models import File as FileModel, ScheduledPrompt, ScheduledPromptRun
+from models import File as FileModel, ScheduledPrompt, ScheduledPromptRun, UserMemory
 from services.processor import process_file_async
 from storage.storage_manager import StorageManager
 
@@ -137,6 +137,26 @@ async def sync_schedules(scheduler: AsyncIOScheduler) -> None:
     logger.info("[scheduler] synced — active=%d scheduled=%d", len(schedules), len(scheduler.get_jobs()))
 
 
+async def run_memory_compaction() -> None:
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(UserMemory).where(UserMemory.content.isnot(None)))
+        rows = result.scalars().all()
+
+    from core.arq_pool import get_arq_pool
+    pool = get_arq_pool()
+    if not pool:
+        logger.warning("[scheduler] compaction skipped — no arq pool")
+        return
+
+    count = 0
+    for row in rows:
+        if len(row.content.split()) >= 100:
+            await pool.enqueue_job("compact_memory_job", row.user_id)
+            count += 1
+
+    logger.info("[scheduler] compaction queued for %d users", count)
+
+
 async def main() -> None:
     logger.info("[scheduler] starting up")
     await init_db()
@@ -153,6 +173,13 @@ async def main() -> None:
         "interval",
         minutes = 5,
         id      = "__sync__",
+    )
+
+    # Daily memory compaction at 3 AM UTC
+    scheduler.add_job(
+        lambda: asyncio.create_task(run_memory_compaction()),
+        CronTrigger.from_crontab("0 3 * * *", timezone="UTC"),
+        id = "__compact_memory__",
     )
 
     scheduler.start()
