@@ -41,9 +41,9 @@ Suggestions only — ask for specs before implementing any.
 - Admin frontend panel — user table + usage + enable/disable (currently API-only)
 
 ### RAG / Memory
-- Re-embed on MODEL_EMBEDDING change — old chunks become stale
+- ~~Re-embed on MODEL_EMBEDDING change~~ ✓ done (026)
 - Per-conversation memory — separate sheet per conv
-- Graph memory — entities + relationships
+- ~~Graph memory — entities + relationships~~ ✓ done (Neo4j, 026)
 
 ### Token / Cost
 - Budget dashboard — Grafana per-user panels
@@ -88,3 +88,4 @@ Suggestions only — ask for specs before implementing any.
 | 023 | user_insights.py | user_insights table |
 | 024 | admin_audit_log.py | admin_audit_logs (4 indexes) |
 | 025 | cost_window.py | cost_window_days (Integer, nullable) on users |
+| 026 | system_config.py | system_config (key PK, value, updated_at) — tracks MODEL_EMBEDDING for re-embed detection |
