@@ -3,7 +3,7 @@
 ## Services & Ports
 | Service | Port | Notes |
 |---------|------|-------|
-| api | 8000 | FastAPI, uvicorn |
+| api | 8000 | FastAPI, uvicorn; runs `alembic upgrade head` before start |
 | frontend | 3000 | nginx serving React build |
 | pgbouncer | — | transaction mode; 200 max clients, 20 server conns |
 | postgres | — | `pgvector/pgvector:pg16`; internal only |
@@ -14,6 +14,16 @@
 | arq-worker | — | `python -m arq services.arq_worker.WorkerSettings`; max_jobs=10 |
 | scheduler | — | `python -m services.scheduler_worker` |
 | neo4j | 7474 (browser), 7687 (bolt) | `neo4j:5`; auth `neo4j/${NEO4J_PASSWORD:-changeme}`; volume `neo4jdata` |
+
+---
+
+## Migration Safety
+
+- `backend.Dockerfile` CMD runs `alembic upgrade head` before uvicorn — migrations apply automatically on every container start
+- **Never use `alembic stamp <rev>`** without also running the actual DDL. Stamping marks a migration as applied in the `alembic_version` table without executing it — columns will be missing, causing 500 errors on startup
+- If a stamp was used by mistake: manually apply the missing DDL via `docker exec docker-postgres-1 psql -U <user> -d <db>`, then let alembic continue from that point
+- To check actual DB columns vs ORM: `docker exec docker-postgres-1 psql -U scylla -d nimrouter -c "\d <table>"`
+- To check alembic state: `docker exec docker-api-1 bash -c "cd /app/backend && alembic current"`
 
 ---
 
