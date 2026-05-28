@@ -63,7 +63,9 @@ def build_context_messages(
             messages.append({"role": "user",      "content": f"[PROJECT STATE]\n{project_summary}"})
             messages.append({"role": "assistant", "content": "Understood."})
         if retrieved_chunks:
-            chunks_text = "\n\n".join(retrieved_chunks)
+            chunks_text = "\n\n".join(
+                c["content"] if isinstance(c, dict) else c for c in retrieved_chunks
+            )
             messages.append({"role": "user",      "content": f"[RELEVANT CONTEXT FROM EARLIER]\n{chunks_text}"})
             messages.append({"role": "assistant", "content": "Understood."})
         if history_summary:
@@ -73,7 +75,9 @@ def build_context_messages(
     messages += history
 
     if file_chunks:
-        joined = "\n\n---\n\n".join(file_chunks)
+        joined = "\n\n---\n\n".join(
+            c["content"] if isinstance(c, dict) else c for c in file_chunks
+        )
         messages.append({"role": "user",      "content": f"[FILE CONTEXT]\n{joined}"})
         messages.append({"role": "assistant", "content": "Understood, I will reference these documents in my response."})
 

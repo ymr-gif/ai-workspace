@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -10,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.security import get_current_user
 from core.db import get_db
-from models import File as FileModel, FileChunk, User
+from models import File as FileModel, FileChunk, User, Workspace
 from observability.file_metrics import record_delete, record_upload
 from rate_limiter import limit
 from services.file_service import write_content
@@ -31,6 +32,17 @@ async def upload_file(
 ):
     if file.size and file.size > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
+
+    validated_workspace_id = None
+    if workspace_id.strip():
+        try:
+            wid = uuid.UUID(workspace_id.strip())
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid workspace_id")
+        ws = await db.get(Workspace, wid)
+        if not ws or ws.user_id != current_user.id:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        validated_workspace_id = wid
 
     try:
         storage_path, filename, size_bytes, sha256 = await storage.save_file(file)
@@ -53,7 +65,7 @@ async def upload_file(
             mime_type    = file.content_type or "application/octet-stream",
             size_bytes   = size_bytes,
             storage_path = storage_path,
-            workspace_id = workspace_id.strip() or None,
+            workspace_id = validated_workspace_id,
             upload_status= "uploaded",
             sha256_hash  = sha256,
         )

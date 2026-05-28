@@ -90,7 +90,7 @@ backend/
 Injection order:
 1. workspace_sysprompt merged with conv_sysprompt + file list
 2. [USER STATE] · [WORKSPACE STATE] · [PROJECT STATE]
-3. [GRAPH CONTEXT] — Neo4j entity/relation context (when memory_enabled + Neo4j up); limit=8 entities
+3. [GRAPH CONTEXT] — Neo4j entity/relation context (when memory_enabled + Neo4j up); limit=50, min_score=0.5
 4. [RELEVANT CONTEXT] cosine top-K · [EARLIER IN CONV] history_summary
 5. last 10 importance-weighted messages
 6. [FILE CONTEXT] top-5 chunks — last for recency bias
@@ -143,6 +143,8 @@ Worker for `backend/` only. Root plans; this agent implements.
 **Root escalation:** Do not edit root-level files directly. Pass back to root (`../HANDOFF.md`, status: needs-root) for any changes to:
 `.env` · `.env.example` · `.gitignore` · `.dockerignore` · `CLAUDE.md` (root) · `README.md` · `ROADMAP.md`
 or any file not clearly owned by `backend/`, `frontend/`, or `docker/`.
+
+**CRITICAL — never delete or overwrite root files.** `CLAUDE.md` at repo root is root-owned. Do not touch it under any circumstances. Deleting or replacing it breaks all future sessions.
 
 ---
 

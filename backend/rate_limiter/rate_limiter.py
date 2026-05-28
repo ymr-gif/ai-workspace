@@ -15,9 +15,11 @@ Design goals:
 import time
 
 from fastapi import Request, HTTPException, Depends
+from jose import jwt as _jose_jwt
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
+from config import JWT_ALGORITHM, JWT_SECRET_KEY
 from core.redis_client import get_redis
 
 
@@ -51,14 +53,23 @@ def get_key(request: Request) -> str:
     Generate stable rate-limit key.
 
     Priority:
-    1. authenticated user
+    1. authenticated user (JWT sub claim)
     2. client IP
     """
 
-    user = getattr(request.state, "user", None)
-
-    if user and getattr(user, "username", None):
-        return f"user:{user.username}"
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+        try:
+            payload = _jose_jwt.decode(
+                token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM],
+                options={"verify_aud": False},
+            )
+            sub = payload.get("sub")
+            if sub:
+                return f"user:{sub}"
+        except Exception:
+            pass
 
     return f"ip:{get_client_ip(request)}"
 

@@ -45,13 +45,18 @@ async def _embed_exchange(
     user_text:       str,
     assistant_text:  str,
 ) -> None:
-    try:
-        exchange = f"{user_text[:300]}\n{assistant_text[:400]}"
-        emb = await embed_text(exchange, input_type="passage")
-        if emb:
-            await retriever.store_exchange(message_id, conversation_id, user_text, assistant_text, emb)
-    except Exception:
-        logger.exception("[embed_exchange] failed msg=%s", message_id)
+    for attempt in range(2):
+        try:
+            exchange = f"{user_text[:300]}\n{assistant_text[:400]}"
+            emb = await embed_text(exchange, input_type="passage")
+            if emb:
+                await retriever.store_exchange(message_id, conversation_id, user_text, assistant_text, emb)
+            return
+        except Exception:
+            if attempt == 0:
+                logger.warning("[embed_exchange] retry msg=%s", message_id)
+            else:
+                logger.exception("[embed_exchange] failed msg=%s", message_id)
 
 
 async def _check_cost_cap(user: User, db: AsyncSession) -> None:

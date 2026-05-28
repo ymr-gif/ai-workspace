@@ -51,3 +51,18 @@ Completed features — full detail. See Archive rules in root CLAUDE.md.
 | `backend/core/neo4j_client.py` | CREATE FULLTEXT INDEX entity_name_ft |
 | `backend/llm/graph_memory.py` | fulltext query, limit=50, min_score=0.5 |
 | `backend/llm/service/context.py` | call site updated to limit=50 |
+
+---
+
+## Bug fixes — 8 confirmed
+**Completed:** 2026-05-28
+
+### What was fixed
+1. **Rate limiter keying** — `rate_limiter/rate_limiter.py`: decode JWT in `get_key()`; key by `user:<sub>`, fallback to IP
+2. **File upload workspace trust** — `api/files/router.py`: UUID parse + `ws.user_id == current_user.id` check
+3. **Observability schema mismatch** — `observability/metrics_worker.py`: `"type"` → `"event_type"`, `"action"` → `"operation"`, `"circuit"` → `"circuit_breaker"`
+4. **Retrieval grounding** — `llm/retriever.py`, `llm/service/context.py`: `_rrf_merge` returns `list[dict]` with `{content, score, source}`
+5. **Chat persistence partial-fail** — `api/chat/router.py`, `api/chat/helpers.py`: flush before stream, single commit covers user+assistant, embed retries once
+6. **Memory write race** — `api/memory.py`: `SELECT ... FOR UPDATE` on UserMemory row
+7. **Processor marks ready too early** — `services/processor.py`: `saved == 0` → status `"error"`; mark `"ready"` only when `saved > 0`
+8. **Usage N+1** — `api/usage.py`: single `GROUP BY` query replaces per-conv loop
