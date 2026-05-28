@@ -17,7 +17,7 @@ backend/
 │   ├── router.py           ← keyword classify() + route()
 │   ├── circuit_breaker.py  ← threshold=3, cooldown=30s
 │   ├── embeddings.py       ← embed(text, input_type) → list[float]; timeout=15s
-│   ├── retriever.py        ← hybrid vector+BM25 RRF (k=60); _FETCH_N=20 per side
+│   ├── retriever.py        ← hybrid vector+BM25 RRF (k=60); _FETCH_N=20 per side; all retrieve fns return dicts: chunk_id, source_id, content, dense_score, sparse_score, final_score, retrieval_type
 │   ├── summarizer.py       ← update_memory() + _update_workspace_memory() + compress_history()
 │   └── agency.py           ← generate_proactive_suggestion(); generate_insight_job (ARQ)
 ├── cache/                  ← Redis primary + LRU fallback; CACHE_VERSION=v2
