@@ -15,7 +15,13 @@ async def init_neo4j() -> None:
 
     from neo4j import AsyncGraphDatabase
 
-    _driver = AsyncGraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    _driver = AsyncGraphDatabase.driver(
+        NEO4J_URI,
+        auth=(NEO4J_USER, NEO4J_PASSWORD),
+        max_connection_pool_size=20,
+        connection_timeout=5.0,
+        max_transaction_retry_time=15.0,
+    )
     await _driver.verify_connectivity()
 
     async with _driver.session() as session:
@@ -26,6 +32,10 @@ async def init_neo4j() -> None:
         await session.run(
             "CREATE FULLTEXT INDEX entity_name_ft IF NOT EXISTS "
             "FOR (e:Entity) ON EACH [e.name]"
+        )
+        await session.run(
+            "CREATE INDEX entity_user_id IF NOT EXISTS "
+            "FOR (e:Entity) ON (e.user_id)"
         )
 
     logger.info("[neo4j] connected to %s", NEO4J_URI)
@@ -51,14 +61,15 @@ async def get_health() -> dict:
         from neo4j.exceptions import ServiceUnavailable
 
         async with driver.session() as session:
-            e_result = await session.run("MATCH (e:Entity) RETURN count(e) AS cnt")
-            r_result = await session.run("MATCH ()-[r:RELATED_TO]->() RETURN count(r) AS cnt")
-            e_row = await e_result.single()
-            r_row = await r_result.single()
+            result = await session.run(
+                "MATCH (e:Entity) WITH count(e) AS ec "
+                "MATCH ()-[r:RELATED_TO]->() RETURN ec, count(r) AS rc"
+            )
+            row = await result.single()
             return {
                 "available": True,
-                "entity_count": int(e_row["cnt"]) if e_row else 0,
-                "relation_count": int(r_row["cnt"]) if r_row else 0,
+                "entity_count": int(row["ec"]) if row else 0,
+                "relation_count": int(row["rc"]) if row else 0,
             }
     except ServiceUnavailable:
         return {"available": False, "entity_count": 0, "relation_count": 0}
