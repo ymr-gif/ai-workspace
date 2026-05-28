@@ -3,6 +3,47 @@ Completed features — full detail. See Archive rules in root CLAUDE.md.
 
 ---
 
+## Retrieval Eval Harness
+**Completed:** 2026-05-28
+
+### What was built
+- **`debug: bool = False` param** on `retrieve()` / `retrieve_from_files()` in `retriever.py` — when `True`, returns `(chunks, debug_info)` tuple; debug_info per hit: `{chunk_id, source_id, score, rank, fusion_mode}`. Default `False` → unchanged `list[dict]`. Zero changes to existing call sites.
+- **`?debug=true` on file search API** (`search.py`) — returns `{"results": [...], "debug": [...]}` with per-hit `{chunk_id, file_id, filename, score, rank, fusion_mode}`. Default off → unchanged response.
+- **Eval harness** (`tests/retrieval/test_hybrid_eval.py`) — 26 tests covering 5 query types (exact_match, fuzzy_bm25_boost, multi_source, vector_only_fallback, single_source) × 4 fusion modes (rrf k=60, weighted alpha=0.3/0.5/0.7) + 2 file types × 2 modes + debug flag checks. Computes recall@3 (≥0.7), MRR (≥0.6), citation coverage (≥0.8). No live NIM — mocks `db.execute()` via `AsyncMock`.
+
+### Key files
+| File | Change |
+|------|--------|
+| `backend/tests/retrieval/test_hybrid_eval.py` | 26 eval tests with fixed dataset, metrics, baselines |
+| `backend/llm/retriever.py` | `debug` param on `retrieve()` and `retrieve_from_files()` |
+| `backend/api/files/search.py` | `?debug=true` query param on search endpoint |
+
+---
+
+## Neo4j Grounding Injection
+**Completed:** 2026-05-28
+
+### What was built
+- **`get_health()`** in `core/neo4j_client.py` — returns `{"available": bool, "entity_count": int, "relation_count": int}`; runs `MATCH (e:Entity) RETURN count(e)` and `MATCH ()-[r:RELATED_TO]->() RETURN count(r)`
+- **`query_by_keywords()`** in `llm/graph_memory.py` — extracts keywords (> 2 chars, strips stopwords from `_STOPWORDS` set), runs fulltext entity search, expands neighborhood per matched entity via `(e)-[r:RELATED_TO]->(other)`, returns formatted `[GRAPH FACTS]` block with `Entity --[RELATION]→ Entity` lines
+- **`[GRAPH FACTS]` injection** in `context.py` — new `graph_facts: str = ""` param on `build_context_messages()`; injected after `[GRAPH CONTEXT]`, before `[USER STATE]`; context budget tier merged with `[GRAPH CONTEXT]` under same priority (tier 4)
+- **`_build_stream_context()`** in `helpers.py` — calls `query_by_keywords(user_id, req.message)` after existing `graph_context` query, stores in dict as `graph_facts`
+- **`GET /graph/health`** — returns `get_health()` result (Neo4j connectivity + global entity/relation counts)
+- **`GET /graph/sample`** — returns up to 10 random `{source, relation, target}` triples for current user via `MATCH (a)-[r:RELATED_TO]->(b) RETURN ... LIMIT 10`
+
+### Key files
+| File | Change |
+|------|--------|
+| `backend/core/neo4j_client.py` | `get_health()` function |
+| `backend/llm/graph_memory.py` | `query_by_keywords()` with stopword filtering, fulltext lookup, neighborhood expansion |
+| `backend/llm/service/context.py` | `graph_facts` param, `[GRAPH FACTS]` injection block, budget tier |
+| `backend/api/chat/helpers.py` | `query_by_keywords()` call in `_build_stream_context()` |
+| `backend/api/chat/router.py` | passes `graph_facts` to `generate_stream()` |
+| `backend/api/graph.py` | `GET /graph/health`, `GET /graph/sample` endpoints |
+| `backend/llm/service/stream.py` | forwards `graph_facts` to `build_context_messages()` |
+
+---
+
 ## RAG Provenance Pipeline
 **Completed:** 2026-05-28
 

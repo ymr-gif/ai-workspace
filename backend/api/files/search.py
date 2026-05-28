@@ -23,10 +23,12 @@ def _fuse(
     alpha:        float = 0.5,
     k_dense:      int   = 20,
     k_sparse:     int   = 20,
-) -> list[dict]:
+    debug:        bool  = False,
+) -> list[dict] | tuple[list[dict], list[dict]]:
     """Merge vector + BM25 results using RRF or weighted fusion.
 
     Each row: (cid, content, file_id, filename[, raw_score]).
+    When debug=True, returns (results, debug_info).
     """
     scores: dict = {}
     meta:   dict = {}
@@ -61,10 +63,19 @@ def _fuse(
             meta[cid]   = (row[1], row[2], row[3])
 
     sorted_ids = sorted(scores, key=lambda x: -scores[x])[:top_k]
-    return [
+    results = [
         {"file_id": str(meta[i][1]), "filename": meta[i][2], "chunk": meta[i][0]}
         for i in sorted_ids
     ]
+    if debug:
+        debug_info = [
+            {"chunk_id": str(i), "file_id": str(meta[i][1]),
+             "filename": meta[i][2], "score": round(scores[i], 6),
+             "rank": rank + 1, "fusion_mode": fusion_mode}
+            for rank, i in enumerate(sorted_ids)
+        ]
+        return results, debug_info
+    return results
 
 
 @router.get("/search")
@@ -76,6 +87,7 @@ async def search_files(
     k_dense:      int         = 20,
     k_sparse:     int         = 20,
     alpha:        float       = 0.5,
+    debug:        bool        = False,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
 ):
@@ -140,4 +152,8 @@ async def search_files(
     except Exception as e:
         logger.warning("[search] bm25 failed err=%s", e)
 
-    return _fuse(vec_rows, bm25_rows, top_k, fusion_mode, alpha, k_dense, k_sparse)
+    result = _fuse(vec_rows, bm25_rows, top_k, fusion_mode, alpha, k_dense, k_sparse, debug)
+    if debug:
+        results_list, debug_info = result
+        return {"results": results_list, "debug": debug_info}
+    return result

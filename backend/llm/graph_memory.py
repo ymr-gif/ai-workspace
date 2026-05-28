@@ -7,6 +7,13 @@ from core.neo4j_client import get_driver
 
 logger = logging.getLogger("graph_memory")
 
+_STOPWORDS = frozenset({
+    "the", "this", "that", "and", "for", "are", "was", "has", "had",
+    "but", "not", "with", "from", "they", "you", "its", "all", "can",
+    "just", "about", "been", "what", "when", "where", "who", "how",
+    "which", "will", "would", "could", "should", "does", "into", "than",
+})
+
 _EXTRACT_PROMPT = (
     "Extract entities and relationships from this conversation exchange.\n"
     "Return ONLY valid JSON:\n"
@@ -127,3 +134,53 @@ async def query_context(user_id: int, query_text: str, limit: int = 50, min_scor
 
 async def query_by_term(user_id: int, term: str, limit: int = 10, min_score: float = 0.5) -> str:
     return await query_context(user_id, term, limit=limit, min_score=min_score)
+
+
+async def query_by_keywords(user_id: int, query_text: str, limit: int = 30) -> str:
+    driver = get_driver()
+    if not driver:
+        return ""
+
+    words = [w for w in query_text.split() if len(w) > 2 and w.lower() not in _STOPWORDS]
+    if not words:
+        return ""
+
+    ft_query = " ".join(words)
+
+    try:
+        async with driver.session() as session:
+            result = await session.run(
+                "CALL db.index.fulltext.queryNodes('entity_name_ft', $query) YIELD node AS e, score "
+                "WHERE e.user_id = $uid "
+                "OPTIONAL MATCH (e)-[r:RELATED_TO]->(other:Entity {user_id: $uid}) "
+                "RETURN e.name AS source, r.type AS rel, other.name AS target, score "
+                "ORDER BY score DESC LIMIT $limit",
+                uid=user_id, query=ft_query, limit=limit,
+            )
+            rows = await result.data()
+
+        if not rows:
+            return ""
+
+        lines = []
+        seen = set()
+        for row in rows:
+            src = row.get("source")
+            rel = row.get("rel")
+            tgt = row.get("target")
+            if not src or not rel or not tgt:
+                continue
+            key = (src, rel, tgt)
+            if key in seen:
+                continue
+            seen.add(key)
+            lines.append(f"{src} --[{rel}]→ {tgt}")
+
+        if not lines:
+            return ""
+
+        return "\n".join(lines)
+
+    except Exception:
+        logger.exception("[graph] query_by_keywords failed user=%d", user_id)
+        return ""

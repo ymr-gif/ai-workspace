@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth.security import get_current_user
 from config import MODELS
 from core.db import get_db
-from models import Conversation, ConversationFile, File as FileModel, Message, User, Workspace
+from models import Conversation, Message, User, Workspace
 
 logger = logging.getLogger("conversations")
 router = APIRouter()
@@ -105,9 +105,9 @@ def _safe_filename(title: str, ext: str) -> str:
 
 class ConversationPatch(BaseModel):
     memory_enabled: bool | None = None
-    system_prompt:  str  | None = None   # "" clears
-    locked_model:   str  | None = None   # "" or short key ("llama"…) or full model id; "" clears
-    workspace_id:   str  | None = None   # UUID to move conv; "" clears (unassigns)
+    system_prompt:  str  | None = None
+    locked_model:   str  | None = None
+    workspace_id:   str  | None = None
 
 
 @router.patch("/conversations/{conversation_id}")
@@ -139,7 +139,6 @@ async def patch_conversation(
         if not raw:
             conv.locked_model = None
         else:
-            # accept short key ("llama") or full model id
             conv.locked_model = MODELS.get(raw, raw) if raw in MODELS or raw in MODELS.values() else None
 
     if "workspace_id" in updated:
@@ -163,95 +162,6 @@ async def patch_conversation(
         "locked_model":   conv.locked_model   or "",
         "workspace_id":   str(conv.workspace_id) if conv.workspace_id else None,
     }
-
-
-@router.get("/conversations/{conversation_id}/files")
-async def get_conversation_files(
-    conversation_id: str,
-    db:              AsyncSession = Depends(get_db),
-    current_user:    User         = Depends(get_current_user),
-):
-    try:
-        cid = uuid.UUID(conversation_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Not found")
-
-    conv = await db.get(Conversation, cid)
-    if not conv or conv.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Not found")
-
-    result = await db.execute(
-        select(FileModel)
-        .join(ConversationFile, FileModel.id == ConversationFile.file_id)
-        .where(ConversationFile.conversation_id == cid)
-    )
-    files = result.scalars().all()
-    return [
-        {
-            "id":       str(f.id),
-            "filename": f.filename,
-            "status":   f.upload_status,
-        }
-        for f in files
-    ]
-
-
-class AttachFileRequest(BaseModel):
-    file_id: str
-
-
-@router.post("/conversations/{conversation_id}/files", status_code=201)
-async def attach_file(
-    conversation_id: str,
-    body:            AttachFileRequest,
-    db:              AsyncSession = Depends(get_db),
-    current_user:    User         = Depends(get_current_user),
-):
-    try:
-        cid = uuid.UUID(conversation_id)
-        fid = uuid.UUID(body.file_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid id")
-
-    conv = await db.get(Conversation, cid)
-    if not conv or conv.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    f = await db.get(FileModel, fid)
-    if not f or f.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    existing = await db.get(ConversationFile, (cid, fid))
-    if not existing:
-        db.add(ConversationFile(conversation_id=cid, file_id=fid))
-        await db.commit()
-
-    return {"ok": True}
-
-
-@router.delete("/conversations/{conversation_id}/files/{file_id}")
-async def detach_file(
-    conversation_id: str,
-    file_id:         str,
-    db:              AsyncSession = Depends(get_db),
-    current_user:    User         = Depends(get_current_user),
-):
-    try:
-        cid = uuid.UUID(conversation_id)
-        fid = uuid.UUID(file_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Not found")
-
-    conv = await db.get(Conversation, cid)
-    if not conv or conv.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Not found")
-
-    cf = await db.get(ConversationFile, (cid, fid))
-    if cf:
-        await db.delete(cf)
-        await db.commit()
-
-    return {"ok": True}
 
 
 @router.get("/conversations/{conversation_id}/export")
@@ -297,7 +207,6 @@ async def export_conversation(
             headers={"Content-Disposition": f"attachment; filename=\"{_safe_filename(conv.title, 'json')}\""},
         )
 
-    # Markdown
     def _md_lines():
         yield f"# {conv.title}\n\n"
         for m in msgs:
