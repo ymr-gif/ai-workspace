@@ -3,6 +3,51 @@ Completed features — full detail. See Archive rules in root CLAUDE.md.
 
 ---
 
+## RAG Provenance Pipeline
+**Completed:** 2026-05-28
+
+### What was built
+- All retrieval functions return `chunk_id`, `source_id`, `dense_score`, `sparse_score`, `final_score`, `retrieval_type` on every hit
+- Fields propagated through `ctx["retrieved"]` and `ctx["file_chunks"]`
+
+### Key files
+| File | Change |
+|------|--------|
+| `backend/llm/retriever.py` | provenance fields on all retrieve fns |
+| `backend/llm/service/context.py` | passes hits with provenance into ctx |
+
+---
+
+## Provenance in `done` SSE Event
+**Completed:** 2026-05-28
+
+### What was built
+- `POST /chat/stream` `done` event now includes `provenance` field
+- Built from deduped merge of `ctx["retrieved"]` + `ctx["file_chunks"]`; `content` stripped; UUIDs stringified; deduped by `chunk_id`
+- Empty list `[]` when no RAG hits
+
+### Shape
+```json
+"provenance": [
+  {
+    "chunk_id":       "uuid-str",
+    "source_id":      "uuid-str or null",
+    "dense_score":    0.015748,
+    "sparse_score":   0.0,
+    "final_score":    0.015748,
+    "retrieval_type": "vector"
+  }
+]
+```
+
+### Key files
+| File | Change |
+|------|--------|
+| `backend/api/chat/router.py` | provenance block before `event["conversation_id"]` in `done` handler |
+| `backend/CLAUDE.md` | documented provenance field in API Routes |
+
+---
+
 ## Re-embed on MODEL_EMBEDDING change + Graph Memory (Neo4j)
 **Completed:** 2026-05-28
 

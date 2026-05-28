@@ -53,9 +53,13 @@ def get_key(request: Request) -> str:
     Generate stable rate-limit key.
 
     Priority:
-    1. authenticated user (JWT sub claim)
-    2. client IP
+    1. request.state.current_user (set by get_current_user, avoids JWT re-decode)
+    2. authenticated user (JWT sub claim)
+    3. client IP
     """
+    cu = getattr(request.state, "current_user", None)
+    if cu is not None:
+        return f"user:{cu.username}"
 
     auth = request.headers.get("authorization", "")
     if auth.startswith("Bearer "):

@@ -233,14 +233,14 @@ async def _process(db, file_id: uuid.UUID, storage_path: str, mime_type: str) ->
     row.upload_status = "processing"
     await db.commit()
 
-    text = extract_text(storage_path, mime_type)
+    text = await asyncio.to_thread(extract_text, storage_path, mime_type)
     if not text.strip():
         row.upload_status = "error"
         await db.commit()
         logger.warning("[processor] empty text file_id=%s", file_id)
         return
 
-    chunks = chunk_text(text)
+    chunks = await asyncio.to_thread(chunk_text, text)
     total  = len(chunks)
     saved  = 0
     pkey   = f"proc_progress:{file_id}"

@@ -13,6 +13,21 @@ from observability.file_metrics import record_tool_call
 logger = logging.getLogger("file_service")
 
 
+def _sync_read(path: str) -> str:
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        return fh.read()
+
+
+def _sync_write(path: str, content: str) -> None:
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(content)
+
+
+def _sync_append(path: str, content: str) -> None:
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(content)
+
+
 async def save_version(db: AsyncSession, file_id: uuid.UUID) -> None:
     """Snapshot current file content before any mutation."""
     f = await db.get(FileModel, file_id)
@@ -23,8 +38,7 @@ async def save_version(db: AsyncSession, file_id: uuid.UUID) -> None:
     )
     version_num = cnt.scalar_one() + 1
     try:
-        with open(f.storage_path, "r", encoding="utf-8", errors="replace") as fh:
-            content = fh.read()
+        content = await asyncio.to_thread(_sync_read, f.storage_path)
         db.add(FileVersion(id=uuid.uuid4(), file_id=file_id, version=version_num, content=content))
     except Exception as e:
         logger.warning("[file_service] save_version failed file_id=%s err=%s", file_id, e)
@@ -36,8 +50,7 @@ async def write_content(db: AsyncSession, user_id: int, file_id: uuid.UUID, cont
         return "Error: file not found or access denied."
     try:
         await save_version(db, file_id)
-        with open(f.storage_path, "w", encoding="utf-8") as fh:
-            fh.write(content)
+        await asyncio.to_thread(_sync_write, f.storage_path, content)
         await db.execute(delete(FileChunk).where(FileChunk.file_id == file_id))
         f.upload_status = "uploaded"
         await db.commit()
@@ -57,8 +70,7 @@ async def append_content(db: AsyncSession, user_id: int, file_id: uuid.UUID, con
     try:
         await save_version(db, file_id)
         separator = "\n\n" if content and not content.startswith("\n") else ""
-        with open(f.storage_path, "a", encoding="utf-8") as fh:
-            fh.write(separator + content)
+        await asyncio.to_thread(_sync_append, f.storage_path, separator + content)
         await db.execute(delete(FileChunk).where(FileChunk.file_id == file_id))
         f.upload_status = "uploaded"
         await db.commit()
@@ -98,14 +110,12 @@ async def patch_content(
     if not f or f.user_id != user_id:
         return "Error: file not found or access denied."
     try:
-        with open(f.storage_path, "r", encoding="utf-8", errors="replace") as fh:
-            current = fh.read()
+        current = await asyncio.to_thread(_sync_read, f.storage_path)
         updated, found = _fuzzy_replace(current, old_text, new_text)
         if not found:
             return "Error: text not found in file. Use read_file to get the exact text, then retry."
         await save_version(db, file_id)
-        with open(f.storage_path, "w", encoding="utf-8") as fh:
-            fh.write(updated)
+        await asyncio.to_thread(_sync_write, f.storage_path, updated)
         await db.execute(delete(FileChunk).where(FileChunk.file_id == file_id))
         f.upload_status = "uploaded"
         await db.commit()

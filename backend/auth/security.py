@@ -1,7 +1,7 @@
 import logging
 from datetime import timedelta, timezone, datetime
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -48,8 +48,9 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
 
 
 async def get_current_user(
-    token: str | None = Depends(oauth2_scheme),
-    db:    AsyncSession = Depends(get_db),
+    request: Request,
+    token:   str | None = Depends(oauth2_scheme),
+    db:      AsyncSession = Depends(get_db),
 ) -> User:
     exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -67,6 +68,7 @@ async def get_current_user(
         if username and token_type == "access":
             user = await get_user(username, db)
             if user and user.is_active:
+                request.state.current_user = user
                 return user
             raise exc
     except JWTError:
@@ -76,6 +78,7 @@ async def get_current_user(
     result = await db.execute(select(User).where(User.api_key == token, User.api_key.isnot(None)))
     user = result.scalar_one_or_none()
     if user and user.is_active:
+        request.state.current_user = user
         return user
 
     logger.warning("[auth] invalid token/api-key")
