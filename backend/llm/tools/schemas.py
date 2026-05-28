@@ -150,7 +150,14 @@ WRITE_MEMORY_SCHEMA = {
     "type": "function",
     "function": {
         "name": "write_memory",
-        "description": "Record an important fact about the user based on this conversation. The user must confirm before saving.",
+        "description": (
+            "Propose saving a significant, durable fact about the user to long-term memory. "
+            "ONLY call this when the user has explicitly shared something that would be valuable "
+            "across many future conversations — e.g. a stated preference, personal background, "
+            "professional context, or explicit goal. "
+            "Do NOT call this for greetings, single-use context, transient questions, or anything "
+            "that would not be useful to recall in a completely different future conversation."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
