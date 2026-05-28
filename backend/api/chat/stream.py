@@ -281,7 +281,9 @@ async def chat_stream(
                             "final_score":    hit.get("final_score", 0.0),
                             "retrieval_type": hit.get("retrieval_type", ""),
                         })
-                    event["provenance"] = provenance
+                    event["provenance"]  = provenance
+                    event["query_type"]  = ctx.get("policy_used", "")
+                    event["src_count"]   = len(provenance)
 
                     event["conversation_id"] = conv_id_str
                     yield f"data: {_json.dumps(event)}\n\n"
