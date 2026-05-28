@@ -2,136 +2,71 @@
 
 ## Stack
 - React + Vite; `vite.config.js` proxies `/api` → `localhost:8000`
-- `react-markdown` + `remark-gfm` installed
 - `src/App.jsx` — login form, JWT in localStorage as `nim_token`
 - `src/components/Chat.jsx` — full UI
-- **All fetch calls must use `/api/` prefix** — bare paths (e.g. `/auth/me`) bypass the proxy and 404 silently
-
-## Chat.jsx — Key Features
-- AI responses: streaming → raw `<p>` + blinking cursor; done → `<ReactMarkdown>` in `.md-body`
-- User messages and errors stay plain text
-- Compare mode: same streaming/done split per model card
-- Per-bubble token display: `{totalTokens} tok · $x.xxxxx` below model tag when done
-  - Live: from SSE "done" event; history: from messages endpoint
-- `$ Usage` button → slide-in panel (aggregate `/api/usage`): messages, tokens, cost + refresh
-- **Workspace filter pills** in sidebar — loaded from `GET /workspaces` on mount
-  - "All" pill + one pill per workspace; active pill filters conversation list
-  - Each workspace pill has ⚙ (edit/delete) and + (create) buttons → workspace modal
-  - `workspace_id` sent in every `/chat/stream` request (null = backend picks Default)
-  - New conversations in SSE "done" event include `workspace_id` for immediate sidebar filter
-- **Workspace modal** — create or edit workspace
-  - Fields: name, description, system prompt
-  - Delete button (with confirm) on edit mode
-  - `POST /workspaces` / `PATCH /workspaces/{id}` / `DELETE /workspaces/{id}`
-- **Conversation search** — debounced input above conversation list (300ms)
-  - Calls `GET /conversations?q=` on input; shows results inline; clears on empty
-- **Conversation export** — ⬇ button per conversation in sidebar
-  - Downloads via `GET /conversations/{id}/export?format=markdown` (Content-Disposition attachment)
-- **Invite panel** (admin only) — ⚡ button in header
-  - Loads from `GET /auth/invites`; generate token via `POST /auth/invite`
-  - Click token text to copy to clipboard
-  - Shows: token, expires, status (unused / used by <username>)
-- **Admin endpoints** (no frontend panel yet — API-only)
-  - `GET /api/admin/users` — includes `cost_window_days` field per user
-  - `PATCH /api/admin/users/{id}/cost-limit` — body: `{cost_limit_usd, cost_window_days}` (default 30)
-  - `GET /api/admin/audit-log?action=&target_user_id=&limit=&offset=` — admin action trail
-
-## Files Panel
-- 📎 button in header — amber + count when files attached
-- 2 tabs: Library / Attached
-- Library per-file: status badge, rename (inline), ✎ rename, 👁 view, ⬇ download, +/✓ attach, 🗑 delete
-- Attached per-file: status badge, filename, 👁 view, ✕ detach
-- Processing status: SSE stream per file (not polling); `AbortController` stored in `statusStreamsRef`
-- Upload button + URL ingest input
-- Workspace filter pills from `GET /files/workspaces` → `{workspaces: [{id, name}]}`
-  - `wsFilter` is a UUID string (was plain string in old API)
-
-## File Viewer Modal
-- 3 tabs:
-  - **View**: `<pre>` of content + ⬇ Download
-  - **Edit**: textarea (pre-filled) + Save/Cancel → PUT /files/{id}/content
-  - **Versions**: list (version #, date, size) + Restore per version
-- Closes on overlay click or ✕
-
-## Tool Log Panel
-- 🔧 Log button → slide-in; state: `toolLogOpen`, `toolLogs`, `toolLogsLoading`
-- Loads from `GET /tool-calls?conversation_id=&limit=100`
-- Filter pills: This conversation / All
-- Per-row: tool name (purple), timestamp, args summary, result preview
-
-## Proactive Suggestion Card
-- Appears below chat feed after each AI response (when backend yields `{type:"proactive"}` SSE event)
-- Indigo card: "SUGGESTION" label + text + ✕ dismiss button
-- Clears automatically on next send
-- State: `proactive` string | null
-
-## Insights Panel
-- 💡 button in header; unread badge (count) shown when `unreadCount > 0`
-- Slide-in panel: `GET /api/insights?all=true` when opened; `GET /api/insights` on mount (unread only, for badge)
-- Click insight → marks read (`PATCH /api/insights/{id}/read`); unread shown with indigo dot + highlighted border
-- 🗑 per-insight delete (`DELETE /api/insights/{id}`)
-- State: `insightsOpen`, `insights`, `insightsLoading`, `unreadCount`
-
-## ask_user Flow
-1. Model calls `ask_user(question="...")`
-2. Backend yields `{type:"ask_user", question}` SSE + done
-3. Frontend: sets `m.askUser = question`
-4. Renders amber card: "NEEDS CLARIFICATION" + question
-5. User replies normally → next message resumes with full context
-
-## Model Control Toolbar
-- Pills: Auto / LLaMA 8B / DeepSeek / 70B
-- ⊞ Compare toggle
-- ⚙ params expander: temp, max_tokens, top_p (per-slider enable checkboxes)
-- ⚙ settings modal: system prompt, model lock, **workspace selector** (dropdown of user's workspaces)
-  - Workspace change: `PATCH /conversations/{id}` with `workspace_id`
-- Ctx button — toggles memory_enabled
-- Sidebar shows 🔒 when locked model set
-
-## Memory Panel
-- Tabs: User / Workspace (visible when workspace is selected in sidebar) / History
-- Workspace tab: loads `GET /workspaces/{id}/memory`; view + inline edit; `PUT /workspaces/{id}/memory` to save
-  - Tracks version number; shows last updated timestamp
-
-## Markdown CSS
-Scoped to `.md-body`, injected via `<style>` tag.
-Covers: `p`, `h1-h4`, `code` (inline + block `pre`), `ul/ol/li`, `blockquote`, `table/th/td`, `a`, `strong`, `em`, `hr`
+- **All fetch calls must use `/api/` prefix** — bare paths bypass proxy and 404 silently
 
 ---
 
-## Possible Next Features
-Suggestions only — ask for specs before implementing.
+## Chat.jsx — Key Features
+- Streaming: raw `<p>` + blinking cursor → done → `<ReactMarkdown>` in `.md-body`
+- Per-bubble: `{totalTokens} tok · $x.xxxxx`; live from SSE "done", history from messages endpoint
+- **Workspace filter pills** — loaded from `GET /api/workspaces` on mount; "All" + per-workspace; ⚙ edit/delete + create; `workspace_id` sent in every `/api/chat/stream` request
+- **Workspace modal** — create/edit; fields: name, description, system_prompt; delete with confirm
+- **Conversation search** — debounced 300ms; `GET /api/conversations?q=`; clears on empty
+- **Conversation export** — ⬇ per conv; `GET /api/conversations/{id}/export?format=markdown`
+- **Invite panel** (admin) — ⚡ button; load `GET /api/auth/invites`; generate `POST /api/auth/invite`; click to copy
+- **Admin endpoints** (API-only, no frontend panel): `/api/admin/users`, `/api/admin/users/{id}/cost-limit`, `/api/admin/audit-log`
+- **$ Usage panel** — slide-in; aggregate `GET /api/usage`
+- **Compare mode** — same streaming/done split per model card
 
-### UX / Frontend
-- **Message editing** — resend edited user message; truncate conv to that point
-- **Drag-and-drop upload** — drop anywhere on chat area
-- **Keyboard shortcuts** — `Ctrl+Enter` send, `Ctrl+K` search, `Esc` close panels
-- **Mobile layout** — sidebar hamburger, stacked input bar
-- **Cost budget alerts** — user-configurable; toast + optional hard block
-- **Admin frontend panel** — user table + usage + enable/disable; currently API-only
+## Files Panel
+- 📎 header button; amber + count when files attached; 2 tabs: Library / Attached
+- Library: status badge · inline rename · 👁 view · ⬇ download · +/✓ attach · 🗑 delete
+- Processing: SSE per file (not polling); `AbortController` in `statusStreamsRef`
+- Workspace filter from `GET /api/files/workspaces` → `{workspaces:[{id,name}]}`; `wsFilter` is UUID
 
-### RAG / Memory
-- **Re-embed on model change** — MODEL_EMBEDDING change makes old chunks stale
-- **Per-conversation memory** — separate sheet per conv, not just per user
-- **Graph memory** — entities + relationships; richer than flat key-value
+## File Viewer Modal
+- 3 tabs: **View** (`<pre>` + download) · **Edit** (textarea → `PUT /api/files/{id}/content`) · **Versions** (list + restore)
+- Closes on overlay click or ✕
 
-### Token / Cost
-- **Budget dashboard** — Grafana panels per user (PostgreSQL group-by user_id)
-- **Monthly rollup** — aggregate table beyond Prometheus window
-- **Cost cap rolling window** — currently all-time; monthly reset more practical
+## Tool Log Panel
+- 🔧 button → slide-in; `GET /api/tool-calls?conversation_id=&limit=100`
+- Filter: This conversation / All; per-row: tool name (purple), timestamp, args, result preview
 
-### Observability / Admin
-- **User activity timeline** — last N messages per user with timestamps + models
-- **Memory system metrics** — Prometheus counters for memory updates, RAG hits
-- **Grafana alerts** — error rate >5%, latency p95 >10s, cost spike
-- **Usage CSV export** — `GET /admin/export/usage.csv`
+## Panels & Cards
+- **Proactive suggestion**: indigo card below chat feed on `{type:"proactive"}` SSE; ✕ dismiss; clears on next send
+- **Insights**: 💡 button; unread badge; `GET /api/insights`; click → mark read; 🗑 delete; indigo dot for unread
+- **ask_user**: amber card "NEEDS CLARIFICATION" on `{type:"ask_user"}` SSE; user reply resumes with full context
+- **Memory panel**: tabs User / Workspace / History; Workspace tab: `GET/PUT /api/workspaces/{id}/memory`
 
-### Infrastructure
-- **Prometheus remote write** — persist metrics across restarts
-- **Automated backup verification** — weekly restore test to temp DB
+## Model Control Toolbar
+- Pills: Auto / LLaMA 8B / DeepSeek / 70B · ⊞ Compare · ⚙ params (temp, max_tokens, top_p with per-slider enable)
+- ⚙ settings modal: system prompt · model lock · workspace selector (`PATCH /api/conversations/{id}` with workspace_id)
+- Ctx button: toggles memory_enabled · sidebar shows 🔒 when model locked
 
-### Security (lowest priority — home/LAN deployed)
-- **Prompt injection detection** — heuristic before passing to model
-- **API key auth** — alternative to JWT; `User.api_key` column
-- **CORS lockdown** — restrict to known frontend origin in production
-- **OpenAI-compatible endpoint** — `POST /v1/chat/completions` wrapper
+## Markdown CSS
+Scoped to `.md-body` via `<style>` tag. Covers: p · h1-h4 · code/pre · ul/ol/li · blockquote · table · a · strong · em · hr
+
+---
+
+## HANDOFF Protocol
+
+On session start — check if `frontend/HANDOFF.md` exists:
+```bash
+ls HANDOFF.md 2>/dev/null && echo "YOUR TURN" || echo "no handoff"
+```
+
+If it exists:
+1. Read `## frontdir` Tasks section
+2. Read `## backdir → Recorded` — use exact endpoint shapes, SSE event names, env vars listed there
+3. Execute all tasks (check off as done); add addenda if Recorded reveals extra work
+4. Fill `### Recorded` with facts for dockdir if applicable
+5. Append a History row
+6. Move file:
+   ```bash
+   mv HANDOFF.md ../docker/HANDOFF.md   # if dockdir has tasks
+   mv HANDOFF.md ../HANDOFF.md          # if done — set status: done
+   ```
+
+All fetch calls use `/api/` prefix.

@@ -205,6 +205,14 @@ async def _build_stream_context(
             if ws_mem and ws_mem.content:
                 workspace_memory = ws_mem.content
 
+    graph_context = ""
+    if memory_enabled:
+        try:
+            from llm.graph_memory import query_context as graph_query
+            graph_context = await graph_query(current_user.id, req.message)
+        except Exception:
+            logger.exception("[graph] query_context failed")
+
     return {
         "memory_enabled":      memory_enabled,
         "memory_sheet":        memory_sheet,
@@ -217,6 +225,7 @@ async def _build_stream_context(
         "file_ids":            file_ids,
         "workspace_memory":    workspace_memory,
         "workspace_sysprompt": workspace_sysprompt,
+        "graph_context":       graph_context,
     }
 
 

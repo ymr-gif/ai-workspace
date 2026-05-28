@@ -107,8 +107,6 @@ ai-api/
 - `passlib` deprecation warning for `crypt` on Python 3.13+ — harmless on 3.11
 - Embedding latency (~100-300ms) adds to stream start time
 - File RAG requires explicit attachment (Library → + button); upload alone is not enough
-- File context only injected when `req.conversation_id` set — first message of new conv won't have it
-- AI tool loop forces 70B when file_ids present + `_needs_file_tools` passes — `model_override`/`locked_model` now takes precedence (fixed)
 - `_needs_file_tools` keyword-based — may miss implicit file requests ("look at my notes")
 - Token counts on pre-migration 011 messages are NULL
 - Token pricing hardcoded in `config.py:MODEL_PRICING` — verify at build.nvidia.com/explore/llm
@@ -117,7 +115,6 @@ ai-api/
 - Prometheus counters reset on container restart — rate panels lose history; stat panels (PostgreSQL) unaffected
 - `$ Usage` panel shows current user only; admin must use `/admin/users` API directly
 - Cost cap supports rolling window via `cost_window_days` (default 30); set to null for all-time
-- BM25 hybrid search uses `simple` config (fixed in migration 017) — no stemming, works for any language
 
 ---
 
@@ -162,3 +159,29 @@ docker compose exec api python create_user.py
 # Run tests
 cd backend && python -m pytest tests/test.py -v
 ```
+
+---
+
+## HANDOFF Protocol
+
+Root is coordinator. One physical `HANDOFF.md` exists in the repo at any time. Its location = current owner.
+
+**Locate file first:**
+```bash
+find . -name HANDOFF.md
+```
+
+**Starting a feature:**
+1. Find HANDOFF.md (may be at root or in a subdir)
+2. Amend: set Active Feature, write task lists per agent, set execution order
+3. `mv HANDOFF.md backend/HANDOFF.md` (or whichever dir executes first)
+4. Append a History row
+
+**Returning to in-flight feature:**
+1. Find file → read Recorded sections from prior agents
+2. Amend next agent's task list if new addenda needed
+3. Leave file in place (do not move — the owning agent moves it when done)
+
+**Task format:** one checkbox = one concrete action (small and specific)
+
+**Execution order options:** `backdir → frontdir → dockdir` · adjust per feature · skip unused dirs · return to root when all done (set status: done)

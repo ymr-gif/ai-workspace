@@ -371,6 +371,12 @@ export default function Chat({ token, onLogout }) {
   const [inviteLoading,   setInviteLoading]   = useState(false)
   const [newToken,        setNewToken]        = useState('')
   const [tokenGenerating, setTokenGenerating] = useState(false)
+  const [reEmbedding,     setReEmbedding]     = useState(false)
+  const [reEmbedMsg,      setReEmbedMsg]      = useState('')
+
+  // graph memory stats
+  const [graphStats,      setGraphStats]      = useState(null)
+  const [graphLoading,    setGraphLoading]    = useState(false)
 
   // insights panel
   const [insightsOpen,    setInsightsOpen]    = useState(false)
@@ -617,6 +623,24 @@ export default function Chat({ token, onLogout }) {
       if (r.ok) { const d = await r.json(); setNewToken(d.token); await loadInvites() }
     } catch { /* ignore */ } finally { setTokenGenerating(false) }
   }
+
+  async function triggerReEmbed() {
+    setReEmbedding(true)
+    setReEmbedMsg('')
+    try {
+      const r = await fetch('/api/admin/re-embed', { method: 'POST', headers: authHeaders })
+      if (r.ok) { const d = await r.json(); setReEmbedMsg(`Queued ${d.queued} chunks`) }
+      else setReEmbedMsg('Error: ' + r.status)
+    } catch { setReEmbedMsg('Request failed') } finally { setReEmbedding(false) }
+  }
+
+  const loadGraphStats = useCallback(async () => {
+    setGraphLoading(true)
+    try {
+      const r = await fetch('/api/graph/stats', { headers: authHeaders })
+      if (r.ok) setGraphStats(await r.json())
+    } catch { /* ignore */ } finally { setGraphLoading(false) }
+  }, [token])
 
   // export conversation
   async function exportConv(convId, title, format = 'markdown') {
@@ -1665,6 +1689,15 @@ export default function Chat({ token, onLogout }) {
               </div>
             </div>
           ))}
+          <div style={{ borderTop:'1px solid #1e293b', marginTop:'1rem', paddingTop:'1rem' }}>
+            <div style={{ fontSize:'0.78rem', color:'#94a3b8', fontWeight:600, marginBottom:'0.5rem' }}>⚙ Embeddings</div>
+            <button onClick={triggerReEmbed} disabled={reEmbedding}
+              style={{ ...s.actionBtn, width:'100%', background: reEmbedding ? 'rgba(99,102,241,0.08)' : undefined }}>
+              {reEmbedding ? 'Queuing…' : '↺ Re-embed All'}
+            </button>
+            {reEmbedMsg && <div style={{ fontSize:'0.72rem', color: reEmbedMsg.startsWith('Error') ? '#f87171' : '#34d399', marginTop:'0.4rem' }}>{reEmbedMsg}</div>}
+            <div style={{ fontSize:'0.68rem', color:'#334155', marginTop:'0.3rem' }}>Re-embeds all file chunks and messages. Use after changing MODEL_EMBEDDING.</div>
+          </div>
         </div>
       </div>
 
@@ -1688,14 +1721,15 @@ export default function Chat({ token, onLogout }) {
         </div>
 
         <div style={s.tabBar}>
-          {['view', ...(sidebarWsId ? ['workspace'] : []), 'edit', 'history'].map(tab => (
+          {['view', ...(sidebarWsId ? ['workspace'] : []), 'edit', 'history', 'graph'].map(tab => (
             <button key={tab} onClick={() => {
               if (tab === 'edit') openEdit()
               else if (tab === 'workspace') { setMemTab('workspace'); loadWsMemory(sidebarWsId) }
+              else if (tab === 'graph') { setMemTab('graph'); loadGraphStats() }
               else setMemTab(tab)
             }}
               style={{ ...s.tabBtn, ...(memTab === tab ? s.tabActive : {}) }}>
-              {tab === 'view' ? 'View' : tab === 'edit' ? 'Edit' : tab === 'workspace' ? 'Workspace' : 'History'}
+              {tab === 'view' ? 'View' : tab === 'edit' ? 'Edit' : tab === 'workspace' ? 'Workspace' : tab === 'graph' ? 'Graph' : 'History'}
             </button>
           ))}
         </div>
@@ -1807,6 +1841,33 @@ export default function Chat({ token, onLogout }) {
                   )}
                 </>
               )}
+            </div>
+          )}
+          {memTab === 'graph' && (
+            <div>
+              {graphLoading && <p style={s.emptyMem}>Loading…</p>}
+              {!graphLoading && graphStats && !graphStats.available && (
+                <p style={s.emptyMem}>Graph memory unavailable.<br /><span style={{ fontSize:'0.75rem' }}>Set NEO4J_PASSWORD to enable.</span></p>
+              )}
+              {!graphLoading && graphStats?.available && (
+                <>
+                  <div style={{ display:'flex', gap:'1rem', marginBottom:'1rem' }}>
+                    <div style={{ flex:1, background:'#0a1220', border:'1px solid #1e293b', borderRadius:'8px', padding:'0.75rem', textAlign:'center' }}>
+                      <div style={{ fontSize:'1.5rem', fontWeight:700, color:'#818cf8' }}>{graphStats.entities}</div>
+                      <div style={{ fontSize:'0.72rem', color:'#475569', marginTop:'2px' }}>Entities</div>
+                    </div>
+                    <div style={{ flex:1, background:'#0a1220', border:'1px solid #1e293b', borderRadius:'8px', padding:'0.75rem', textAlign:'center' }}>
+                      <div style={{ fontSize:'1.5rem', fontWeight:700, color:'#34d399' }}>{graphStats.relations}</div>
+                      <div style={{ fontSize:'0.72rem', color:'#475569', marginTop:'2px' }}>Relations</div>
+                    </div>
+                  </div>
+                  <p style={{ fontSize:'0.72rem', color:'#334155' }}>Graph is built automatically from conversations when memory is enabled.</p>
+                </>
+              )}
+              {!graphLoading && !graphStats && (
+                <p style={s.emptyMem}>No data yet.</p>
+              )}
+              <button onClick={loadGraphStats} style={{ ...s.actionBtn, marginTop:'0.5rem' }} disabled={graphLoading}>↻ Refresh</button>
             </div>
           )}
         </div>

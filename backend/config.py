@@ -69,6 +69,11 @@ PROMETHEUS_ENABLED = os.getenv("PROMETHEUS_ENABLED", "true").lower() == "true"
 PROMETHEUS_HOST    = os.getenv("PROMETHEUS_HOST", "0.0.0.0")
 PROMETHEUS_PORT    = int(os.getenv("PROMETHEUS_PORT", 9100))
 
+# ── Neo4j (graph memory) ──────────────────────────────────────────────────────
+NEO4J_URI      = os.getenv("NEO4J_URI",      "bolt://neo4j:7687")
+NEO4J_USER     = os.getenv("NEO4J_USER",     "neo4j")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "")
+
 # ── Storage ───────────────────────────────────────────────────────────────────
 STORAGE_DIR = os.getenv("STORAGE_DIR", "storage/files")
 

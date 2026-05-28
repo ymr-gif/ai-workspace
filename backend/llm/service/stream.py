@@ -98,6 +98,7 @@ async def generate_stream(
     image_b64:        str | None        = None,
     image_mime_type:  str | None        = None,
     workspace_memory: str               = "",
+    graph_context:    str               = "",
 ):
     # Cache excludes file/image/custom-params requests; history + model included in key
     use_cache = not file_chunks and not image_b64 and not model_params
@@ -142,7 +143,7 @@ async def generate_stream(
     base_messages = build_context_messages(
         memory_sheet, project_summary, retrieved_chunks, history_summary,
         history, memory_enabled, system_prompt, file_chunks, file_names, file_ids,
-        workspace_memory=workspace_memory,
+        workspace_memory=workspace_memory, graph_context=graph_context,
     ) + [user_msg]
 
     for idx, current_model in enumerate(fallback_chain):
