@@ -149,8 +149,9 @@ async def query_context(user_id: int, query_text: str, limit: int = 50, min_scor
             result = await session.run(
                 "CALL db.index.fulltext.queryNodes('entity_name_ft', $ft) YIELD node AS e, score "
                 "WHERE e.user_id = $uid AND score >= $min_score "
+                "WITH e, score "
                 "OPTIONAL MATCH (e)-[r:RELATED_TO]->(other:Entity {user_id: $uid}) "
-                "RETURN e.name AS name, e.type AS type, "
+                "RETURN e.name AS name, e.type AS type, score, "
                 "       collect({rel: r.type, target: other.name}) AS rels "
                 "ORDER BY score DESC LIMIT $limit",
                 uid=user_id, ft=ft_query, limit=limit, min_score=min_score,
