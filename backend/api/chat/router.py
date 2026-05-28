@@ -149,7 +149,7 @@ async def chat_stream(
     user_msg = Message(conversation_id=conv.id, role="user", content=req.message)
     db.add(user_msg)
     conv.updated_at = datetime.now(timezone.utc)
-    await db.commit()
+    await db.flush()
     conv_id_str = str(conv.id)
     t_start     = metrics.record_request_start()
 
@@ -237,6 +237,7 @@ async def chat_stream(
 
                     except Exception:
                         logger.exception("[chat/stream] db save failed rid=%s", rid)
+                        await db.rollback()
 
                     # Proactive suggestion before closing stream
                     try:

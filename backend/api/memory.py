@@ -34,7 +34,11 @@ async def _write_memory(
     project_summary = _truncate(body.project_summary.strip(), 300)
     now             = datetime.now(timezone.utc)
 
-    row = await db.get(UserMemory, current_user.id)
+    row = await db.scalar(
+        select(UserMemory)
+        .where(UserMemory.user_id == current_user.id)
+        .with_for_update()
+    )
 
     if row:
         db.add(UserMemoryVersion(

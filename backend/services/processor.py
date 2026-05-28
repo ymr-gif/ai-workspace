@@ -272,6 +272,12 @@ async def _process(db, file_id: uuid.UUID, storage_path: str, mime_type: str) ->
             except Exception:
                 redis = None
 
+    if saved == 0:
+        row.upload_status = "error"
+        await db.commit()
+        logger.error("[processor] no chunks saved file_id=%s total=%d", file_id, total)
+        return
+
     row.upload_status = "ready"
     await db.commit()
     record_chunks(saved)

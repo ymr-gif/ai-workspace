@@ -90,7 +90,7 @@ def process_event(data: dict):
         logger.warning(f"[worker] bad event: {e}")
         return
 
-    event_type = payload.get("type")
+    event_type = payload.get("event_type")
 
     # ── REQUEST ─────────────────────────────
     if event_type == "request":
@@ -109,7 +109,7 @@ def process_event(data: dict):
 
     # ── CACHE ────────────────────────────────
     elif event_type == "cache":
-        action = payload.get("action")
+        action = payload.get("operation")
 
         if action == "hit":
             metrics_store["cache_hits"] += 1
@@ -128,7 +128,7 @@ def process_event(data: dict):
             metrics_store["model_latency"].append(latency)
 
     # ── CIRCUIT ──────────────────────────────
-    elif event_type == "circuit":
+    elif event_type == "circuit_breaker":
         metrics_store["circuit_trips"] += 1
 
 

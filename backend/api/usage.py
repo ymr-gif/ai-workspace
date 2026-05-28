@@ -43,34 +43,39 @@ async def get_my_usage_history(
     current_user: User         = Depends(get_current_user),
 ):
     """Per-conversation token usage breakdown for current user."""
-    convs = (await db.execute(
-        select(Conversation)
+    rows = (await db.execute(
+        select(
+            Conversation.id,
+            Conversation.title,
+            Conversation.created_at,
+            func.count(Message.id).label("msgs"),
+            func.coalesce(func.sum(Message.prompt_tokens),     0).label("pt"),
+            func.coalesce(func.sum(Message.completion_tokens), 0).label("ct"),
+            func.coalesce(func.sum(Message.total_tokens),      0).label("tt"),
+            func.coalesce(func.sum(Message.cost_usd),          0.0).label("cost"),
+        )
+        .outerjoin(
+            Message,
+            (Message.conversation_id == Conversation.id) & (Message.role == "assistant"),
+        )
         .where(Conversation.user_id == current_user.id)
+        .group_by(Conversation.id, Conversation.title, Conversation.created_at)
         .order_by(Conversation.created_at.desc())
         .limit(50)
-    )).scalars().all()
+    )).all()
 
-    breakdown = []
-    for conv in convs:
-        row = (await db.execute(
-            select(
-                func.count(Message.id).filter(Message.role == "assistant").label("msgs"),
-                func.coalesce(func.sum(Message.prompt_tokens),     0).label("pt"),
-                func.coalesce(func.sum(Message.completion_tokens), 0).label("ct"),
-                func.coalesce(func.sum(Message.total_tokens),      0).label("tt"),
-                func.coalesce(func.sum(Message.cost_usd),          0.0).label("cost"),
-            )
-            .where(Message.conversation_id == conv.id, Message.role == "assistant")
-        )).one()
-        breakdown.append({
-            "conversation_id":   str(conv.id),
-            "title":             conv.title,
-            "created_at":        conv.created_at.isoformat(),
-            "message_count":     row.msgs,
-            "prompt_tokens":     row.pt,
-            "completion_tokens": row.ct,
-            "total_tokens":      row.tt,
-            "cost_usd":          round(float(row.cost or 0), 6),
-        })
-
-    return {"conversations": breakdown}
+    return {
+        "conversations": [
+            {
+                "conversation_id":   str(r.id),
+                "title":             r.title,
+                "created_at":        r.created_at.isoformat(),
+                "message_count":     r.msgs,
+                "prompt_tokens":     r.pt,
+                "completion_tokens": r.ct,
+                "total_tokens":      r.tt,
+                "cost_usd":          round(float(r.cost or 0), 6),
+            }
+            for r in rows
+        ]
+    }

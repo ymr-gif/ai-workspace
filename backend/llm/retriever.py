@@ -29,18 +29,24 @@ def _rrf_merge(
     vector_rows: list[tuple],
     bm25_rows:   list[tuple],
     top_k:       int,
-) -> list[str]:
+) -> list[dict]:
     """Reciprocal Rank Fusion: combine (id, content) lists from both sources."""
     scores:   dict = {}
     contents: dict = {}
+    sources:  dict = {}
     for rank, (rid, content) in enumerate(vector_rows):
         scores[rid]   = scores.get(rid, 0.0) + 1.0 / (_RRF_K + rank + 1)
         contents[rid] = content
+        sources.setdefault(rid, set()).add("vector")
     for rank, (rid, content) in enumerate(bm25_rows):
         scores[rid]   = scores.get(rid, 0.0) + 1.0 / (_RRF_K + rank + 1)
         contents[rid] = content
+        sources.setdefault(rid, set()).add("bm25")
     sorted_ids = sorted(scores, key=lambda x: -scores[x])
-    return [contents[i] for i in sorted_ids[:top_k]]
+    return [
+        {"content": contents[i], "score": round(scores[i], 6), "source": "+".join(sorted(sources[i]))}
+        for i in sorted_ids[:top_k]
+    ]
 
 
 async def _bm25_file_chunks(
@@ -107,7 +113,10 @@ async def retrieve(
 
         if bm25_rows:
             return _rrf_merge(vector_rows, bm25_rows, top_k)
-        return [c for _, c in vector_rows[:top_k]]
+        return [
+            {"content": c, "score": round(1.0 / (_RRF_K + rank + 1), 6), "source": "vector"}
+            for rank, (_, c) in enumerate(vector_rows[:top_k])
+        ]
 
     except Exception as e:
         logger.warning("[retriever] retrieve failed conv=%s err=%s", conversation_id, e)
@@ -155,7 +164,10 @@ async def retrieve_global(
 
         if bm25_rows:
             return _rrf_merge(vector_rows, bm25_rows, top_k)
-        return [c for _, c in vector_rows[:top_k]]
+        return [
+            {"content": c, "score": round(1.0 / (_RRF_K + rank + 1), 6), "source": "vector"}
+            for rank, (_, c) in enumerate(vector_rows[:top_k])
+        ]
 
     except Exception as e:
         logger.warning("[retriever] retrieve_global failed user=%s err=%s", user_id, e)
@@ -236,7 +248,10 @@ async def retrieve_from_files(
         if bm25_rows:
             chunks = _rrf_merge(vector_rows, bm25_rows, top_k)
         else:
-            chunks = [c for _, c in vector_rows[:top_k]]
+            chunks = [
+                {"content": c, "score": round(1.0 / (_RRF_K + rank + 1), 6), "source": "vector"}
+                for rank, (_, c) in enumerate(vector_rows[:top_k])
+            ]
 
         logger.info("[retriever] retrieve_from_files files=%d vector=%d bm25=%d merged=%d",
                     len(file_ids), len(vector_rows), len(bm25_rows), len(chunks))
