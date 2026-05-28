@@ -13,6 +13,7 @@
 | metrics-worker | — | `python -m observability.metrics_worker` |
 | arq-worker | — | `python -m arq services.arq_worker.WorkerSettings`; max_jobs=10 |
 | scheduler | — | `python -m services.scheduler_worker` |
+| neo4j | 7474 (browser), 7687 (bolt) | `neo4j:5`; auth `neo4j/${NEO4J_PASSWORD:-changeme}`; volume `neo4jdata` |
 
 ---
 
@@ -64,8 +65,9 @@ If it exists:
 2. Read all prior `### Recorded` sections — watch for new env vars, ports, volumes, services
 3. Execute all tasks (check off as done)
 4. Fill `### Recorded` with infra facts (service names, ports, env var defaults)
-5. Append a History row
-6. Move file back to root (set status: done first):
+5. **Update `docker/CLAUDE.md`** — add any new services, ports, volumes, or env vars introduced by the feature
+6. Append a History row
+7. Move file back to root (set status: done first):
    ```bash
    mv HANDOFF.md ../HANDOFF.md
    ```
