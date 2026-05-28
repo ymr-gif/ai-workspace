@@ -17,6 +17,26 @@ _REASONING_KEYWORDS = {
     "concept", "understand", "depth", "detail",
 }
 
+_QUERY_FACTUAL = {
+    "what is", "what are", "define", "explain", "how to", "tell me about",
+    "what does", "meaning", "definition", "example", "fact", "information",
+}
+
+_QUERY_RELATIONAL = {
+    "compare", "difference", "relation", "between", "versus", "vs",
+    "similar", "connected", "related", "correlation", "link", "associate",
+}
+
+_QUERY_TEMPORAL = {
+    "before", "after", "when", "recent", "history", "timeline", "sequence",
+    "order", "earlier", "previously", "later", "since", "during", "past",
+}
+
+_QUERY_BROAD = {
+    "hello", "hi", "hey", "summarize", "overview", "tell me everything",
+    "what do you know", "general", "introduce", "introduction",
+}
+
 
 def classify(message: str) -> str:
     msg = message.lower()
@@ -25,6 +45,19 @@ def classify(message: str) -> str:
     if any(kw in msg for kw in _REASONING_KEYWORDS):
         return "reasoning"
     return "llama"
+
+
+def classify_query(message: str) -> str:
+    msg = message.lower()
+    if any(kw in msg for kw in _QUERY_RELATIONAL):
+        return "relational"
+    if any(kw in msg for kw in _QUERY_TEMPORAL):
+        return "temporal"
+    if any(kw in msg for kw in _QUERY_FACTUAL):
+        return "factual"
+    if any(kw in msg for kw in _QUERY_BROAD):
+        return "broad"
+    return "factual"
 
 
 async def route(message: str, request_id: str) -> tuple[str, float]:

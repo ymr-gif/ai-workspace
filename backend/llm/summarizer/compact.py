@@ -9,6 +9,7 @@ from core.db import AsyncSessionLocal
 from models import UserMemory, UserMemoryVersion
 from llm.nim import call
 from .prompts import _COMPACT_SYSTEM, _NO_UPDATE
+from .salience import decay_salience
 
 logger = logging.getLogger("summarizer")
 
@@ -32,6 +33,25 @@ async def _compact_memory(db: AsyncSession, user_id: int) -> None:
     current = row.content.strip()
     if len(current.split()) < 100:
         logger.info("[summarizer] compact skip user_id=%s too small (%d words)", user_id, len(current.split()))
+        return
+
+    row.salience = decay_salience(row.salience)
+
+    if row.salience < 0.3:
+        db.add(UserMemoryVersion(
+            user_id         = user_id,
+            version         = row.version,
+            content         = row.content         or "",
+            project_summary = row.project_summary or "",
+        ))
+        row.content         = ""
+        row.project_summary = ""
+        row.version        += 1
+        row.salience        = 0.0
+        row.confidence      = 0.0
+        row.updated_at      = datetime.now(timezone.utc)
+        await db.commit()
+        logger.info("[summarizer] compact cleared user_id=%s (salience below 0.3)", user_id)
         return
 
     prompt = f"""\
@@ -72,9 +92,11 @@ Keep high-salience facts only. Output the full compacted sheet or {_NO_UPDATE}.\
         content         = row.content         or "",
         project_summary = row.project_summary or "",
     ))
-    row.content  = updated
-    row.version += 1
-    row.updated_at = now
+    row.content       = updated
+    row.version      += 1
+    row.salience      = min(row.salience + 0.1, 2.0)
+    row.confidence    = min(row.confidence + 0.05, 1.0)
+    row.updated_at    = now
 
     await db.commit()
-    logger.info("[summarizer] compact done user_id=%s words=%d->%d", user_id, len(current.split()), len(words))
+    logger.info("[summarizer] compact done user_id=%s words=%d->%d salience=%.4f", user_id, len(current.split()), len(words), row.salience)

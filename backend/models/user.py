@@ -44,6 +44,9 @@ class UserMemory(Base):
     content:              Mapped[str]            = mapped_column(Text, nullable=False, default="")
     project_summary:      Mapped[str | None]     = mapped_column(Text, nullable=True)
     version:              Mapped[int]            = mapped_column(Integer, nullable=False, default=0)
+    salience:             Mapped[float]          = mapped_column(Float,   nullable=False, default=1.0)
+    confidence:           Mapped[float]          = mapped_column(Float,   nullable=False, default=1.0)
+    last_used_at:         Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at:           Mapped[datetime]       = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_summarized_at:   Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
