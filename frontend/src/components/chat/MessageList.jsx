@@ -7,6 +7,7 @@ export default function MessageList({
   messages, activeConvId, bottomRef,
   proactive, setProactive,
   setMessages,
+  pendingWriteFact, onAcceptWrite, onDismissWrite,
 }) {
   return (
     <div style={s.feed}>
@@ -62,6 +63,19 @@ export default function MessageList({
         )
       })}
       <div ref={bottomRef} />
+      {pendingWriteFact && (
+        <div style={{ display:'flex', gap:'0.6rem', alignItems:'flex-start', background:'rgba(52,211,153,0.08)', border:'1px solid rgba(52,211,153,0.25)', borderRadius:'8px', padding:'0.65rem 0.85rem', margin:'0 1.5rem 0.5rem' }}>
+          <span style={{ fontSize:'1rem', flexShrink:0, marginTop:'1px', color:'#34d399' }}>✓</span>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:'0.7rem', color:'#34d399', fontWeight:600, marginBottom:'0.2rem', letterSpacing:'0.04em' }}>MEMORY SUGGESTION</div>
+            <div style={{ fontSize:'0.85rem', color:'#6ee7b7', lineHeight:1.5 }}>{pendingWriteFact}</div>
+            <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.5rem' }}>
+              <button onClick={() => onAcceptWrite(pendingWriteFact)} style={{ padding:'0.25rem 0.75rem', borderRadius:'6px', background:'#34d399', color:'#0f172a', border:'none', cursor:'pointer', fontSize:'0.78rem', fontWeight:600 }}>Accept</button>
+              <button onClick={onDismissWrite} style={{ padding:'0.25rem 0.75rem', borderRadius:'6px', background:'none', color:'#94a3b8', border:'1px solid #334155', cursor:'pointer', fontSize:'0.78rem' }}>Dismiss</button>
+            </div>
+          </div>
+        </div>
+      )}
       {proactive && (
         <div style={s.proactiveCard}>
           <span style={{ fontSize:'1rem', flexShrink:0, marginTop:'1px' }}>💡</span>

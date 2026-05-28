@@ -14,6 +14,7 @@ from .search import _search_in_file, _search_across_files
 logger = logging.getLogger("tools")
 
 ASK_USER_PREFIX = "__ASK_USER__:"
+CONFIRM_WRITE_PREFIX = "__CONFIRM_WRITE_MEMORY__:"
 
 
 async def execute_tool(
@@ -43,6 +44,8 @@ async def execute_tool(
             result = await _search_across_files(db, conv_id, args["query"])
         elif name == "ask_user":
             result = f"{ASK_USER_PREFIX}{args.get('question', '')}"
+        elif name == "write_memory":
+            result = f"{CONFIRM_WRITE_PREFIX}{args.get('fact', '')}"
         elif name == "query_graph":
             from llm.graph_memory import query_by_term
             term   = args.get("query", "")
@@ -52,7 +55,7 @@ async def execute_tool(
         result = f"Error: {e}"
 
     try:
-        preview = result if result.startswith(ASK_USER_PREFIX) else result[:500]
+        preview = result if (result.startswith(ASK_USER_PREFIX) or result.startswith(CONFIRM_WRITE_PREFIX)) else result[:500]
         db.add(ToolCallLog(
             user_id=user_id,
             conversation_id=conv_id,

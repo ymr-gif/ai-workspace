@@ -101,9 +101,11 @@
 
 ## AI Agent Tool Loop
 - Trigger: `_needs_file_tools(message)` keyword gate → forces reasoning model (70B)
-- Tools: `list_files` · `read_file` (100k cap) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph`
+- Tools: `list_files` · `read_file` (100k cap) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory`
 - Guards: same tool >3× → abort · MAX_TOOL_ITERATIONS=10
 - `ask_user` yields `{type:"ask_user"}` SSE + done → pauses loop; amber card in UI
+- `write_memory`: always available when `memory_enabled=True`; yields `{type:"confirm_write_memory", fact}` SSE + done → pauses loop; green card in UI; user confirms → `POST /api/memory/write`
+- `POST /api/memory/write` — body `{fact: str}`, reads existing `UserMemory`, appends fact as new line (trim to 500 chars), snapshots version, bumps version +1, boosts salience +0.1
 
 ---
 
