@@ -8,15 +8,15 @@
 ├── alembic/versions/       — 026 migrations; latest: 026_system_config.py
 ├── auth/                   — JWT, bcrypt, API key fallback, invite validation
 ├── llm/
-│   ├── service/            — context build, SSE stream + tool loop (MAX_TOOL_ITERATIONS=10)
+│   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=10)
 │   ├── nim.py              — NIM API call, accumulates tool_call deltas
 │   ├── tools.py            — 10 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
 │   ├── graph_memory.py     — Neo4j entity extraction/query; limit=50, min_score=0.5
-│   ├── router.py           — keyword classify() + model route()
+│   ├── router.py           — keyword classify(), model route(), get_context_limit()
 │   ├── circuit_breaker.py  — 3 failures → 30s cooldown
 │   ├── embeddings.py       — embed(text, input_type) → list[float]; timeout=15s
 │   ├── retriever.py        — hybrid vector+BM25 fusion (rrf|weighted); stores provenance per hit
-│   ├── summarizer.py       — memory compression + workspace memory updates
+│   ├── summarizer.py       — memory compression, compaction, workspace memory updates
 │   └── agency.py           — proactive suggestions + insight generation (ARQ)
 ├── cache/                  — Redis primary + LRU fallback; cache-bypass on file/image/model-param
 ├── core/                   — db (pgbouncer: prepared_statement_cache_size=0), redis, arq, neo4j
@@ -31,10 +31,10 @@
 │   ├── graph.py / compat.py / templates.py / scheduled_prompts.py / usage.py / memory.py / system.py / tool_logs.py
 ├── services/
 │   ├── processor.py        — extract→chunk→embed; CPU work in asyncio.to_thread()
-│   ├── arq_worker.py       — max_tries=4 (5s/30s/120s); insight, re-embed jobs
+│   ├── arq_worker.py       — max_tries=4 (5s/30s/120s); insight, re-embed, compact_memory jobs
 │   ├── re_embed.py         — batches of 100; triggered on startup or /admin/re-embed
 │   ├── file_service.py     — fuzzy-patch, save-version-before-mutate; sync I/O in asyncio.to_thread()
-│   └── scheduler_worker.py — APScheduler cron runner
+│   └── scheduler_worker.py — APScheduler cron runner; daily memory compaction at 3 AM UTC
 ├── storage/                — SHA256 streaming write
 └── tests/test.py           — 21 unit tests (standalone, no docker)
 ```
@@ -62,6 +62,7 @@
 - **Admin**: users list/usage; active toggle; cost-limit; audit-log (?action=&target_user_id=); re-embed; env vars list/get/update/reload
 - **Graph**: GET /graph/stats — entity/relation counts for current user (Neo4j)
 - **Misc**: health · metrics[/overview|models|latency] · tool-calls · usage[/history] · memory · insights · templates · scheduled-prompts
+- **Memory**: GET `""` · PUT `""` · GET `/export` · POST `/import` · GET `/history` · POST `/compact` (enqueues ARQ compact_memory_job for current user)
 
 ---
 
@@ -94,6 +95,10 @@ Injection order:
 - Auto-title: after 2nd message → llama "6 words or fewer" via `asyncio.create_task`
 - Lock: `pg_advisory_xact_lock(user_id)` prevents version races
 - ws_sysprompt precedence: merged as `ws + "\n\n" + conv` when both set
+- Compaction: `summarizer.compact_memory(user_id)` — strips stale/duplicate/low-salience, keeps high-salience; LLM-driven; skips < 100 words; creates `UserMemoryVersion` snapshot; queued via ARQ `compact_memory_job`
+- Manual trigger: `POST /memory/compact` enqueues compaction for current user
+- Scheduled compaction: scheduler runs `run_memory_compaction()` daily at 3 AM UTC; enqueues `compact_memory_job` per user with ≥ 100 words
+- Context budget: `apply_context_budget()` in `service/context.py` drops lowest-tier sources first (file chunks → history → RAG → graph → workspace → project → user state) when estimated tokens exceed `context_window - max_output_tokens - 10%`; re-applied after each tool iteration
 
 ---
 

@@ -36,6 +36,30 @@ Rules:
 - If nothing new to add: reply exactly NO_UPDATE\
 """
 
+_COMPACT_SYSTEM = """\
+Review and compact this user memory sheet. Remove:
+- Duplicate or overlapping facts
+- Stale or superseded information
+- Low-value details (transient states, trivial observations)
+
+Keep ONLY:
+- Active decisions and their rationale
+- Architecture and tech stack choices currently in use
+- User preferences and corrections
+- Active project status
+- Recurring patterns and working style
+
+Output ONLY the compacted key:value pairs under the same five headers:
+[USER] [STACK] [PROJECT] [CORRECTIONS] [PATTERNS]
+
+Rules:
+- Max 500 words total
+- Format each line as: key: value
+- Merge related facts, remove redundant entries
+- Every word must carry information
+- If no meaningful compaction possible: reply exactly NO_UPDATE\
+"""
+
 _COMPRESS_SYSTEM = """\
 Compress this conversation excerpt into a dense factual summary.
 Focus on: decisions made, problems solved, code written, errors fixed, context established.
@@ -354,3 +378,70 @@ Update the project state. Reply with the full updated state or {_NO_UPDATE}.\
 
     await db.commit()
     logger.info("[summarizer] project summary updated user_id=%s", user_id)
+
+
+# ── compaction ─────────────────────────────────────────────────────────────────
+
+async def compact_memory(user_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        try:
+            await _compact_memory(db, user_id)
+        except Exception:
+            logger.exception("[summarizer] compact_memory failed user_id=%s", user_id)
+
+
+async def _compact_memory(db: AsyncSession, user_id: int) -> None:
+    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": user_id})
+    row = await db.get(UserMemory, user_id)
+    if not row or not row.content:
+        return
+
+    current = row.content.strip()
+    if len(current.split()) < 100:
+        logger.info("[summarizer] compact skip user_id=%s too small (%d words)", user_id, len(current.split()))
+        return
+
+    prompt = f"""\
+Current memory sheet:
+{current}
+
+Compact this sheet. Remove stale, duplicate, and low-value information.
+Keep high-salience facts only. Output the full compacted sheet or {_NO_UPDATE}.\
+"""
+
+    result = await call(
+        model      = _MODEL,
+        messages   = [
+            {"role": "system", "content": _COMPACT_SYSTEM},
+            {"role": "user",   "content": prompt},
+        ],
+        request_id = f"compact-{user_id}",
+    )
+
+    if not result.get("ok"):
+        logger.warning("[summarizer] compact nim failed user_id=%s", user_id)
+        return
+
+    updated = (result.get("content") or "").strip()
+    if not updated or updated == _NO_UPDATE:
+        logger.info("[summarizer] compact noop user_id=%s", user_id)
+        return
+
+    words = updated.split()
+    if len(words) > 500:
+        updated = " ".join(words[:500])
+
+    now = datetime.now(timezone.utc)
+
+    db.add(UserMemoryVersion(
+        user_id         = user_id,
+        version         = row.version,
+        content         = row.content         or "",
+        project_summary = row.project_summary or "",
+    ))
+    row.content  = updated
+    row.version += 1
+    row.updated_at = now
+
+    await db.commit()
+    logger.info("[summarizer] compact done user_id=%s words=%d->%d", user_id, len(current.split()), len(words))

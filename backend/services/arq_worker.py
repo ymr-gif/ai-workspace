@@ -96,8 +96,18 @@ async def re_embed_batch_job(ctx, table: str, offset: int, batch_size: int) -> N
             logger.info("[re_embed] message_embeddings offset=%d count=%d", offset, len(rows))
 
 
+async def compact_memory_job(ctx, user_id: int) -> None:
+    from llm.summarizer import compact_memory
+
+    try:
+        await compact_memory(user_id)
+        logger.info("[arq] compact_memory done user_id=%s", user_id)
+    except Exception:
+        logger.exception("[arq] compact_memory failed user_id=%s", user_id)
+
+
 class WorkerSettings:
-    functions = [process_file_job, generate_insight_job, re_embed_batch_job]
+    functions = [process_file_job, generate_insight_job, re_embed_batch_job, compact_memory_job]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 10
     max_tries = 4

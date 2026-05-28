@@ -1,3 +1,5 @@
+import re
+
 _FILE_OP_KEYWORDS = frozenset({
     "read", "write", "edit", "update", "create", "append", "patch",
     "search", "find", "fix", "change", "modify", "file", "document",
@@ -82,3 +84,91 @@ def build_context_messages(
         messages.append({"role": "assistant", "content": "Understood, I will reference these documents in my response."})
 
     return messages
+
+
+# ── Context Budget Allocator ─────────────────────────────────────────────────
+
+_TIER_PREFIXES = [
+    (7, re.compile(r'^\[FILE CONTEXT\]')),                            # drop first
+    (6, re.compile(r'^\[RELEVANT CONTEXT')),                          # history / RAG
+    (5, re.compile(r'^\[EARLIER IN THIS CONVERSATION\]')),            # conv summary
+    (4, re.compile(r'^\[GRAPH CONTEXT\]')),                           # graph
+    (3, re.compile(r'^\[WORKSPACE STATE\]')),                         # workspace
+    (2, re.compile(r'^\[PROJECT STATE\]')),                           # project
+    (1, re.compile(r'^\[USER STATE\]')),                              # user state (keep)
+]
+
+
+def _estimate_tokens(text: str) -> int:
+    return max(1, len(text) // 4)
+
+
+def _message_tier(msg: dict, is_last: bool) -> int:
+    if is_last:
+        return 0
+    content = msg.get("content", "")
+    if isinstance(content, list):
+        return 0
+    if msg["role"] == "system":
+        return 0
+    for tier, pattern in _TIER_PREFIXES:
+        if pattern.match(content):
+            return tier
+    return 6
+
+
+def _ack_idx(messages: list[dict], start: int) -> int | None:
+    for i in range(start + 1, len(messages)):
+        m = messages[i]
+        if m["role"] == "assistant" and isinstance(m.get("content"), str) and m["content"].startswith("Understood"):
+            return i
+        if m["role"] != "assistant":
+            return None
+    return None
+
+
+def apply_context_budget(
+    messages: list[dict],
+    context_window: int,
+    max_output_tokens: int = 4096,
+) -> list[dict]:
+    if not messages:
+        return messages
+
+    reserve = max_output_tokens + int(context_window * 0.1)
+    budget = context_window - reserve
+
+    total = sum(_estimate_tokens(str(m.get("content", ""))) for m in messages)
+    if total <= budget:
+        return messages
+
+    keep = [True] * len(messages)
+    tiers: dict[int, list[int]] = {}
+    for i, m in enumerate(messages):
+        t = _message_tier(m, i == len(messages) - 1)
+        tiers.setdefault(t, []).append(i)
+
+    for tier in sorted(tiers.keys(), reverse=True):
+        if tier == 0:
+            break
+
+        drop = set(tiers[tier])
+        for idx in list(drop):
+            ack = _ack_idx(messages, idx)
+            if ack is not None:
+                drop.add(ack)
+
+        new_keep = list(keep)
+        for idx in drop:
+            new_keep[idx] = False
+
+        new_total = sum(
+            _estimate_tokens(str(messages[i].get("content", "")))
+            for i, k in enumerate(new_keep) if k
+        )
+        if new_total <= budget:
+            return [m for m, k in zip(messages, new_keep) if k]
+
+        keep = new_keep
+
+    return [m for m, k in zip(messages, keep) if k]

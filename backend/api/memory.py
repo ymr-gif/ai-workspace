@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
+from core.arq_pool import get_arq_pool
 from core.db import get_db
 from models import User, UserMemory, UserMemoryVersion
 
@@ -122,6 +123,17 @@ async def import_memory(
     db:           AsyncSession = Depends(get_db),
 ):
     return await _write_memory(body, current_user, db)
+
+
+@router.post("/compact")
+async def compact_memory(
+    current_user: User = Depends(get_current_user),
+):
+    pool = get_arq_pool()
+    if pool:
+        await pool.enqueue_job("compact_memory_job", current_user.id)
+        return {"status": "queued"}
+    return {"status": "skipped", "reason": "arq pool unavailable"}
 
 
 @router.get("/history")

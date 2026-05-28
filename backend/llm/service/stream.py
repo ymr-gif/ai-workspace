@@ -6,11 +6,11 @@ import uuid
 from config import FALLBACK_ORDER, MODEL_VISION, MODELS
 from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
-from llm.router import route
+from llm.router import route, get_context_limit
 from llm.nim import call, call_stream
 from llm.tools import TOOL_SCHEMAS, execute_tool, ASK_USER_PREFIX
 
-from .context import build_context_messages, _needs_file_tools
+from .context import build_context_messages, _needs_file_tools, apply_context_budget
 
 MAX_TOOL_ITERATIONS = 10
 
@@ -149,6 +149,14 @@ async def generate_stream(
     for idx, current_model in enumerate(fallback_chain):
         fallback_used  = idx > 0
         tool_messages  = list(base_messages)
+        ctx_window = get_context_limit(current_model)
+        max_out = (model_params or {}).get("max_tokens", 4096)
+        if not isinstance(max_out, int):
+            try:
+                max_out = int(max_out)
+            except (TypeError, ValueError):
+                max_out = 4096
+        tool_messages = apply_context_budget(tool_messages, ctx_window, max_out)
         model_done     = False
         tool_call_counts: dict[str, int] = {}
 
@@ -214,6 +222,8 @@ async def generate_stream(
 
                 if ask_user_triggered:
                     return
+
+                tool_messages = apply_context_budget(tool_messages, ctx_window, max_out)
                 continue
 
             if not accumulated:
