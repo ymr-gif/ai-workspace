@@ -66,6 +66,10 @@ Worker for `docker/` only. Root plans; this agent implements.
 `.env` · `.env.example` · `.gitignore` · `.dockerignore` · `CLAUDE.md` (root) · `README.md` · `ROADMAP.md`
 or any file not clearly owned by `backend/`, `frontend/`, or `docker/`.
 
+**CRITICAL — never delete or overwrite root files.** `CLAUDE.md` at repo root is root-owned. Do not touch it under any circumstances.
+
+**CRITICAL — never rewrite this file.** When updating `docker/CLAUDE.md`, append to existing sections only. Do not truncate, replace, or delete content.
+
 ---
 
 On session start — check if `docker/HANDOFF.md` exists:
