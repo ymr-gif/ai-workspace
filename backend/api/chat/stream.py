@@ -192,6 +192,7 @@ async def chat_stream(
                 graph_context=ctx.get("graph_context", ""),
                 graph_facts=ctx.get("graph_facts", ""),
                 conflicted_facts=ctx.get("conflicted_facts", frozenset()),
+                fact_saliences=ctx.get("fact_saliences", {}),
             ):
                 if event["type"] == "token":
                     accumulated.append(event["content"])

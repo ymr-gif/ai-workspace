@@ -9,7 +9,7 @@ from core.db import AsyncSessionLocal
 from models import MemoryConflict, UserMemory, UserMemoryVersion
 from llm.nim import call
 from .prompts import _COMPACT_SYSTEM, _NO_UPDATE
-from .salience import decay_salience
+from .salience import decay_fact_saliences, decay_salience
 from .conflicts import detect_conflicts
 
 logger = logging.getLogger("summarizer")
@@ -37,6 +37,7 @@ async def _compact_memory(db: AsyncSession, user_id: int) -> None:
         return
 
     row.salience = decay_salience(row.salience)
+    row.fact_saliences = decay_fact_saliences(row.fact_saliences or {})
 
     if row.salience < 0.3:
         db.add(UserMemoryVersion(
@@ -50,6 +51,7 @@ async def _compact_memory(db: AsyncSession, user_id: int) -> None:
         row.version        += 1
         row.salience        = 0.0
         row.confidence      = 0.0
+        row.fact_saliences  = {}
         row.updated_at      = datetime.now(timezone.utc)
         await db.commit()
         logger.info("[summarizer] compact cleared user_id=%s (salience below 0.3)", user_id)

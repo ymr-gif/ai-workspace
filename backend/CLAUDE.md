@@ -125,6 +125,8 @@ Injection order:
 - Salience: `UserMemory` has `salience` (float, default 1.0) and `confidence` (float, default 1.0); bumped on every context load via `compute_salience()`, decayed 0.95/cycle during compaction; memory cleared when salience <0.3
 - `POST /memory/decay`: manual decay pass; GET /memory returns per-fact `facts` array with per-line scores
 - Conflict resolver: `MemoryConflict` table stores `fact_a/fact_b/conflict_type/resolution`; detected post-compaction and via `POST /memory/conflicts/scan`; unresolved facts suppressed from context injection; resolve via `POST /memory/conflicts/{id}/resolve` with strategy `keep_a|keep_b|merge|discard_both`
+- Per-fact salience: `UserMemory.fact_saliences` JSONB maps fact text → score; facts sorted high→low before `[USER STATE]` injection (top 20); bumped per-access via `bump_fact_saliences()`; decayed per compaction cycle; low-salience facts dropped first by context budget allocator (tier 1 partial drop before full drop)
+- Retrieval re-ranking: retrieved chunks re-scored by `final_score * (1 + memory_salience * 0.05)` after retrieval
 
 ---
 

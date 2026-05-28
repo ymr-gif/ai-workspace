@@ -46,6 +46,7 @@ class UserMemory(Base):
     version:              Mapped[int]            = mapped_column(Integer, nullable=False, default=0)
     salience:             Mapped[float]          = mapped_column(Float,   nullable=False, default=1.0)
     confidence:           Mapped[float]          = mapped_column(Float,   nullable=False, default=1.0)
+    fact_saliences:       Mapped[dict]           = mapped_column(JSONB,  nullable=False, default=dict)
     last_used_at:         Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at:           Mapped[datetime]       = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_summarized_at:   Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

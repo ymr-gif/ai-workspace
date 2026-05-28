@@ -3,6 +3,33 @@ Completed features — full detail. See Archive rules in root CLAUDE.md.
 
 ---
 
+## Salience Integration Completion
+**Completed:** 2026-05-28
+
+### What was built
+- **Migration 029** — `fact_saliences` JSONB column on `user_memory` (not null, default `{}`)
+- **`score_facts()`** — sorts memory facts high→low by per-fact salience score; default 1.0 for unseen facts
+- **`bump_fact_saliences()`** — applies `compute_salience(current, access_count=1)` per accessed fact
+- **`decay_fact_saliences()`** — decays all per-fact scores 0.95×/cycle; drops entries < 0.05
+- **`_build_stream_context()`** — sorts facts by salience before `[USER STATE]` injection (top 20); bumps accessed facts; re-ranks retrieved+file chunks by `final_score * (1 + memory_salience * 0.05)`
+- **`apply_context_budget()`** — tier 1 partial drop: drops low-salience facts (< 0.5) before dropping entire `[USER STATE]` block
+- **`compact.py`** — decays `fact_saliences` per compaction cycle; clears on salience < 0.3
+
+### Key files
+| File | Change |
+|------|--------|
+| `backend/models/user.py` | `fact_saliences` JSONB field on `UserMemory` |
+| `backend/alembic/versions/029_fact_saliences.py` | migration |
+| `backend/llm/summarizer/salience.py` | `score_facts()`, `bump_fact_saliences()`, `decay_fact_saliences()` |
+| `backend/api/chat/helpers.py` | fact sorting, chunk re-ranking, `fact_saliences` in ctx dict |
+| `backend/llm/service/context.py` | `fact_saliences` param, partial tier-1 drop |
+| `backend/llm/service/stream.py` | forwards `fact_saliences` to `apply_context_budget()` |
+| `backend/api/chat/stream.py` | passes `ctx.get("fact_saliences", {})` to `generate_stream()` |
+| `backend/llm/summarizer/compact.py` | per-fact decay + clear |
+| `backend/CLAUDE.md` | docs |
+
+---
+
 ## Memory Conflict Resolver
 **Completed:** 2026-05-28
 

@@ -101,6 +101,7 @@ async def generate_stream(
     graph_context:    str               = "",
     graph_facts:      str               = "",
     conflicted_facts: frozenset         = frozenset(),
+    fact_saliences:   dict | None       = None,
 ):
     # Cache excludes file/image/custom-params requests; history + model included in key
     use_cache = not file_chunks and not image_b64 and not model_params
@@ -159,7 +160,7 @@ async def generate_stream(
                 max_out = int(max_out)
             except (TypeError, ValueError):
                 max_out = 4096
-        tool_messages = apply_context_budget(tool_messages, ctx_window, max_out)
+        tool_messages = apply_context_budget(tool_messages, ctx_window, max_out, fact_saliences=fact_saliences)
         model_done     = False
         tool_call_counts: dict[str, int] = {}
 
@@ -226,7 +227,7 @@ async def generate_stream(
                 if ask_user_triggered:
                     return
 
-                tool_messages = apply_context_budget(tool_messages, ctx_window, max_out)
+                tool_messages = apply_context_budget(tool_messages, ctx_window, max_out, fact_saliences=fact_saliences)
                 continue
 
             if not accumulated:

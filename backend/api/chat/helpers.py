@@ -12,7 +12,7 @@ from llm import retriever
 from llm.embeddings import embed as embed_text
 from llm.router import classify_query
 from llm.retriever.policy import get_policy
-from llm.summarizer.salience import compute_salience
+from llm.summarizer.salience import bump_fact_saliences, compute_salience, score_facts
 from models import Conversation, MemoryConflict, Message, User, UserMemory, Workspace, WorkspaceMemory
 
 from .schemas import ChatRequest
@@ -119,6 +119,18 @@ async def _build_stream_context(
         memory_row.salience   = compute_salience(memory_row.salience, access_count=1)
         memory_row.last_used_at = datetime.now(timezone.utc)
 
+        fact_saliences = memory_row.fact_saliences or {}
+        scored_facts = score_facts(memory_sheet, fact_saliences)
+        loaded_facts = [f for f, _ in scored_facts[:20]]
+        memory_sheet = "\n".join(loaded_facts)
+        memory_row.fact_saliences = bump_fact_saliences(loaded_facts, fact_saliences)
+        logger.info("[salience] rid=%s facts_loaded=%d top_fact_score=%.4f bottom_fact_score=%.4f",
+                    rid, len(loaded_facts),
+                    scored_facts[0][1] if scored_facts else 0.0,
+                    scored_facts[-1][1] if scored_facts else 0.0)
+    else:
+        fact_saliences = {}
+
     is_ref    = retriever.is_reference_query(req.message)
     query_type = classify_query(req.message)
     policy     = get_policy(query_type)
@@ -174,6 +186,14 @@ async def _build_stream_context(
                 k_sparse=policy["k_sparse"], alpha=policy["alpha"],
             )
 
+    if memory_row and retrieved:
+        salience_mult = 1.0 + min(memory_row.salience, 2.0) * 0.05
+        for c in retrieved:
+            c["final_score"] = c.get("final_score", 0.0) * salience_mult
+        retrieved.sort(key=lambda c: -c.get("final_score", 0.0))
+        logger.info("[salience] rid=%s reranked chunks=%d memory_salience=%.4f",
+                    rid, len(retrieved), memory_row.salience)
+
     file_chunks: list[str] = []
     file_names:  list[str] = []
     file_ids:    list      = []
@@ -187,6 +207,11 @@ async def _build_stream_context(
                     fusion_mode=policy["fusion_mode"], k_dense=policy["k_dense"],
                     k_sparse=policy["k_sparse"], alpha=policy["alpha"],
                 )
+                if memory_row and file_chunks:
+                    fs_mult = 1.0 + min(memory_row.salience, 2.0) * 0.05
+                    for c in file_chunks:
+                        c["final_score"] = c.get("final_score", 0.0) * fs_mult
+                    file_chunks.sort(key=lambda c: -c.get("final_score", 0.0))
             else:
                 file_chunks = await retriever.retrieve_files_sequential(db, file_ids, top_k=10)
             if file_chunks:
@@ -260,4 +285,5 @@ async def _build_stream_context(
         "graph_facts":         graph_facts,
         "conflicted_facts":    conflicted_facts,
         "policy_used":         query_type,
+        "fact_saliences":      fact_saliences,
     }

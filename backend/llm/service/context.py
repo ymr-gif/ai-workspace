@@ -141,10 +141,35 @@ def _ack_idx(messages: list[dict], start: int) -> int | None:
     return None
 
 
+def _rebuild_user_state(content: str, fact_saliences: dict) -> str | None:
+    """Keep only high-salience (>=0.5) facts from [USER STATE] block.
+    Returns updated content or None if nothing changed."""
+    lines = content.split("\n")
+    header = lines[0] if lines else ""
+    facts = lines[1:]
+    high = []
+    changed = False
+    for l in facts:
+        stripped = l.strip()
+        if not stripped:
+            high.append(l)
+            continue
+        score = fact_saliences.get(stripped, 1.0)
+        if score >= 0.5:
+            high.append(l)
+        else:
+            changed = True
+    if not changed:
+        return None
+    rebuilt = "\n".join([header] + high) if header else "\n".join(high)
+    return rebuilt.strip()
+
+
 def apply_context_budget(
     messages: list[dict],
     context_window: int,
     max_output_tokens: int = 4096,
+    fact_saliences: dict | None = None,
 ) -> list[dict]:
     if not messages:
         return messages
@@ -171,6 +196,25 @@ def apply_context_budget(
             ack = _ack_idx(messages, idx)
             if ack is not None:
                 drop.add(ack)
+
+        # Partial drop for [USER STATE] — keep high-salience facts
+        if tier == 1 and fact_saliences:
+            for idx in list(drop):
+                content = messages[idx].get("content", "")
+                rebuilt = _rebuild_user_state(content, fact_saliences)
+                if rebuilt is not None and rebuilt:
+                    keep[idx] = True
+                    drop.discard(idx)
+                    messages[idx] = {**messages[idx], "content": rebuilt}
+                elif rebuilt is not None and not rebuilt:
+                    keep[idx] = False
+            if not drop:
+                new_total = sum(
+                    _estimate_tokens(str(messages[i].get("content", "")))
+                    for i, k in enumerate(keep) if k
+                )
+                if new_total <= budget:
+                    return [m for i, m in enumerate(messages) if keep[i]]
 
         new_keep = list(keep)
         for idx in drop:
