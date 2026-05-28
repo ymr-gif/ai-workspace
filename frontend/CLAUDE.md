@@ -3,7 +3,9 @@
 ## Stack
 - React + Vite; `vite.config.js` proxies `/api` → `localhost:8000`
 - `src/App.jsx` — login form, JWT in localStorage as `nim_token`
-- `src/components/` — Chat.jsx (full UI), Files.jsx, Memory.jsx, ToolLog.jsx
+- `src/components/Chat.jsx` — orchestrator; imports hooks + sub-components under `chat/`
+- `src/hooks/` — 10 hooks: useConversations, useMemory, useWorkspace, useFiles, useModelParams, useSettings, useToolLogs, useUsage, useAdmin, useInsights
+- `src/components/chat/` — 12 sub-components: Sidebar, MessageList, ModelToolbar, SettingsModal, WorkspaceModal, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel
 - **All fetch calls must use `/api/` prefix** — bare paths bypass proxy and 404 silently
 - **JWT flow:** login → `POST /api/auth/token` → store token as `nim_token` in localStorage → `Authorization: Bearer` on all fetch calls
 
@@ -39,6 +41,7 @@
 - **Proactive suggestion**: indigo card below chat feed on `{type:"proactive"}` SSE; ✕ dismiss; clears on next send
 - **Insights**: 💡 button; unread badge; `GET /api/insights`; click → mark read; 🗑 delete; indigo dot for unread
 - **ask_user**: amber card "NEEDS CLARIFICATION" on `{type:"ask_user"}` SSE; user reply resumes with full context
+- **confirm_write_memory**: green card "MEMORY SUGGESTION" on `{type:"confirm_write_memory", fact}` SSE; Accept → `POST /api/memory/write {fact}`, Dismiss → null; clears on next send
 - **Memory panel**: tabs View / Edit / History / Graph (5th tab); Graph tab: `GET /api/graph/stats` → `{available, entities, relations}`; auto-refreshes 2s after each AI reply if tab open
 - **Re-embed button**: ↺ Re-embed All in Invite panel admin section → `POST /api/admin/re-embed`
 

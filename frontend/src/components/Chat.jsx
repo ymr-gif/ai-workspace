@@ -76,7 +76,7 @@ export default function Chat({ token, onLogout }) {
     const text = conv.input.trim(); if (!text || conv.loading) return
     const isCompare = modelParams.compareMode
     const userId = conv.nextId.current++, aiId = conv.nextId.current++
-    conv.setInput(''); conv.setLoading(true); conv.setProactive(null)
+    conv.setInput(''); conv.setLoading(true); conv.setProactive(null); conv.setPendingWriteFact(null)
 
     if (isCompare) {
       conv.setMessages(prev => [...prev,
@@ -151,6 +151,8 @@ export default function Chat({ token, onLogout }) {
                 : m))
             } else if (event.type === 'ask_user') {
               conv.setMessages(prev => prev.map(m => m.id === aiId ? { ...m, askUser: event.question } : m))
+            } else if (event.type === 'confirm_write_memory') {
+              conv.setPendingWriteFact(event.fact)
             } else if (event.type === 'proactive') {
               conv.setProactive(event.content)
             } else if (event.type === 'error') {
@@ -162,6 +164,17 @@ export default function Chat({ token, onLogout }) {
     } catch (err) {
       conv.setMessages(prev => prev.map(m => m.id === aiId ? { ...m, role: 'err', text: `Network error: ${err.message}`, streaming: false } : m))
     } finally { conv.setLoading(false) }
+  }
+
+  async function handleAcceptWrite(fact) {
+    try {
+      const r = await fetch('/api/memory/write', { method:'POST', headers:{...authHeaders,'Content-Type':'application/json'}, body:JSON.stringify({ fact }) })
+      if (r.ok) conv.setPendingWriteFact(null)
+    } catch { /* ignore */ }
+  }
+
+  function handleDismissWrite() {
+    conv.setPendingWriteFact(null)
   }
 
   // memory panel derived
@@ -291,6 +304,9 @@ export default function Chat({ token, onLogout }) {
           proactive={conv.proactive}
           setProactive={conv.setProactive}
           setMessages={conv.setMessages}
+          pendingWriteFact={conv.pendingWriteFact}
+          onAcceptWrite={handleAcceptWrite}
+          onDismissWrite={handleDismissWrite}
         />
 
         <ModelToolbar

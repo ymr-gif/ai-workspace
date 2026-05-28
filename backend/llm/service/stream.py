@@ -8,7 +8,7 @@ from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route, get_context_limit
 from llm.nim import call, call_stream
-from llm.tools import TOOL_SCHEMAS, execute_tool, ASK_USER_PREFIX
+from llm.tools import TOOL_SCHEMAS, WRITE_MEMORY_SCHEMA, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX
 
 from .context import build_context_messages, _needs_file_tools, apply_context_budget
 
@@ -132,7 +132,9 @@ async def generate_stream(
         model, _ = await route(message, request_id)
         fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
 
-    tools = TOOL_SCHEMAS if (file_ids and db is not None and _needs_file_tools(message)) else None
+    file_tools = TOOL_SCHEMAS if (file_ids and db is not None and _needs_file_tools(message)) else []
+    mem_tools = [WRITE_MEMORY_SCHEMA] if (memory_enabled and db is not None) else []
+    tools = file_tools + mem_tools or None
 
     if image_b64 and image_mime_type:
         user_content = [
@@ -213,6 +215,16 @@ async def generate_stream(
                     if result.startswith(ASK_USER_PREFIX):
                         question = result[len(ASK_USER_PREFIX):]
                         yield {"type": "ask_user", "question": question}
+                        done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used}
+                        if nim_usage:
+                            done_ev["usage"] = nim_usage
+                        yield done_ev
+                        ask_user_triggered = True
+                        break
+
+                    if result.startswith(CONFIRM_WRITE_PREFIX):
+                        fact = result[len(CONFIRM_WRITE_PREFIX):]
+                        yield {"type": "confirm_write_memory", "fact": fact}
                         done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used}
                         if nim_usage:
                             done_ev["usage"] = nim_usage

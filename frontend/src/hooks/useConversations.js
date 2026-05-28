@@ -21,6 +21,9 @@ export default function useConversations(token, sidebarWsId) {
   // proactive suggestion
   const [proactive, setProactive] = useState(null)
 
+  // memory write confirmation
+  const [pendingWriteFact, setPendingWriteFact] = useState(null)
+
   const authHeaders = { 'Authorization': `Bearer ${token}` }
   const nextId = useRef(0)
   const bottomRef = useRef(null)
@@ -113,6 +116,7 @@ export default function useConversations(token, sidebarWsId) {
     searchResults, setSearchResults,
     searchLoading,
     proactive, setProactive,
+    pendingWriteFact, setPendingWriteFact,
     nextId,
     bottomRef,
     newChat,

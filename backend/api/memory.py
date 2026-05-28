@@ -23,6 +23,10 @@ class MemoryUpdate(BaseModel):
     project_summary: str = ""
 
 
+class WriteMemoryBody(BaseModel):
+    fact: str
+
+
 class ResolveBody(BaseModel):
     strategy: str
 
@@ -80,6 +84,47 @@ async def _write_memory(
 
 
 # ── endpoints ─────────────────────────────────────────────────────────────────
+
+@router.post("/write")
+async def write_memory_fact(
+    body:         WriteMemoryBody,
+    current_user: User         = Depends(get_current_user),
+    db:           AsyncSession = Depends(get_db),
+):
+    fact = body.fact.strip()[:500]
+    now  = datetime.now(timezone.utc)
+
+    row = await db.scalar(
+        select(UserMemory)
+        .where(UserMemory.user_id == current_user.id)
+        .with_for_update()
+    )
+
+    if row:
+        db.add(UserMemoryVersion(
+            user_id         = current_user.id,
+            version         = row.version,
+            content         = row.content         or "",
+            project_summary = row.project_summary or "",
+        ))
+        existing = (row.content or "").strip()
+        row.content = (existing + "\n" + fact) if existing else fact
+        row.version += 1
+        row.salience = (row.salience or 0.0) + 0.1
+        row.updated_at = now
+    else:
+        row = UserMemory(
+            user_id         = current_user.id,
+            content         = fact,
+            version         = 1,
+            salience        = 0.1,
+            updated_at      = now,
+        )
+        db.add(row)
+
+    await db.commit()
+    return {"status": "ok", "fact": fact}
+
 
 @router.get("")
 async def get_memory(

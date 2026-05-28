@@ -145,3 +145,18 @@ TOOL_SCHEMAS = [
         },
     },
 ]
+
+WRITE_MEMORY_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "write_memory",
+        "description": "Record an important fact about the user based on this conversation. The user must confirm before saving.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "fact": {"type": "string", "description": "The fact about the user to record."},
+            },
+            "required": ["fact"],
+        },
+    },
+}
