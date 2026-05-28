@@ -133,7 +133,9 @@ async def generate_stream(
         fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
 
     file_tools = TOOL_SCHEMAS if (file_ids and db is not None and _needs_file_tools(message)) else []
-    mem_tools = [WRITE_MEMORY_SCHEMA] if (memory_enabled and db is not None) else []
+    # write_memory only on reasoning model — 8B emits raw token soup instead of structured tool calls
+    _is_reasoning = fallback_chain[0] == MODELS["reasoning"]
+    mem_tools = [WRITE_MEMORY_SCHEMA] if (memory_enabled and db is not None and _is_reasoning) else []
     tools = file_tools + mem_tools or None
 
     if image_b64 and image_mime_type:
