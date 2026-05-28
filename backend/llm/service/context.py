@@ -42,10 +42,12 @@ def build_context_messages(
                 "- For conversational messages, acknowledgments, or questions not about file content: respond normally with NO tool calls.\n"
                 "- To ADD content (new paragraph, section, notes): use append_to_file — safest, never loses existing content\n"
                 "- To EDIT a specific passage: use read_file first, then patch_file(old_text=<exact passage>, new_text=<replacement>)\n"
-                "- To REWRITE the whole file: use write_file with the COMPLETE new content\n"
-                "- To CREATE a new file: use create_file\n"
+                "- To REWRITE the whole file: use read_file first, then write_file with the COMPLETE rewritten content — never write_file without reading first\n"
+                "- NEVER use write_file for partial updates — it permanently deletes everything not included. Use patch_file.\n"
+                "- To CREATE a new file: use create_file — only for genuinely new files, never to reconstruct missing context\n"
                 "- After any write/append/patch/create succeeds, respond to the user immediately — do NOT read the file back to verify\n"
-                "- Never call the same tool more than twice in a single turn"
+                "- Never call the same tool more than twice in a single turn\n"
+                "- If information is not in your current context (file detached, not in memory, not in conversation history): say so directly. Never fabricate content, invent logs, or create files to substitute for missing context."
             )
         else:
             file_notice = f"The user has attached these files: {', '.join(file_names)}. Use file tools to read or edit them."
@@ -53,6 +55,11 @@ def build_context_messages(
         messages.append({"role": "system", "content": base})
     elif system_prompt:
         messages.append({"role": "system", "content": system_prompt})
+    else:
+        messages.append({"role": "system", "content": (
+            "If information is not present in your current context (not in memory, not in conversation history): "
+            "say so directly and concisely. Never fabricate answers, invent logs, or guess at content that should come from files or prior sessions."
+        )})
 
     if memory_enabled:
         if graph_context:
