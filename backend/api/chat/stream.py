@@ -198,7 +198,7 @@ async def chat_stream(
                     accumulated.append(event["content"])
                     yield f"data: {_json.dumps(event)}\n\n"
 
-                elif event["type"] in ("tool_call", "tool_result", "ask_user"):
+                elif event["type"] in ("tool_call", "tool_result", "ask_user", "confirm_write_memory"):
                     yield f"data: {_json.dumps(event)}\n\n"
 
                 elif event["type"] == "done":
