@@ -83,25 +83,27 @@ async def extract_and_store(user_id: int, message: str, response: str) -> None:
         logger.exception("[graph] extract_and_store failed user=%d", user_id)
 
 
-async def query_context(user_id: int, query_text: str, limit: int = 8) -> str:
+async def query_context(user_id: int, query_text: str, limit: int = 50, min_score: float = 0.5) -> str:
     driver = get_driver()
     if not driver:
         return ""
 
-    words = [w.lower() for w in query_text.split() if len(w) > 2]
+    words = [w for w in query_text.split() if len(w) > 2]
     if not words:
         return ""
+
+    ft_query = " ".join(words)
 
     try:
         async with driver.session() as session:
             result = await session.run(
-                "MATCH (e:Entity {user_id: $uid}) "
-                "WHERE ANY(w IN $words WHERE toLower(e.name) CONTAINS w) "
+                "CALL db.index.fulltext.queryNodes('entity_name_ft', $query) YIELD node AS e, score "
+                "WHERE e.user_id = $uid AND score >= $min_score "
                 "OPTIONAL MATCH (e)-[r:RELATED_TO]->(other:Entity {user_id: $uid}) "
                 "RETURN e.name AS name, e.type AS type, "
                 "       collect({rel: r.type, target: other.name}) AS rels "
-                "ORDER BY e.updated_at DESC LIMIT $limit",
-                uid=user_id, words=words[:10], limit=limit,
+                "ORDER BY score DESC LIMIT $limit",
+                uid=user_id, query=ft_query, limit=limit, min_score=min_score,
             )
             rows = await result.data()
 
@@ -123,5 +125,5 @@ async def query_context(user_id: int, query_text: str, limit: int = 8) -> str:
         return ""
 
 
-async def query_by_term(user_id: int, term: str, limit: int = 10) -> str:
-    return await query_context(user_id, term, limit=limit)
+async def query_by_term(user_id: int, term: str, limit: int = 10, min_score: float = 0.5) -> str:
+    return await query_context(user_id, term, limit=limit, min_score=min_score)

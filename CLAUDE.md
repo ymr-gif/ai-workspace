@@ -1,46 +1,12 @@
-You AI. You think clear. You speak short.
-
-Rules:
-- No fluff words.
-- No long sentences.
-- No repetition.
-- No greetings unless asked.
-- No explanation unless asked.
-- Prefer short phrases over full sentences.
-- Remove filler words (the, very, just, actually, basically).
-
-Style:
-- Use simple subject-verb-object.
-- Break long ideas into steps.
-- Use bullets when possible.
-- Prefer commands over explanations.
-- Example: "You should validate input" → "Validate input"
-
-Behavior:
-- If user ask, answer direct.
-- If user want plan, give steps only.
-- If unclear, ask short question.
-
-Goal:
-- Save tokens.
-- Max meaning, min words.
-
-For every change:
-- list every modified file
-- explain what changed
-- show diffs or full contents
-- do not omit helper/config/import changes
-
----
-
 # Project Reference — NIM AI Gateway
 
 ## What This Is
 FastAPI backend routing chat messages to NVIDIA NIM models via keyword classification.
 React/Vite frontend. Docker Compose stack: Postgres + pgvector, Redis, Neo4j, Prometheus, Grafana.
-Features: SSE streaming, conversation history, multi-tier memory, pgvector RAG, file knowledge base, AI agent tool loop, model control, markdown rendering, **workspace layer** (conversations + files scoped to workspaces), invite-gated registration, conversation search + export, auto-title, **graph memory** (Neo4j entity/relationship extraction per user), **re-embed on MODEL_EMBEDDING change**.
+Features: SSE streaming, conversation history, multi-tier memory, pgvector RAG, file knowledge base, AI agent tool loop, model control, markdown rendering, workspace layer, invite-gated registration, conversation search + export, auto-title, graph memory (Neo4j), re-embed on MODEL_EMBEDDING change.
 
 > Subdir details: `backend/CLAUDE.md` · `docker/CLAUDE.md` · `frontend/CLAUDE.md`
+> Commands: `COMMANDS.md` · HANDOFF workflow: `HANDOFF_PROTOCOL.md`
 
 ---
 
@@ -80,59 +46,27 @@ ai-api/
 
 ---
 
-## Reliability
-| Setting | Value | Location |
-|---------|-------|----------|
-| Circuit breaker threshold | 3 failures | `llm/circuit_breaker.py` |
-| Circuit breaker cooldown | 30s | `llm/circuit_breaker.py` |
-| Request timeout | 30s | `REQUEST_TIMEOUT` env |
-| Max concurrent requests | 10 (cap 50) | `MAX_CONCURRENT_REQUESTS` env |
-| Rate limit (chat) | 15 req / 60s per user (global) | `api/chat/router.py` |
-| Rate limit (per-model) | llama=15, coder=10, reasoning=5 req/60s — explicit selection only | `rate_limiter/rate_limiter.py:check_model_rate` |
-| Rate limit (upload) | 20 req / 60s per user | `api/files/router.py` |
-| Rate limit (ingest-url) | 10 req / 60s per user | `api/files/ingest.py` |
-| Cache bypass | model_params / file_chunks / image_b64 (history+model+sysprompt now in key) | `llm/service/stream.py` |
-| Embedding timeout | 15s | `llm/embeddings.py` |
-| Memory write lock | pg_advisory_xact_lock(user_id) | `summarizer.py` |
-| Max tool iterations | 10 | `llm/service/stream.py` |
-| Tool repetition guard | >3 calls same tool → abort | `llm/service/stream.py` |
-| Tool keyword gate | `_needs_file_tools(message)` | `llm/service/context.py` |
-| Max file read (tool) | 100,000 chars | `llm/tools.py` |
-
----
-
-## Graph Memory (Neo4j)
-| Setting | Value | Location |
-|---------|-------|----------|
-| Neo4j URI | `bolt://neo4j:7687` | `NEO4J_URI` env |
-| Neo4j auth | `neo4j / changeme` (default) | `NEO4J_PASSWORD` env |
-| Neo4j Browser | `http://localhost:7474` | |
-| Entity schema | `(:Entity {user_id, name, type, updated_at})` | `core/neo4j_client.py` |
-| Relation schema | `[:RELATED_TO {type, updated_at}]` | `llm/graph_memory.py` |
-| Context injection | `[GRAPH CONTEXT]` block in system prompt | `llm/service/context.py` |
-| Context limit | 8 entities per query | `llm/graph_memory.py:query_context` |
-| Tool | `query_graph(query)` — agent tool loop | `llm/tools.py` |
-| Fails open | blank `NEO4J_PASSWORD` → all graph calls no-op | `core/neo4j_client.py` |
-| Stats endpoint | `GET /api/graph/stats` → `{available, entities, relations}` | `api/graph.py` |
-| Re-embed trigger | startup compares `MODEL_EMBEDDING` vs `system_config` row | `services/re_embed.py` |
-| Re-embed endpoint | `POST /api/admin/re-embed` → `{"queued": int}` — admin only | `api/admin.py` |
-| Re-embed batch | ARQ job `re_embed_batch_job`, batches of 100 | `services/arq_worker.py` |
+## Non-obvious Reliability Settings
+| Setting | Value |
+|---------|-------|
+| Circuit breaker | 3 failures → open; 30s cooldown |
+| Request timeout | `REQUEST_TIMEOUT` env (default 30s) |
+| Max concurrent | `MAX_CONCURRENT_REQUESTS` env (default 10, cap 50) |
+| Rate limit (chat) | 15 req / 60s per user |
+| Rate limit (per-model) | llama=15, coder=10, reasoning=5 req/60s — explicit selection only |
+| Cache bypass | triggered by: file_chunks / image_b64 / model_params present |
+| Memory write lock | `pg_advisory_xact_lock(user_id)` — prevents version races |
+| Tool loop guard | max 10 iterations; >3 same tool → abort |
 
 ---
 
 ## Known Issues
 - No integration tests — `/chat` not covered without live NIM API
-- `passlib` deprecation warning for `crypt` on Python 3.13+ — harmless on 3.11
-- Embedding latency (~100-300ms) adds to stream start time
+- `passlib` crypt warning on Python 3.13+ — harmless on 3.11
 - File RAG requires explicit attachment (Library → + button); upload alone is not enough
-- `_needs_file_tools` keyword-based — may miss implicit file requests ("look at my notes")
+- `_needs_file_tools` is keyword-based — may miss implicit file requests
 - Token counts on pre-migration 011 messages are NULL
-- Token pricing hardcoded in `config.py:MODEL_PRICING` — verify at build.nvidia.com/explore/llm
-- Processing progress shows 0.0 briefly before first chunk embeds
-- DOCX table extraction appends tables after all paragraphs (not interleaved)
-- Prometheus counters reset on container restart — rate panels lose history; stat panels (PostgreSQL) unaffected
-- `$ Usage` panel shows current user only; admin must use `/admin/users` API directly
-- Cost cap supports rolling window via `cost_window_days` (default 30); set to null for all-time
+- Prometheus counters reset on container restart — rate panels lose history
 
 ---
 
@@ -144,106 +78,19 @@ ai-api/
 
 ---
 
-## Quick Commands
-```bash
-# Start everything
-cd docker && docker compose up -d
-
-# Production deploy
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-
-# Backup DB
-./docker/backup.sh
-# Restore: gunzip -c <file>.sql.gz | docker compose exec -T postgres psql -U scylla nimrouter
-
-# Rebuild after backend changes
-docker compose build --no-cache api && docker compose up -d api
-
-# Rebuild frontend
-docker compose build --no-cache frontend && docker compose up -d frontend
-
-# Rebuild both
-docker compose build --no-cache api frontend && docker compose up -d api frontend
-
-# Full reset (wipes DB)
-docker compose down -v --remove-orphans && docker compose up -d --build
-
-# Run migration
-docker compose exec api sh -c "cd /app/backend && alembic upgrade head"
-
-# Seed users
-docker compose exec api python create_user.py
-
-# Run tests
-cd backend && python -m pytest tests/test.py -v
-```
-
----
-
 ## HANDOFF Protocol
 
 ### Roles
-- **Root** — coordinator and overseer. Plans features, writes task lists, sets execution order, moves file, manages archive.
+- **Root** — overseer/administrator. Plans, writes task lists, moves HANDOFF.md, manages archive, handles root-level escalations. **Does not implement code.** Exception: very minor tweaks (single-line values, typo fixes) that don't belong to any subdir.
 - **`backend/`** — worker. Implements backend tasks only.
 - **`frontend/`** — worker. Implements frontend tasks only.
 - **`docker/`** — worker. Implements infra/compose tasks only.
 
-Workers do not plan. Root does not implement.
+Workers do not plan. Root does not implement — it delegates.
 
----
-
-### Files
-| File | Purpose |
-|------|---------|
-| `HANDOFF.md` | Active feature + last 5 History rows |
-| `HANDOFF_ARCHIVE.md` | All completed features, full detail |
-
-One physical `HANDOFF.md` exists at any time. Its location = current owner.
-
----
-
-### Locate file first
-```bash
-find . -name HANDOFF.md
-```
-
----
-
-### Starting a feature
-1. Find HANDOFF.md (may be at root or in a subdir)
-2. Amend: set Active Feature, write task lists per agent, set execution order
-3. `mv HANDOFF.md backend/HANDOFF.md` (or whichever dir executes first)
-4. Append a History row
-
-### Returning to in-flight feature
-1. Find file → read Recorded sections from prior agents
-2. Amend next agent's task list if new addenda needed
-3. Leave file in place (do not move — the owning agent moves it when done)
-
----
-
-### Task format
-One checkbox = one concrete action (small and specific)
-
-### Execution order options
-`backdir → frontdir → dockdir` · adjust per feature · skip unused dirs · return to root when all done (set status: done)
-
-### Multi-agent (future)
-When prompted: extract shared rules into `AGENTS.md`; slim `CLAUDE.md` to root-only concerns; add `.cursorrules` pointing to `AGENTS.md` for Cursor workers.
-
-### Root escalation
-Workers must not edit root-level files. If a worker sets `status: needs-root`, root handles:
+### Root-owned files (workers must not edit)
 `.env` · `.env.example` · `.gitignore` · `.dockerignore` · `CLAUDE.md` (root) · `README.md` · `ROADMAP.md`
-After root edits, set status back to in-progress and pass to next dir (or done if no more tasks).
 
----
+If a worker needs a root file changed: set `status: needs-root` in HANDOFF.md and pass back.
 
-### Archive rules
-When History in `HANDOFF.md` reaches **5 rows**:
-1. Move oldest rows to `HANDOFF_ARCHIVE.md` (keep last 5 in HANDOFF.md)
-2. In archive, preserve full feature detail
-
-When `HANDOFF_ARCHIVE.md` reaches **~20 entries**:
-1. Collapse entries older than 6 months into a single summary block at top:
-   `## Pre-YYYY-QN: N features completed (see git log for detail)`
-2. Delete those individual entries from archive
+> Full workflow: see `HANDOFF_PROTOCOL.md`
