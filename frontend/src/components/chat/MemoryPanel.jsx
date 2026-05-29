@@ -99,6 +99,27 @@ export default function MemoryPanel({
                 ))}
               </>
             )}
+            {sidebarWsId && (
+              <>
+                <div style={s.divider}><span style={s.divLabel}>WORKSPACE</span><div style={{ flex:1, borderTop:'1px solid #1e293b' }} /></div>
+                {wsMemLoading && <p style={s.emptyMem}>Loading…</p>}
+                {!wsMemLoading && !wsMemData?.content && <p style={s.emptyMem}>No workspace memory yet.</p>}
+                {!wsMemLoading && wsMemData?.content && (
+                  parseMemory(wsMemData.content).length > 0
+                    ? parseMemory(wsMemData.content).map(sec => (
+                        <div key={sec.name} style={s.section}>
+                          <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||'#818cf8', background: (SECTION_COLORS[sec.name]||'#818cf8')+'18' }}>{sec.name}</span>
+                          {sec.pairs.map((p, i) => (
+                            <div key={i} style={s.kv}><span style={s.kvKey}>{p.key}</span><span style={s.kvVal}>{p.val}</span></div>
+                          ))}
+                        </div>
+                      ))
+                    : wsMemData.content.split('\n').filter(Boolean).map((line, i) => (
+                        <div key={i} style={{ background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px', padding:'0.5rem 0.75rem', fontSize:'0.78rem', color:'#cbd5e1', lineHeight:1.5 }}>{line}</div>
+                      ))
+                )}
+              </>
+            )}
           </>
         )}
         {memTab === 'workspace' && (
