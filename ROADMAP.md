@@ -251,7 +251,7 @@ P0 — now
   ~~1. Autonomous Memory Writing        closes the biggest gap ("private AI mind" that learns)~~ ✅
   ~~2. User Preference Extraction       personalizes every response~~ ✅
   ~~3. Behavioral Pattern Tracker       feeds agency insight generation~~ ✅
-  4. Cross-Session Continuity Summary immediate UX win, very low cost
+  4. Cross-Session Continuity Summary immediate UX win, very low cost  ← IN PROGRESS
 
 P1 — next sprint
   5. Memory Conflict Resolution UI    backend done, frontend only
