@@ -70,7 +70,8 @@ export default function useMemory(token, sidebarWsId) {
   }, [token])
 
   useEffect(() => {
-    if (!memOpen || memTab !== 'workspace' || !sidebarWsId) return
+    if (!memOpen || !sidebarWsId) return
+    if (memTab !== 'workspace' && memTab !== 'view') return
     loadWsMemory(sidebarWsId)
   }, [memOpen, memTab, sidebarWsId])
 
