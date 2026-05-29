@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-05-30 (User Preference Extraction ✅ — Behavioral Pattern Tracker in progress)
+Last updated: 2026-05-30
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -34,7 +34,7 @@ Last updated: 2026-05-30 (User Preference Extraction ✅ — Behavioral Pattern 
 
 ---
 
-## Current State (as of migration 032)
+## Current State (as of migration 032; 033 in progress)
 
 | Area | Status |
 |------|--------|
@@ -49,14 +49,16 @@ Last updated: 2026-05-30 (User Preference Extraction ✅ — Behavioral Pattern 
 | File formats — PDF, DOCX, XLSX, text/code/markdown | ✅ |
 | AI agent tool loop (10 tools, ask_user, query_graph, write_memory) | ✅ |
 | Autonomous memory writing (write_memory tool, user-confirm green card) | ✅ |
+| User preference extraction (ARQ job every 50 msgs; `[PREFERENCES]` in UserMemory) | ✅ |
+| Memory version history + diff view (History tab in Memory panel) | ✅ |
 | Proactive suggestions + insight generation (ARQ background) | ✅ |
 | Scheduled prompts (PromptTemplate, ScheduledPrompt) | ✅ |
-| Workspace layer (isolated system prompts + workspace memory) | ✅ |
+| Workspace layer (isolated system prompts + workspace memory; localStorage persistence) | ✅ |
 | Multi-tenant user isolation (all data scoped per user_id) | ✅ |
 | Cost caps + rolling window billing per user | ✅ |
 | Invite-gated registration, role-based access | ✅ |
 | SSE streaming, Redis cache, circuit breaker, rate limiter | ✅ |
-| Observability — Prometheus + Grafana (24 panels) | ✅ |
+| Observability — Prometheus + Grafana (24 panels, 2 alert rules) | ✅ |
 
 ---
 
@@ -65,9 +67,9 @@ Last updated: 2026-05-30 (User Preference Extraction ✅ — Behavioral Pattern 
 ### Dimension 1 — Persistent Memory
 | Gap | Notes |
 |-----|-------|
-| Behavioral pattern learning | No tracking of what user asks most, preferred style, domain habits |
-| Preference extraction | No structured extraction of user preferences from conversations |
-| Memory timeline/chronicle | No temporal view of how memory evolved across sessions |
+| Behavioral pattern learning | **In progress (migration 033)** — `UserBehaviorProfile` JSONB tracks query types, topic keywords, tools, models used |
+| ~~Preference extraction~~ | ~~No structured extraction of user preferences from conversations~~ ✅ |
+| ~~Memory timeline/chronicle~~ | ~~No temporal view of how memory evolved across sessions~~ ✅ |
 | ~~Autonomous memory writing~~ | ~~AI reads memory but never writes it; all writes are user-triggered~~ ✅ |
 | Cross-session continuity signal | No "last seen," session gap detection, or re-entry continuity summary |
 
@@ -76,7 +78,7 @@ Last updated: 2026-05-30 (User Preference Extraction ✅ — Behavioral Pattern 
 |-----|-------|
 | Unified search | No single endpoint spanning files + conversations + memory + graph |
 | Knowledge graph explorer (UI) | Frontend shows entity/relation counts only; no visual graph |
-| Memory timeline view (UI) | No chronological view of memory evolution in frontend |
+| ~~Memory timeline view (UI)~~ | ~~No chronological view of memory evolution in frontend~~ ✅ |
 | Cross-conversation knowledge propagation | Insights from conversations don't auto-write to memory |
 
 ### Dimension 3 — Reasoning Loop
@@ -106,7 +108,7 @@ Last updated: 2026-05-30 (User Preference Extraction ✅ — Behavioral Pattern 
 | Gap | Notes |
 |-----|-------|
 | Memory conflict resolution UI | Backend complete; no frontend panel |
-| Fact-level salience visualization | `facts[]` API exists; no UI rendering |
+| Fact-level salience visualization | Partial — per-fact % badge rendered in View tab; no score bar or last-access timestamp yet |
 | Full data export / portability | Conversation export exists; no full memory + file export bundle |
 | Image storage + indexing | Base64 image input works; images not persisted or searchable |
 | User onboarding | No guided first-run experience |
@@ -137,9 +139,9 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 ~~After every N conversations, ARQ job runs an LLM pass over recent history to extract preferences (verbosity, tone, domain vocabulary, response style). Writes structured result into `UserMemory.project_summary` or dedicated preference field.~~
 ~~- Backend: new ARQ job + summarizer module (`llm/summarizer/preferences.py`)~~
 
-#### Behavioral Pattern Tracker
-Track topics, query types, and tools engaged per user. Store as `UserBehaviorProfile` JSONB. Updated in background post-reply. Feeds adaptive retrieval policy (pre-warm) and agency.py hint generation.
-- Backend: new `UserBehaviorProfile` model; background update in `api/chat/background.py`
+#### Behavioral Pattern Tracker _(in progress — migration 033)_
+Track topics, query types, and tools engaged per user. Store as `UserBehaviorProfile` (one row per user, JSONB `profile`). Updated via ARQ `update_behavior_profile_job` post-reply — no LLM, pure counter increments. Feeds `generate_user_insight()` in `agency.py` with richer behavioral context.
+- Backend: `UserBehaviorProfile` model · migration 033 · `services/behavior.py` · ARQ job in `arq_worker.py` · trigger in `stream.py` · enhanced `agency.py` insight prompt
 
 #### Cross-Session Continuity Summary
 On new conversation start (returning user), inject a brief re-entry summary: last active timestamp, last conversation topic, active goals. Computed from last conversation title + memory snapshot. No new model.
@@ -154,8 +156,8 @@ On new conversation start (returning user), inject a brief re-entry summary: las
 Surface `GET /memory/conflicts` in Memory panel. Per-conflict card: fact_a vs fact_b, conflict type badge (red=contradiction, yellow=duplicate, grey=ambiguous). Resolve buttons: Keep A / Keep B / Merge / Discard Both. Calls `POST /memory/conflicts/{id}/resolve`.
 - Frontend only (backend complete)
 
-#### Fact-Level Salience Panel
-In Memory → View tab, render each fact line with a salience score bar (green ≥ 1.0, yellow 0.5–1.0, red < 0.5). Timestamp of last access. Uses existing `facts[]` array from `GET /memory`.
+#### Fact-Level Salience Panel _(partial)_
+Per-fact salience % badge already rendered in View tab (color-coded green/amber/grey). Remaining: replace badge with a visual score bar, add last-access timestamp per fact. Uses existing `facts[]` array from `GET /memory`.
 - Frontend only (backend complete)
 
 #### Unified Search
@@ -168,9 +170,9 @@ Visual graph in Memory → Graph tab. Nodes = entities, edges = relations. Click
 - Frontend: `react-force-graph` or `vis-network` canvas; replaces stats-only graph tab
 - Backend: extend `GET /api/graph/sample` with `?limit=&entity_type=`
 
-#### Memory Timeline View
-Memory → History tab: chronological list of `UserMemoryVersion` snapshots. Expandable diff view per version (added lines green, removed lines red). Uses existing `GET /memory/history`.
-- Frontend only (backend complete)
+#### ~~Memory Timeline View~~ ✅
+~~Memory → History tab: chronological list of `UserMemoryVersion` snapshots. Expandable diff view per version (added lines green, removed lines red). Uses existing `GET /memory/history`.~~
+~~- Frontend only (backend complete)~~
 
 #### Full Data Export / Portability
 `GET /api/export/full` returns a ZIP: all conversations (markdown), all files (originals), memory sheet, memory versions, graph entity dump. User-initiated. Streamed via `StreamingResponse`.
@@ -247,22 +249,22 @@ Store image embeddings in pgvector. OCR + entity extraction from images. Graph e
 P0 — now
   ~~1. Autonomous Memory Writing        closes the biggest gap ("private AI mind" that learns)~~ ✅
   ~~2. User Preference Extraction       personalizes every response~~ ✅
-  3. Behavioral Pattern Tracker       feeds agency + adaptive retrieval
+  3. Behavioral Pattern Tracker       feeds agency insight generation  ← IN PROGRESS
   4. Cross-Session Continuity Summary immediate UX win, very low cost
 
 P1 — next sprint
   5. Memory Conflict Resolution UI    backend done, frontend only
-  6. Fact-Level Salience Panel        backend done, frontend only
+  6. Fact-Level Salience Panel        partial — badge done, bar + timestamp remaining
   7. Unified Search                   one interface to everything
   8. Knowledge Graph Explorer UI      high visual impact
-  9. Memory Timeline View             backend done, frontend only
+  ~~9. Memory Timeline View            backend done, frontend only~~ ✅
   10. Full Data Export                user trust / portability
   11. Scheduled Backup                ops reliability
 
 P2 — following sprint
   12. User-Defined Scheduled Agents   ScheduledPrompt already exists, low lift
   13. Goal / Task Tracker             new model + UI, medium effort
-  14. Pattern Detection + Triggers    builds on Behavioral Profile
+  14. Pattern Detection + Triggers    builds on Behavioral Profile (needs #3 first)
   15. Web Search Tool                 gated by env var, isolated
   16. Daily/Weekly Digest             scheduler already wired
 
@@ -281,9 +283,9 @@ P3 — future
 
 | Dimension | Coverage | Blocker |
 |-----------|----------|---------|
-| 1. Persistent Memory | 80% | No behavioral patterns, no preference extraction |
-| 2. Unified Interface | 55% | No unified search, no graph UI, no timeline UI |
+| 1. Persistent Memory | 87% | Behavioral patterns in progress; no cross-session continuity |
+| 2. Unified Interface | 60% | No unified search, no graph UI |
 | 3. Reasoning Loop | 65% | No grounding confidence, no intent classification |
 | 4. Autonomous Agency | 35% | No patterns, no goals, no user-defined agents |
 | 5. Real-Time Perception | 10% | No web search, no external integrations |
-| **Overall** | **~50%** | P0 remaining + P1 would bring this to ~75% |
+| **Overall** | **~53%** | P0 #3 in progress; P1 would bring this to ~75% |
