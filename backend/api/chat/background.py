@@ -43,6 +43,7 @@ async def _generate_proactive(user_msg: str, ai_msg: str) -> str | None:
 
 
 async def _auto_title(conv_id: uuid.UUID, user_msg: str, ai_msg: str) -> None:
+    from sqlalchemy import update
     from core.db import AsyncSessionLocal
     from llm.nim import call
     prompt = (
@@ -58,10 +59,15 @@ async def _auto_title(conv_id: uuid.UUID, user_msg: str, ai_msg: str) -> None:
         title = (result.get("content") or "").strip().strip('"').strip("'")
         if title and len(title) <= 80:
             async with AsyncSessionLocal() as db:
-                conv = await db.get(Conversation, conv_id)
-                if conv and conv.title == user_msg[:60].strip():
-                    conv.title = title
-                    await db.commit()
+                await db.execute(
+                    update(Conversation)
+                    .where(
+                        Conversation.id    == conv_id,
+                        Conversation.title == user_msg[:60].strip(),
+                    )
+                    .values(title=title)
+                )
+                await db.commit()
     except Exception:
         logger.exception("[auto_title] failed conv=%s", conv_id)
 
