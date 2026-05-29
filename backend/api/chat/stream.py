@@ -177,6 +177,7 @@ async def chat_stream(
         cache_hit     = False
         fallback_used = False
         accumulated   = []
+        tools_in_turn = []
 
         try:
             async for event in service.generate_stream(
@@ -199,6 +200,8 @@ async def chat_stream(
                     yield f"data: {_json.dumps(event)}\n\n"
 
                 elif event["type"] in ("tool_call", "tool_result", "ask_user", "confirm_write_memory"):
+                    if event["type"] == "tool_call":
+                        tools_in_turn.append(event.get("name", ""))
                     yield f"data: {_json.dumps(event)}\n\n"
 
                 elif event["type"] == "done":
@@ -248,6 +251,41 @@ async def chat_stream(
                             pool = get_arq_pool()
                             if pool:
                                 await pool.enqueue_job("generate_insight_job", current_user.id)
+
+                        # Enqueue preference extraction every 50 assistant messages
+                        from config import USE_REDIS
+                        if USE_REDIS and asst_count > 0 and asst_count % 50 == 0:
+                            try:
+                                from core.redis_client import get_redis
+                                redis = get_redis()
+                                lock_key = f"pref_extract:running:{current_user.id}"
+                                if not await redis.exists(lock_key):
+                                    await redis.set(lock_key, "1", ex=300)
+                                    pool = get_arq_pool()
+                                    if pool:
+                                        await pool.enqueue_job("extract_preferences_job", current_user.id)
+                                    else:
+                                        from llm.summarizer.preferences import extract_preferences
+                                        async def _run_pref_inline(uid: int):
+                                            from core.db import AsyncSessionLocal
+                                            async with AsyncSessionLocal() as s:
+                                                await extract_preferences(uid, s)
+                                        asyncio.create_task(_run_pref_inline(current_user.id))
+                            except Exception:
+                                logger.warning("[preferences] Redis check skipped for user=%s", current_user.id)
+
+                        # Enqueue behavior profile update every reply
+                        from core.arq_pool import get_arq_pool
+                        bpool = get_arq_pool()
+                        if bpool:
+                            await bpool.enqueue_job(
+                                "update_behavior_profile_job",
+                                current_user.id,
+                                ctx.get("policy_used", "factual"),
+                                req.message,
+                                tools_in_turn,
+                                model_used,
+                            )
 
                         event["prompt_tokens"]     = pt
                         event["completion_tokens"] = ct

@@ -37,6 +37,7 @@ async def process_file_job(ctx, file_id: str, storage_path: str, mime_type: str)
 
 async def generate_insight_job(ctx, user_id: int) -> None:
     from llm.agency import generate_user_insight
+    from models import UserBehaviorProfile
 
     try:
         async with AsyncSessionLocal() as db:
@@ -62,7 +63,10 @@ async def generate_insight_job(ctx, user_id: int) -> None:
             )
             recent_topics = "\n".join(f"- {m[:100]}" for m in msgs_result.scalars().all())
 
-            insight = await generate_user_insight(user_id, memory, recent_topics)
+            bp_row = await db.get(UserBehaviorProfile, user_id)
+            behavior_profile = bp_row.profile if bp_row else {}
+
+            insight = await generate_user_insight(user_id, memory, recent_topics, behavior_profile=behavior_profile)
             if not insight:
                 return
 
@@ -123,8 +127,36 @@ async def compact_memory_job(ctx, user_id: int) -> None:
         ARQ_JOB_FAILED.labels(job_type="compact_memory").inc()
 
 
+async def extract_preferences_job(ctx, user_id: int) -> None:
+    from llm.summarizer.preferences import extract_preferences
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await extract_preferences(user_id, db)
+            logger.info("[arq] extract_preferences done user_id=%s", user_id)
+    except Exception:
+        attempt = ctx.get("job_try", 1)
+        logger.exception("[arq] extract_preferences failed user_id=%s attempt=%d", user_id, attempt)
+        if attempt >= _MAX_TRIES:
+            ARQ_JOB_FAILED.labels(job_type="extract_preferences").inc()
+
+
+async def update_behavior_profile_job(ctx, user_id: int, query_type: str, message: str, tool_names: list[str], model_used: str) -> None:
+    from services.behavior import update_behavior_profile
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await update_behavior_profile(user_id, query_type, message, tool_names, model_used, db)
+            logger.debug("[arq] behavior_profile updated user_id=%s", user_id)
+    except Exception:
+        attempt = ctx.get("job_try", 1)
+        logger.exception("[arq] update_behavior_profile failed user_id=%s attempt=%d", user_id, attempt)
+        if attempt >= _MAX_TRIES:
+            ARQ_JOB_FAILED.labels(job_type="update_behavior_profile").inc()
+
+
 class WorkerSettings:
-    functions = [process_file_job, generate_insight_job, re_embed_batch_job, compact_memory_job]
+    functions = [process_file_job, generate_insight_job, re_embed_batch_job, compact_memory_job, extract_preferences_job, update_behavior_profile_job]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 10
     max_tries = _MAX_TRIES

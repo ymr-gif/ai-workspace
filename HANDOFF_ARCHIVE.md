@@ -83,6 +83,18 @@ Full code detail is in CLAUDE.md and git history.
 
 ---
 
+## Behavioral Pattern Tracker
+**Completed:** 2026-05-30
+
+- **Model**: `UserBehaviorProfile` in `models/user.py` — `user_id` PK, `profile` JSONB (`query_types / topic_keywords / tools_used / models_used / total_messages`), `updated_at`; migration 033
+- **Core logic**: `services/behavior.py` — `update_behavior_profile()` — no LLM; stopwords + len>4 keyword extraction; topic pruning at 50 keys
+- **ARQ job**: `update_behavior_profile_job` — `_MAX_TRIES=4`, `ARQ_JOB_FAILED` counter; registered in `WorkerSettings.functions`; enqueued every reply from `stream.py` done handler; no inline fallback
+- **Insight enhancement**: `llm/agency.py` — `generate_user_insight()` accepts optional `behavior_profile` kwarg; top 3 query types + top 5 topics appended as `{behavior_hint}` in `_INSIGHT_PROMPT`; `generate_insight_job` loads `UserBehaviorProfile` and passes it
+
+**Key files:** `models/user.py` · `alembic/versions/033_user_behavior_profile.py` · `services/behavior.py` · `services/arq_worker.py` · `api/chat/stream.py` · `llm/agency.py`
+
+---
+
 ## User Preference Extraction
 **Completed:** 2026-05-30
 
