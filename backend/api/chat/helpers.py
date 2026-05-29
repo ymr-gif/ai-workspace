@@ -270,6 +270,26 @@ async def _build_stream_context(
                 f for c in active for f in (c.fact_a, c.fact_b)
             )
 
+    last_session = ""
+    if not req.conversation_id:
+        ls_result = await db.execute(
+            select(Conversation.title, Conversation.updated_at)
+            .where(Conversation.user_id == current_user.id, Conversation.id != conv.id)
+            .order_by(Conversation.updated_at.desc())
+            .limit(1)
+        )
+        ls_row = ls_result.first()
+        if ls_row and ls_row.title:
+            elapsed = datetime.now(timezone.utc) - ls_row.updated_at
+            hours = elapsed.total_seconds() / 3600
+            if hours < 1:
+                ago = f"{max(1, int(elapsed.total_seconds() / 60))} minutes ago"
+            elif hours < 24:
+                ago = f"{int(hours)} hours ago"
+            else:
+                ago = f"{int(hours / 24)} days ago"
+            last_session = f'Last session: "{ls_row.title}" — {ago}'
+
     graph_context = ""
     graph_facts   = ""
     if memory_enabled:
@@ -305,4 +325,5 @@ async def _build_stream_context(
         "conflicted_facts":    conflicted_facts,
         "policy_used":         query_type,
         "fact_saliences":      fact_saliences,
+        "last_session":        last_session,
     }
