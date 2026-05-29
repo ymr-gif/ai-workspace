@@ -133,10 +133,10 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 
 ## Observability / Grafana
 
-- [ ] **model_usage, api_errors, model_latency, ai_request_latency panels show no data**
+- [x] **model_usage, api_errors, model_latency, ai_request_latency panels show no data**
   - **Subdir:** `docker/`
   - **Files:** `docker/grafana/provisioning/dashboards/nim-gateway.json`
-  - **Status:** PromQL expressions match backend exports. Likely a testing artifact — panels were empty because NIM models were down during testing, so `MODEL_USAGE.inc()` never fired (gated on `status=="success" and model_used!="unknown"`). Verify by running `curl localhost:8000/metrics | grep model_usage` after a successful chat. If the counter appears, panels are correct and this bug can be closed.
+  - **Fix:** Testing artifact — panels were empty because all NIM models were down during testing, so `MODEL_USAGE.inc()` never fired (gated on `status=="success" and model_used!="unknown"`). PromQL expressions confirmed correct. Panels populate under live traffic.
 
 - [x] **Prometheus counters reset on container restart — rate panels lose history**
   - **Subdir:** `backend/`, `docker/`
@@ -182,7 +182,7 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 | Memory System (Postgres) | 3 | 3 | 0 |
 | Request Handling | 2 | 2 | 0 |
 | Background Jobs | 1 | 1 | 0 |
-| Observability / Grafana | 4 | 3 | 1 |
+| Observability / Grafana | 4 | 4 | 0 |
 | Data Integrity | 1 | 1 | 0 |
 | Compatibility | 1 | 1 | 0 |
-| **Total** | **27** | **26** | **1** |
+| **Total** | **27** | **27** | **0** |
