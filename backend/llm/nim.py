@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import random
 import time
 
 import httpx
@@ -126,7 +127,7 @@ async def call(
                 logger.exception("[nim] unexpected request_id=%s model=%s err=%s", request_id, model, e)
                 await record_failure(model)
 
-            await asyncio.sleep(0.5 * (attempt + 1))
+            await asyncio.sleep(min(30, 2 ** attempt) * (0.75 + 0.5 * random.random()))
 
     return {"ok": False, "error": "failed", "content": None, "tool_calls": None,
             "latency_ms": (time.monotonic() - start) * 1000, "model": model}

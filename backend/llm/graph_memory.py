@@ -9,11 +9,15 @@ from config import MODELS, USE_REDIS
 from core.neo4j_client import get_driver
 from core.redis_client import get_redis
 
-_GRAPH_CACHE_TTL = 60  # seconds
+_GRAPH_CACHE_TTL       = 60    # seconds
+_MAX_ENTITY_NAME_LEN   = 200
+_MAX_ENTITIES_PER_CALL = 30
+_MAX_RELS_PER_CALL     = 60
+_MAX_USER_ENTITIES     = 500
 
 
 def _cache_key(user_id: int, query_text: str) -> str:
-    digest = hashlib.sha256(query_text.lower().strip().encode()).hexdigest()[:20]
+    digest = hashlib.sha256(query_text.lower().strip().encode()).hexdigest()[:32]
     return f"graph:{user_id}:{digest}"
 
 
@@ -31,6 +35,18 @@ async def _cache_set(key: str, value: str) -> None:
         return
     try:
         await get_redis().set(key, value, ex=_GRAPH_CACHE_TTL)
+    except RedisError:
+        pass
+
+
+async def _cache_del_user(user_id: int) -> None:
+    if not USE_REDIS:
+        return
+    try:
+        r = get_redis()
+        keys = [k async for k in r.scan_iter(f"graph:{user_id}:*")]
+        if keys:
+            await r.delete(*keys)
     except RedisError:
         pass
 
@@ -63,7 +79,7 @@ async def extract_and_store(user_id: int, message: str, response: str) -> None:
 
     try:
         result = await call(
-            model=MODELS["llama"],
+            model=MODELS["reasoning"],
             messages=[{"role": "user", "content": prompt}],
             request_id=f"graph-{user_id}",
         )
@@ -88,7 +104,10 @@ async def extract_and_store(user_id: int, message: str, response: str) -> None:
             {"name": (e.get("name") or "").strip(), "type": (e.get("type") or "OTHER").strip()}
             for e in entities
             if (e.get("name") or "").strip()
+            and len((e.get("name") or "").strip()) <= _MAX_ENTITY_NAME_LEN
         ]
+
+        entity_batch = entity_batch[:_MAX_ENTITIES_PER_CALL]
 
         valid_names = {e["name"] for e in entity_batch}
         rel_batch = [
@@ -100,16 +119,42 @@ async def extract_and_store(user_id: int, message: str, response: str) -> None:
             for r in relations
             if (r.get("from") or "").strip() in valid_names
             and (r.get("to") or "").strip() in valid_names
-        ]
+        ][:_MAX_RELS_PER_CALL]
+
+        if USE_REDIS:
+            try:
+                if await get_redis().exists(f"compact:running:{user_id}"):
+                    logger.info("[graph] skipping extract — compaction running user=%d", user_id)
+                    return
+            except RedisError:
+                pass
 
         async with driver.session() as session:
             if entity_batch:
+                cnt_result = await session.run(
+                    "MATCH (n:Entity {user_id: $uid}) RETURN count(n) AS cnt",
+                    uid=user_id,
+                )
+                record = await cnt_result.single()
+                current_count = record["cnt"] if record else 0
+                overflow = current_count + len(entity_batch) - _MAX_USER_ENTITIES
+                if overflow > 0:
+                    logger.info("[graph] evicting %d oldest entities user=%d", overflow, user_id)
+                    await session.run(
+                        "MATCH (n:Entity {user_id: $uid}) "
+                        "WITH n ORDER BY n.updated_at ASC LIMIT $n "
+                        "DETACH DELETE n",
+                        uid=user_id, n=overflow,
+                    )
                 await session.run(
                     "UNWIND $batch AS e "
                     "MERGE (n:Entity {user_id: $uid, name: e.name}) "
-                    "SET n.type = e.type, n.updated_at = $ts",
+                    "SET n.type = CASE WHEN e.type <> 'OTHER' THEN e.type ELSE n.type END, "
+                    "    n.updated_at = $ts",
                     batch=entity_batch, uid=user_id, ts=now,
                 )
+                await _cache_del_user(user_id)
+
             if rel_batch:
                 await session.run(
                     "UNWIND $batch AS r "
@@ -120,7 +165,7 @@ async def extract_and_store(user_id: int, message: str, response: str) -> None:
                     batch=rel_batch, uid=user_id, ts=now,
                 )
 
-        logger.info("[graph] stored %d entities %d rels user=%d", len(entities), len(relations), user_id)
+        logger.info("[graph] stored %d entities %d rels user=%d", len(entity_batch), len(rel_batch), user_id)
 
     except json.JSONDecodeError:
         logger.debug("[graph] LLM returned non-JSON, skipping")

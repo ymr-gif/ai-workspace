@@ -14,8 +14,8 @@
 │   ├── tools.py            — ToolCallLog
 │   ├── prompts_scheduled.py — PromptTemplate, ScheduledPrompt, ScheduledPromptRun
 │   └── system.py           — SystemConfig
-├── alembic/versions/       — 030 migrations; latest: 030_chunk_quality.py
-├── auth/                   — JWT, bcrypt, API key fallback, invite validation
+├── alembic/versions/       — 032 migrations; latest: 032_message_token_estimate.py
+├── auth/                   — JWT, bcrypt (direct, no passlib), API key fallback, invite validation
 ├── tests/
 │   ├── test.py             — 21 unit tests (standalone, no docker)
 │   └── retrieval/
@@ -29,9 +29,9 @@
 │   │   ├── executor.py     — execute_tool() dispatch
 │   │   ├── file_ops.py     — read/write/append/patch/create file ops
 │   │   └── search.py       — search_in_file + search_across_files
-│   ├── graph_memory.py     — Neo4j extraction/query + query_by_keywords (stopwords, fulltext, neighborhood expansion); limit=50, min_score=0.5; UNWIND batch writes; Redis cache 60s (USE_REDIS gated)
+│   ├── graph_memory.py     — Neo4j extraction (70B model) + query_by_keywords; entity caps: _MAX_ENTITY_NAME_LEN=200, _MAX_ENTITIES_PER_CALL=30, _MAX_RELS_PER_CALL=60, _MAX_USER_ENTITIES=500 (evicts oldest by updated_at); cache key SHA256[:32]; _cache_del_user() busts on write; skips if compact:running:{user_id} Redis lock held; MERGE SET preserves specific type over OTHER
 │   ├── router.py           — keyword classify(), model route(), get_context_limit()
-│   ├── circuit_breaker.py  — 3 failures → 30s cooldown
+│   ├── circuit_breaker.py  — _THRESHOLD=5, _COOLDOWN=90s; Redis persistence (cb:open:{model} EX 90, USE_REDIS gated); restore_circuit_state() on startup
 │   ├── embeddings.py       — embed(text, input_type) → list[float]; timeout=15s
 │   ├── retriever/          — hybrid vector+BM25 fusion (rrf|weighted); debug param
 │   │   ├── fusion.py       — rrf + weighted fusion, score normalization
@@ -43,20 +43,20 @@
 │   │   ├── memory.py       — workspace memory read/write
 │   │   ├── history.py      — history summarization
 │   │   ├── project.py      — project summary updates
-│   │   └── compact.py      — compact_memory() LLM-driven dedup
+│   │   └── compact.py      — compact_memory() LLM-driven dedup; sets Redis lock compact:running:{user_id} (EX 300s) for graph write coordination
 │   └── agency.py           — proactive suggestions + insight generation (ARQ)
 ├── cache/                  — Redis primary + LRU fallback; cache-bypass on file/image/model-param
 ├── core/                   — db (pgbouncer: prepared_statement_cache_size=0), redis, arq, neo4j (get_health; pool size=20, timeout=5s)
-├── rate_limiter/           — sliding-window per user + per-model; reuses request.state.current_user
-├── observability/          — Prometheus counters/histograms; Redis-stream metrics worker
+├── rate_limiter/           — sliding-window per user + per-model; reuses request.state.current_user; logs warning on fail-open (Redis down)
+├── observability/          — Prometheus counters/histograms; Redis-stream metrics worker; multiprocess mode via PROMETHEUS_MULTIPROC_DIR
 ├── api/
 │   ├── chat/
 │   │   ├── __init__.py     — combines router + stream_router
 │   │   ├── schemas.py      — ChatRequest model
 │   │   ├── router.py       — POST /chat (non-streaming)
-│   │   ├── stream.py       — POST /chat/stream SSE endpoint + event_generator
-│   │   ├── helpers.py      — context build, model resolve, cost cap, conversation resolve
-│   │   └── background.py   — auto-title, embed, proactive, token/cost calc
+│   │   ├── stream.py       — POST /chat/stream SSE endpoint + event_generator; status="partial" for mid-stream breaks (STREAM_INTERRUPTIONS counter); ALL_MODELS_FAILED counter
+│   │   ├── helpers.py      — context build, model resolve, cost cap; auto-resolves expired MemoryConflicts (keep_a); time-based fact salience decay in ranking (not persisted)
+│   │   └── background.py   — auto-title, embed, proactive, token/cost calc; _auto_title only writes if title still equals user_msg[:60] (race guard)
 │   ├── workspaces.py       — /workspaces CRUD + memory routes
 │   ├── files/              — upload, ingest-url, search, versions, workspace assign; sha256 dedup
 │   ├── conversations/      — list (?q=), export, PATCH, delete; file attach/detach
@@ -70,10 +70,13 @@
 │   │   ├── audit.py        — GET /audit-log
 │   │   ├── env.py          — GET/PUT env vars, reload
 │   │   └── system.py       — POST /re-embed
-│   ├── graph.py / compat.py / templates.py / scheduled_prompts.py / usage.py / memory.py / system.py / tool_logs.py
+│   ├── graph.py            — /graph/stats, /health, /sample; DELETE /graph/entities/{name}; POST /graph/prune (removes long names + stale OTHER-type entities >7 days)
+│   ├── system.py           — /health, /metrics; probe_models_on_startup() pings all MODELS, pre-trips circuit on failure
+│   ├── memory.py           — GET /memory returns active_conflicts count; scan_conflicts sets expires_at=+7d; conflicts auto-resolved keep_a after expiry
+│   ├── compat.py / templates.py / scheduled_prompts.py / usage.py / tool_logs.py
 ├── services/
 │   ├── processor.py        — extract→chunk→embed; CPU work in asyncio.to_thread()
-│   ├── arq_worker.py       — max_tries=4 (5s/30s/120s); insight, re-embed, compact_memory jobs
+│   ├── arq_worker.py       — _MAX_TRIES=4 (5s/30s/120s); ARQ_JOB_FAILED counter on final failure for all jobs; process_file_job sets upload_status="error" on final failure
 │   ├── re_embed.py         — batches of 100; triggered on startup or /admin/re-embed
 │   ├── file_service.py     — fuzzy-patch, save-version-before-mutate; sync I/O in asyncio.to_thread()
 │   └── scheduler_worker.py — APScheduler cron runner; daily memory compaction at 3 AM UTC
@@ -86,7 +89,7 @@
 ## Key Models
 - **User**: cost_limit_usd/cost_window_days cap, api_key auth, is_active gate
 - **File**: sha256_hash dedup `(user_id, hash)`, workspace_id FK SET NULL
-- **Message**: content_tsv GIN for full-text search; tracks token + cost
+- **Message**: content_tsv GIN for full-text search; tracks token + cost; `token_estimate` (bool, nullable) — true = character-heuristic backfill (migration 032), null = real NIM data
 - **SystemConfig**: key/value store — tracks MODEL_EMBEDDING for re-embed triggers
 - Others: 15 more in `models/` (chat, file, workspace, memory, tools, scheduled, auth)
 
@@ -127,12 +130,12 @@ Injection order (build_context_messages):
 
 - Triggers: memory update >3000 tok OR every 10 asst msgs; history compression + project summary update >4000 tok OR every 15 total msgs (all_count > 10); auto-title after 2nd msg via `asyncio.create_task`
 - Lock: `pg_advisory_xact_lock(user_id)` prevents version races
-- Compaction: LLM-driven dedup via `compact_memory()`; creates `UserMemoryVersion` snapshot; queued via ARQ or daily cron at 3 AM UTC
+- Compaction: LLM-driven dedup via `compact_memory()`; creates `UserMemoryVersion` snapshot; queued via ARQ or daily cron at 3 AM UTC; sets Redis lock `compact:running:{user_id}` (EX 300s) — graph extraction skips while held
 - Context budget: drops lowest-tier sources when estimated tokens exceed `context_window - max_output_tokens - 10%`; re-applied after each tool iteration
 - Salience: `UserMemory` has `salience` (float, default 1.0) and `confidence` (float, default 1.0); bumped on every context load via `compute_salience()`, decayed 0.95/cycle during compaction; memory cleared when salience <0.3
-- `POST /memory/decay`: manual decay pass; GET /memory returns per-fact `facts` array with per-line scores
-- Conflict resolver: `MemoryConflict` table stores `fact_a/fact_b/conflict_type/resolution`; detected post-compaction and via `POST /memory/conflicts/scan`; unresolved facts suppressed from context injection; resolve via `POST /memory/conflicts/{id}/resolve` with strategy `keep_a|keep_b|merge|discard_both`
-- Per-fact salience: `UserMemory.fact_saliences` JSONB maps fact text → score; facts sorted high→low before `[USER STATE]` injection (top 20); bumped per-access via `bump_fact_saliences()`; decayed per compaction cycle; low-salience facts dropped first by context budget allocator (tier 1 partial drop before full drop)
+- `POST /memory/decay`: manual decay pass; GET /memory returns per-fact `facts` array with per-line scores + `active_conflicts` count
+- Conflict resolver: `MemoryConflict` stores `fact_a/fact_b/conflict_type/resolution/expires_at`; expires_at set to +7 days on scan; expired unresolved conflicts auto-resolved `keep_a` during context load (helpers.py); active (not expired) unresolved facts suppressed; resolve via `POST /memory/conflicts/{id}/resolve` strategy `keep_a|keep_b|merge|discard_both`
+- Per-fact salience: `UserMemory.fact_saliences` JSONB maps fact text → score; ranking applies time-based decay `0.95^(hours_since_last_compaction/24)` in-memory (not persisted) before top-20 selection; bumped per-access via `bump_fact_saliences()`; decayed per compaction cycle; entries below 0.05 pruned from JSONB; low-salience facts dropped first by context budget allocator (tier 1 partial drop before full drop)
 - Retrieval re-ranking: retrieved chunks re-scored by `final_score * (1 + memory_salience * 0.05)` after retrieval
 
 ---
@@ -165,12 +168,15 @@ Injection order (build_context_messages):
 - SHA256 dedup: returns existing file + `duplicate: true` — no re-upload
 - Sync file I/O + CPU parsing wrapped in `asyncio.to_thread()` (tools.py, file_service.py, processor.py)
 - Rate limiter reuses `request.state.current_user` to skip JWT re-decode
-- `passlib` crypt warning on Python 3.13+ — harmless on 3.11
+- Auth uses `bcrypt` directly (no passlib) — `hash_password()` + `verify_password()` in `auth/security.py`; existing `$2b$` hashes remain compatible
 - Dotenv admin: `/admin/env` masks sensitive keys; PUT writes `.env` + updates running config; `POST /admin/env/reload` does `importlib.reload(config)`
 - `.env` merge script in root CLAUDE.md — adds missing keys from `.env.example` as commented-out
 - Debug mode: `retriever.retrieve()` / `retrieve_from_files(debug=True)` returns `(chunks, debug_info)` tuple; `/search?debug=true` returns `{"results": [...], "debug": [...]}`
 - Eval harness: `tests/retrieval/test_hybrid_eval.py` — 26 tests, mock DB (AsyncMock), no NIM deps; run with `pytest tests/retrieval/ -v`
-- Neo4j indexes created on startup: unique constraint `(user_id, name)`, fulltext `entity_name_ft` on `e.name`, range index `entity_user_id` on `e.user_id`; writes use UNWIND batch (2 round-trips regardless of entity/rel count); graph query results cached in Redis (key `graph:{user_id}:{sha256[:20]}`, TTL 60s, USE_REDIS gated)
+- Neo4j indexes created on startup: unique constraint `(user_id, name)`, fulltext `entity_name_ft` on `e.name`, range index `entity_user_id` on `e.user_id`; writes use UNWIND batch (2 round-trips regardless of entity/rel count); graph query results cached in Redis (key `graph:{user_id}:{sha256[:32]}`, TTL 60s, USE_REDIS gated); cache busted on every entity write (`_cache_del_user`)
+- NIM retry: exponential backoff with jitter `min(30, 2**attempt) * (0.75 + 0.5*random)` — attempt 0≈1s, 1≈2s, 2≈4s
+- Circuit breaker: _THRESHOLD=5, _COOLDOWN=90s; state persisted in Redis `cb:open:{model}` EX 90; restored on startup via `restore_circuit_state()`; pre-tripped at startup by `probe_models_on_startup()` for any model returning non-200
+- Prometheus: multiprocess mode active when `PROMETHEUS_MULTIPROC_DIR` set — `export_metrics()` uses `MultiProcessCollector(CollectorRegistry())`; new counters: `stream_interruptions_total`, `all_models_failed_total`, `arq_job_failed_total{job_type}`
 
 ---
 

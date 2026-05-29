@@ -48,6 +48,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("[startup] redis failed: %s", e)
 
+    logger.info("[startup] restore circuit state...")
+    try:
+        from llm.circuit_breaker import restore_circuit_state
+        await restore_circuit_state()
+    except Exception as e:
+        logger.warning("[startup] circuit restore failed: %s", e)
+
     logger.info("[startup] init arq pool...")
     try:
         await init_arq_pool(REDIS_URL)
@@ -57,6 +64,13 @@ async def lifespan(app: FastAPI):
 
     logger.info("[startup] init http client...")
     llm_client.client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
+
+    logger.info("[startup] probe models...")
+    try:
+        from api.system import probe_models_on_startup
+        await probe_models_on_startup()
+    except Exception as e:
+        logger.warning("[startup] model probe failed: %s", e)
 
     logger.info("[startup] check embedding model...")
     try:

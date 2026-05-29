@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -135,16 +135,28 @@ async def get_memory(
     db:           AsyncSession = Depends(get_db),
 ):
     row = await db.get(UserMemory, current_user.id)
+    now = datetime.now(timezone.utc)
+
+    active_conflicts_result = await db.execute(
+        select(MemoryConflict).where(
+            MemoryConflict.user_id    == current_user.id,
+            MemoryConflict.resolution == "unresolved",
+            (MemoryConflict.expires_at == None) | (MemoryConflict.expires_at > now),
+        )
+    )
+    active_conflicts = len(active_conflicts_result.scalars().all())
+
     if not row:
         return {
-            "content":         "",
-            "project_summary": "",
-            "version":         0,
-            "updated_at":      None,
-            "salience":        0.0,
-            "confidence":      0.0,
-            "last_used_at":    None,
-            "facts":           [],
+            "content":          "",
+            "project_summary":  "",
+            "version":          0,
+            "updated_at":       None,
+            "salience":         0.0,
+            "confidence":       0.0,
+            "last_used_at":     None,
+            "facts":            [],
+            "active_conflicts": active_conflicts,
         }
     facts = [
         {"content": line.strip(), "salience": row.salience, "last_used_at": row.last_used_at.isoformat() if row.last_used_at else None, "confidence": row.confidence}
@@ -152,14 +164,15 @@ async def get_memory(
         if line.strip()
     ]
     return {
-        "content":         row.content         or "",
-        "project_summary": row.project_summary or "",
-        "version":         row.version,
-        "updated_at":      row.updated_at.isoformat() if row.updated_at else None,
-        "salience":        row.salience,
-        "confidence":      row.confidence,
-        "last_used_at":    row.last_used_at.isoformat() if row.last_used_at else None,
-        "facts":           facts,
+        "content":          row.content         or "",
+        "project_summary":  row.project_summary or "",
+        "version":          row.version,
+        "updated_at":       row.updated_at.isoformat() if row.updated_at else None,
+        "salience":         row.salience,
+        "confidence":       row.confidence,
+        "last_used_at":     row.last_used_at.isoformat() if row.last_used_at else None,
+        "facts":            facts,
+        "active_conflicts": active_conflicts,
     }
 
 
@@ -289,6 +302,7 @@ async def scan_conflicts(
     if not mem or not mem.content:
         return {"detected": 0}
     conflicts = await detect_conflicts(mem.content)
+    expires = datetime.now(timezone.utc) + timedelta(days=7)
     for c in conflicts:
         db.add(MemoryConflict(
             user_id=current_user.id,
@@ -296,6 +310,7 @@ async def scan_conflicts(
             fact_b=c["fact_b"],
             conflict_type=c["conflict_type"],
             resolution="unresolved",
+            expires_at=expires,
         ))
     if conflicts:
         await db.commit()

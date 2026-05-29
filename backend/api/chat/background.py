@@ -59,7 +59,7 @@ async def _auto_title(conv_id: uuid.UUID, user_msg: str, ai_msg: str) -> None:
         if title and len(title) <= 80:
             async with AsyncSessionLocal() as db:
                 conv = await db.get(Conversation, conv_id)
-                if conv:
+                if conv and conv.title == user_msg[:60].strip():
                     conv.title = title
                     await db.commit()
     except Exception:

@@ -1,0 +1,115 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: NIM Gateway Alerts
+    folder: NIM Gateway
+    interval: 1m
+    rules:
+      - uid: nim-circuit-breaker-alert
+        title: Circuit Breaker Tripped
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: rate(circuit_breaker_trips_total[5m])
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+        for: 1m
+        annotations:
+          summary: A NIM model circuit breaker has tripped
+          description: rate(circuit_breaker_trips_total[5m]) > 0 sustained for 1 minute
+        labels: {}
+        noDataState: NoData
+        execErrState: Alerting
+        isPaused: false
+
+      - uid: nim-success-rate-alert
+        title: Low Success Rate
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              expr: >-
+                sum(rate(api_requests_total{status="success"}[5m]))
+                / sum(rate(api_requests_total[5m])) * 100
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 99
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+        for: 1m
+        annotations:
+          summary: NIM Gateway success rate below 99%
+          description: Success rate has been below 99% for 1 minute
+        labels: {}
+        noDataState: NoData
+        execErrState: Alerting
+        isPaused: false

@@ -12,6 +12,7 @@ Design goals:
 - atomic Redis pipeline usage
 """
 
+import logging
 import time
 
 from fastapi import Request, HTTPException, Depends
@@ -21,6 +22,8 @@ from redis.exceptions import RedisError
 
 from config import JWT_ALGORITHM, JWT_SECRET_KEY
 from core.redis_client import get_redis
+
+logger = logging.getLogger("rate_limiter")
 
 
 # ─────────────────────────────────────────────
@@ -138,6 +141,7 @@ def rate_limiter(
             #
             # Availability > rate limiting
             #
+            logger.warning("[rate_limiter] fail-open (Redis unavailable) scope=%s key=%s", scope, key)
             return
 
         try:
@@ -185,13 +189,14 @@ def rate_limiter(
                     detail="Rate limit exceeded",
                 )
 
-        except RedisError:
+        except RedisError as e:
             #
             # FAIL-OPEN ON REDIS FAILURE
             #
             # Redis outages should not
             # bring down your API.
             #
+            logger.warning("[rate_limiter] fail-open (RedisError) scope=%s key=%s err=%s", scope, key, e)
             return
 
     return limiter
@@ -247,6 +252,7 @@ async def check_model_rate(full_model_name: str, username: str) -> None:
     try:
         redis = get_redis_client()
     except RuntimeError:
+        logger.warning("[rate_limiter] fail-open (Redis unavailable) scope=model:%s user=%s", model_key, username)
         return
 
     try:
@@ -263,6 +269,7 @@ async def check_model_rate(full_model_name: str, username: str) -> None:
                 status_code=429,
                 detail=f"Rate limit exceeded for {model_key} ({limit_count} req/min)",
             )
-    except RedisError:
+    except RedisError as e:
+        logger.warning("[rate_limiter] fail-open (RedisError) scope=model:%s user=%s err=%s", model_key, username, e)
         return
 
