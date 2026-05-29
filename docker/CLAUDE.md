@@ -43,7 +43,7 @@
 | `backend.Dockerfile` | API + scheduler image |
 | `frontend.Dockerfile` | React build + nginx |
 | `nginx.conf` | Internal API proxy |
-| `nginx.frontend.conf` | Frontend serving |
+| `nginx.frontend.conf` | Frontend serving; `resolver 127.0.0.11 valid=10s` + `set $upstream api` forces Docker DNS re-resolution so frontend doesn't cache stale api container IPs after rebuild; `rewrite ^/api/(.*) /$1 break` strips the prefix (variable proxy_pass does NOT auto-strip location prefix) |
 | `nginx.prod.conf` | TLS termination; replace "example.com" before deploy |
 | `backup.sh` | pg_dump + gzip → storage/backups/; prunes after KEEP_DAYS (default 7) |
 | `prometheus.yml` | Scrape config |
