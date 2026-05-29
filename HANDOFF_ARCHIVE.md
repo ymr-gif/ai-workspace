@@ -83,6 +83,23 @@ Full code detail is in CLAUDE.md and git history.
 
 ---
 
+## User Preference Extraction
+**Completed:** 2026-05-30
+
+- **New file**: `llm/summarizer/preferences.py` — `extract_preferences(user_id, db)`
+- **Prompt**: `_PREF_SYSTEM` — asks for `[PREFERENCES]` block with keys `verbosity`, `tone`, `domains`, `response_style`
+- **LLM**: `MODELS["reasoning"]` (70B), non-streaming via `nim.call()`
+- **Message fetch**: last 40 messages (user+assistant), joined `messages→conversations.user_id`, ordered `created_at DESC`
+- **Parsing**: regex `\[PREFERENCES\](.*?)(?=\[|$)` — block between `[PREFERENCES]` and next `[` or EOF
+- **Write**: `pg_advisory_xact_lock(user_id)`, snapshot to `UserMemoryVersion`, replace existing `[PREFERENCES]` or append, bump `version += 1`
+- **ARQ job**: `extract_preferences_job` in `services/arq_worker.py`, `_MAX_TRIES=4`, `ARQ_JOB_FAILED` counter on final failure
+- **Trigger**: `api/chat/stream.py` `event_generator()` — counts `asst_count`, fires at `% 50 == 0`, Redis lock `pref_extract:running:{user_id}` EX 300s, gated on `USE_REDIS`, inline fallback via `asyncio.create_task`
+- **No new DB models or migrations**
+
+**Key files:** `llm/summarizer/preferences.py` · `services/arq_worker.py` · `api/chat/stream.py` · `backend/CLAUDE.md`
+
+---
+
 ## Retrieval Eval Harness + Neo4j Grounding Injection
 **Completed:** 2026-05-28
 
