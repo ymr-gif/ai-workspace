@@ -34,7 +34,7 @@ Last updated: 2026-05-30
 
 ---
 
-## Current State (as of migration 032; 033 in progress)
+## Current State (as of migration 033)
 
 | Area | Status |
 |------|--------|
@@ -50,8 +50,9 @@ Last updated: 2026-05-30
 | AI agent tool loop (10 tools, ask_user, query_graph, write_memory) | ✅ |
 | Autonomous memory writing (write_memory tool, user-confirm green card) | ✅ |
 | User preference extraction (ARQ job every 50 msgs; `[PREFERENCES]` in UserMemory) | ✅ |
+| Behavioral pattern tracker (`UserBehaviorProfile` JSONB; ARQ job every reply; feeds insight generation) | ✅ |
 | Memory version history + diff view (History tab in Memory panel) | ✅ |
-| Proactive suggestions + insight generation (ARQ background) | ✅ |
+| Proactive suggestions + insight generation (ARQ background; behavior-aware) | ✅ |
 | Scheduled prompts (PromptTemplate, ScheduledPrompt) | ✅ |
 | Workspace layer (isolated system prompts + workspace memory; localStorage persistence) | ✅ |
 | Multi-tenant user isolation (all data scoped per user_id) | ✅ |
@@ -67,7 +68,7 @@ Last updated: 2026-05-30
 ### Dimension 1 — Persistent Memory
 | Gap | Notes |
 |-----|-------|
-| Behavioral pattern learning | **In progress (migration 033)** — `UserBehaviorProfile` JSONB tracks query types, topic keywords, tools, models used |
+| ~~Behavioral pattern learning~~ | ~~No tracking of what user asks most, preferred style, domain habits~~ ✅ |
 | ~~Preference extraction~~ | ~~No structured extraction of user preferences from conversations~~ ✅ |
 | ~~Memory timeline/chronicle~~ | ~~No temporal view of how memory evolved across sessions~~ ✅ |
 | ~~Autonomous memory writing~~ | ~~AI reads memory but never writes it; all writes are user-triggered~~ ✅ |
@@ -139,9 +140,9 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 ~~After every N conversations, ARQ job runs an LLM pass over recent history to extract preferences (verbosity, tone, domain vocabulary, response style). Writes structured result into `UserMemory.project_summary` or dedicated preference field.~~
 ~~- Backend: new ARQ job + summarizer module (`llm/summarizer/preferences.py`)~~
 
-#### Behavioral Pattern Tracker _(in progress — migration 033)_
-Track topics, query types, and tools engaged per user. Store as `UserBehaviorProfile` (one row per user, JSONB `profile`). Updated via ARQ `update_behavior_profile_job` post-reply — no LLM, pure counter increments. Feeds `generate_user_insight()` in `agency.py` with richer behavioral context.
-- Backend: `UserBehaviorProfile` model · migration 033 · `services/behavior.py` · ARQ job in `arq_worker.py` · trigger in `stream.py` · enhanced `agency.py` insight prompt
+#### ~~Behavioral Pattern Tracker~~ ✅
+~~Track topics, query types, and tools engaged per user. Store as `UserBehaviorProfile` (one row per user, JSONB `profile`). Updated via ARQ `update_behavior_profile_job` post-reply — no LLM, pure counter increments. Feeds `generate_user_insight()` in `agency.py` with richer behavioral context.~~
+~~- Backend: `UserBehaviorProfile` model · migration 033 · `services/behavior.py` · ARQ job in `arq_worker.py` · trigger in `stream.py` · enhanced `agency.py` insight prompt~~
 
 #### Cross-Session Continuity Summary
 On new conversation start (returning user), inject a brief re-entry summary: last active timestamp, last conversation topic, active goals. Computed from last conversation title + memory snapshot. No new model.
@@ -249,7 +250,7 @@ Store image embeddings in pgvector. OCR + entity extraction from images. Graph e
 P0 — now
   ~~1. Autonomous Memory Writing        closes the biggest gap ("private AI mind" that learns)~~ ✅
   ~~2. User Preference Extraction       personalizes every response~~ ✅
-  3. Behavioral Pattern Tracker       feeds agency insight generation  ← IN PROGRESS
+  ~~3. Behavioral Pattern Tracker       feeds agency insight generation~~ ✅
   4. Cross-Session Continuity Summary immediate UX win, very low cost
 
 P1 — next sprint
@@ -283,9 +284,9 @@ P3 — future
 
 | Dimension | Coverage | Blocker |
 |-----------|----------|---------|
-| 1. Persistent Memory | 87% | Behavioral patterns in progress; no cross-session continuity |
+| 1. Persistent Memory | 92% | No cross-session continuity signal |
 | 2. Unified Interface | 60% | No unified search, no graph UI |
 | 3. Reasoning Loop | 65% | No grounding confidence, no intent classification |
 | 4. Autonomous Agency | 35% | No patterns, no goals, no user-defined agents |
 | 5. Real-Time Perception | 10% | No web search, no external integrations |
-| **Overall** | **~53%** | P0 #3 in progress; P1 would bring this to ~75% |
+| **Overall** | **~55%** | P0 #4 next; P1 would bring this to ~75% |

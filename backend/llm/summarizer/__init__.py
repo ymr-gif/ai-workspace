@@ -3,6 +3,7 @@ from .history import compress_history
 from .project import update_project_summary
 from .compact import compact_memory
 from .conflicts import detect_conflicts, resolve_conflict
+from .preferences import extract_preferences
 from . import salience
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "compact_memory",
     "detect_conflicts",
     "resolve_conflict",
+    "extract_preferences",
     "salience",
 ]

@@ -92,6 +92,7 @@
 - **Message**: content_tsv GIN for full-text search; tracks token + cost; `token_estimate` (bool, nullable) — true = character-heuristic backfill (migration 032), null = real NIM data
 - **SystemConfig**: key/value store — tracks MODEL_EMBEDDING for re-embed triggers
 - Others: 15 more in `models/` (chat, file, workspace, memory, tools, scheduled, auth)
+- **UserBehaviorProfile**: one row per user, JSONB `profile` with `query_types / topic_keywords / tools_used / models_used / total_messages`; updated via ARQ `update_behavior_profile_job` post-reply; feeds `generate_user_insight()`; migration 033
 
 ---
 
@@ -131,6 +132,8 @@ Injection order (build_context_messages):
 - Triggers: memory update >3000 tok OR every 10 asst msgs; history compression + project summary update >4000 tok OR every 15 total msgs (all_count > 10); auto-title after 2nd msg via `asyncio.create_task`
 - Lock: `pg_advisory_xact_lock(user_id)` prevents version races
 - Compaction: LLM-driven dedup via `compact_memory()`; creates `UserMemoryVersion` snapshot; queued via ARQ or daily cron at 3 AM UTC; sets Redis lock `compact:running:{user_id}` (EX 300s) — graph extraction skips while held
+- Preference extraction: `extract_preferences_job` — triggered every 50 assistant messages per user; writes `[PREFERENCES]` section to `UserMemory.content`; Redis lock `pref_extract:running:{user_id}` EX 300s
+- Behavior tracking: `update_behavior_profile_job` — triggered every reply; increments counters for query type, topic keywords, tools used, models used in `UserBehaviorProfile.profile` JSONB; no LLM, pure counter increments; feeds `generate_user_insight()`
 - Context budget: drops lowest-tier sources when estimated tokens exceed `context_window - max_output_tokens - 10%`; re-applied after each tool iteration
 - Salience: `UserMemory` has `salience` (float, default 1.0) and `confidence` (float, default 1.0); bumped on every context load via `compute_salience()`, decayed 0.95/cycle during compaction; memory cleared when salience <0.3
 - `POST /memory/decay`: manual decay pass; GET /memory returns per-fact `facts` array with per-line scores + `active_conflicts` count
