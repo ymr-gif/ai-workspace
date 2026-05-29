@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-05-29
+Last updated: 2026-05-30
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -34,7 +34,7 @@ Last updated: 2026-05-29
 
 ---
 
-## Current State (as of migration 030)
+## Current State (as of migration 032)
 
 | Area | Status |
 |------|--------|
