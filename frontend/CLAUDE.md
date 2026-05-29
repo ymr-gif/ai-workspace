@@ -14,7 +14,7 @@
 ## Chat.jsx — Key Features
 - Streaming: raw `<p>` + blinking cursor → done → `<ReactMarkdown>` in `.md-body`
 - Per-bubble: `{totalTokens} tok · $x.xxxxx · [query_type] · N src`; live from SSE "done" (`query_type`, `src_count`, `provenance[]` fields); `[query_type]` = factual/relational/temporal/broad; `· N src` badge green ≥3, amber 1–2, hidden if 0
-- **Workspace filter pills** — loaded from `GET /api/workspaces` on mount; "All" + per-workspace; ⚙ edit/delete + create; `workspace_id` sent in every `/api/chat/stream` request
+- **Workspace filter pills** — loaded from `GET /api/workspaces` on mount; "All" + per-workspace; ⚙ edit/delete + create; `workspace_id` sent in every `/api/chat/stream` request; selected workspace persisted to `localStorage` key `nim_sidebar_ws_id` via `useWorkspace.js`; validated against loaded list on mount, cleared if ID no longer exists
 - **Workspace modal** — create/edit; fields: name, description, system_prompt; delete with confirm
 - **Conversation search** — debounced 300ms; `GET /api/conversations?q=`; clears on empty
 - **Conversation export** — ⬇ per conv; `GET /api/conversations/{id}/export?format=markdown`
@@ -42,7 +42,7 @@
 - **Insights**: 💡 button; unread badge; `GET /api/insights`; click → mark read; 🗑 delete; indigo dot for unread
 - **ask_user**: amber card "NEEDS CLARIFICATION" on `{type:"ask_user"}` SSE; user reply resumes with full context
 - **confirm_write_memory**: green card "MEMORY SUGGESTION" on `{type:"confirm_write_memory", fact}` SSE; Accept → `POST /api/memory/write {fact}`, Dismiss → null; clears on next send
-- **Memory panel**: tabs View / Edit / History / Graph (5th tab); View tab renders per-fact cards from `memData.facts[]` (each line of content = one card, salience % badge color-coded green/amber/grey); falls back to splitting `content` by newline if `facts` missing; structured `[SECTION]` format still renders as key-value pairs when present; Graph tab: `GET /api/graph/stats` → `{available, entities, relations}`; auto-refreshes 2s after each AI reply if tab open
+- **Memory panel**: tabs View / [Workspace] / Edit / History / Graph — "Workspace" tab appears only when a workspace is selected; View tab renders per-fact cards from `memData.facts[]` (each line = one card, salience % badge green/amber/grey), then PROJECT STATE section, then WORKSPACE section (inline workspace memory from `GET /api/workspaces/{id}/memory` when sidebarWsId set); falls back to splitting `content` by newline if `facts`/sections missing; Workspace tab: full workspace memory view + inline edit + `Updated` timestamp; Graph tab: `GET /api/graph/stats` → `{available, entities, relations}`; auto-refreshes 2s after each AI reply if tab open; `useMemory.js` loads workspace memory whenever memOpen + (memTab=view or workspace)
 - **Re-embed button**: ↺ Re-embed All in Invite panel admin section → `POST /api/admin/re-embed`
 
 ## Model Control Toolbar
