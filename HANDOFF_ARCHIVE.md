@@ -83,6 +83,16 @@ Full code detail is in CLAUDE.md and git history.
 
 ---
 
+## Retrieval Eval Harness + Neo4j Grounding Injection
+**Completed:** 2026-05-28
+
+- **Eval harness**: `tests/retrieval/test_hybrid_eval.py` — 26 tests, mock DB (AsyncMock), no NIM deps; 4 adaptive policy types tested; `pytest tests/retrieval/ -v`
+- **Neo4j grounding**: `[GRAPH CONTEXT]` + `[GRAPH FACTS]` blocks in context injection; both backed by Redis cache (60s TTL); `query_graph` tool in agent loop
+
+**Key files:** `tests/retrieval/test_hybrid_eval.py` · `tests/retrieval/conftest.py` · `llm/graph_memory.py` · `llm/service/context.py`
+
+---
+
 ## Re-embed on MODEL_EMBEDDING Change + Graph Memory
 **Completed:** 2026-05-28
 
