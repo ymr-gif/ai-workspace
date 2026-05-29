@@ -43,7 +43,7 @@ EMBEDDING_DIM     = int(os.getenv("EMBEDDING_DIM", "1024"))
 
 # ── Reliability ───────────────────────────────────────────────────────────────
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", 30))
-MAX_RETRIES     = int(os.getenv("MAX_RETRIES", 2))
+MAX_RETRIES     = int(os.getenv("MAX_RETRIES", 3))
 FALLBACK_ORDER  = ["reasoning", "coder", "llama"]
 
 # ── Per-model rate limits (req / 60s) — applied only on explicit model selection
