@@ -15,8 +15,8 @@ from llm import service
 from models import Conversation, ConversationFile, Message, User, Workspace
 from observability import events, metrics, observability
 from observability.prom_metrics import (
-    ERROR_COUNT, LATENCY, MODEL_LATENCY, MODEL_USAGE,
-    REQUEST_COUNT, REQUEST_LATENCY,
+    ALL_MODELS_FAILED, ERROR_COUNT, LATENCY, MODEL_LATENCY, MODEL_USAGE,
+    REQUEST_COUNT, REQUEST_LATENCY, STREAM_INTERRUPTIONS,
 )
 from observability.token_metrics import record_tokens
 from rate_limiter import limit, check_model_rate
@@ -289,11 +289,21 @@ async def chat_stream(
                     yield f"data: {_json.dumps(event)}\n\n"
 
                 elif event["type"] == "error":
-                    status = "error"
+                    if accumulated:
+                        status = "partial"
+                        STREAM_INTERRUPTIONS.inc()
+                    else:
+                        status = "error"
+                    if event.get("message") == "All models failed":
+                        ALL_MODELS_FAILED.inc()
                     yield f"data: {_json.dumps(event)}\n\n"
 
         except Exception:
-            status = "error"
+            if accumulated:
+                status = "partial"
+                STREAM_INTERRUPTIONS.inc()
+            else:
+                status = "error"
             logger.exception("[chat/stream] failed rid=%s", rid)
             yield f"data: {_json.dumps({'type': 'error', 'message': 'Internal server error'})}\n\n"
 

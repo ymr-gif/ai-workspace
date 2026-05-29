@@ -120,7 +120,16 @@ async def _build_stream_context(
         memory_row.last_used_at = datetime.now(timezone.utc)
 
         fact_saliences = memory_row.fact_saliences or {}
-        scored_facts = score_facts(memory_sheet, fact_saliences)
+
+        # Time-based decay for ranking only — not written back to DB
+        ranking_saliences = fact_saliences
+        if memory_row.last_summarized_at:
+            hours_since = max(0.0, (datetime.now(timezone.utc) - memory_row.last_summarized_at).total_seconds() / 3600)
+            time_decay = 0.95 ** (hours_since / 24)
+            if time_decay < 0.999:
+                ranking_saliences = {k: round(v * time_decay, 4) for k, v in fact_saliences.items()}
+
+        scored_facts = score_facts(memory_sheet, ranking_saliences)
         loaded_facts = [f for f, _ in scored_facts[:20]]
         memory_sheet = "\n".join(loaded_facts)
         memory_row.fact_saliences = bump_fact_saliences(loaded_facts, fact_saliences)
@@ -241,14 +250,24 @@ async def _build_stream_context(
 
     conflicted_facts: frozenset[str] = frozenset()
     if memory_enabled and memory_sheet:
+        now = datetime.now(timezone.utc)
         result = await db.execute(
             select(MemoryConflict)
             .where(MemoryConflict.user_id == current_user.id, MemoryConflict.resolution == "unresolved")
         )
         conflicts = result.scalars().all()
-        if conflicts:
+        active = []
+        for c in conflicts:
+            if c.expires_at and c.expires_at <= now:
+                c.resolution  = "keep_a"
+                c.resolved_at = now
+            else:
+                active.append(c)
+        if any(c.expires_at and c.expires_at <= now for c in conflicts):
+            await db.commit()
+        if active:
             conflicted_facts = frozenset(
-                f for c in conflicts for f in (c.fact_a, c.fact_b)
+                f for c in active for f in (c.fact_a, c.fact_b)
             )
 
     graph_context = ""

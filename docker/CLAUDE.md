@@ -8,8 +8,8 @@
 | pgbouncer | — | transaction mode; 200 max clients, 20 server conns |
 | postgres | — | `pgvector/pgvector:pg16`; internal only |
 | redis | — | internal only |
-| prometheus | 9090 | scrapes api:8000/metrics every 5s |
-| grafana | 3001 | admin/admin; 24-panel auto-provisioned dashboard |
+| prometheus | 9090 | scrapes api:8000/metrics every 5s; `prometheusdata` volume persists TSDB across restarts |
+| grafana | 3001 | admin/admin; 24-panel auto-provisioned dashboard; unified alerting enabled; 2 alert rules provisioned |
 | metrics-worker | — | `python -m observability.metrics_worker` |
 | arq-worker | — | `python -m arq services.arq_worker.WorkerSettings`; max_jobs=10 |
 | scheduler | — | `python -m services.scheduler_worker` |
@@ -49,6 +49,7 @@
 | `prometheus.yml` | Scrape config |
 | `grafana/provisioning/datasources/prometheus.yml` | uid: prometheus |
 | `grafana/provisioning/datasources/postgres.yml` | reads POSTGRES_USER/PASSWORD/DB from env |
+| `grafana/provisioning/alerting/nim-alerts.yml` | 2 unified alert rules: circuit breaker trip (rate>0 for 1m), success rate <99% for 1m |
 
 ---
 
@@ -62,12 +63,21 @@ docker compose logs -f api                                   # tail api logs
 ```
 
 ## Persistence
-- Postgres: `postgresdata` volume
+- Postgres: `pgdata` volume
 - Neo4j: `neo4jdata` volume
+- Prometheus: `prometheusdata` volume (`/prometheus`) — TSDB survives container restarts
 - Redis: ephemeral by default; `docker-compose.prod.yml` adds `redisdata` with append-only file
 
+## api Service — Prometheus Multiprocess Mode
+- `PROMETHEUS_MULTIPROC_DIR=/tmp/prom_multiproc` env set; `tmpfs: /tmp/prom_multiproc` mounted
+- All uvicorn workers share one metric dir; survives worker restarts within the container (not container restarts)
+- `/metrics` endpoint uses `MultiProcessCollector` when env var is present
+
 ## Grafana
-24 panels, 2 datasources: Prometheus (rates, resets on restart) + PostgreSQL (all-time totals, survives restarts).
+24 panels, 2 datasources: Prometheus (rates) + PostgreSQL (all-time totals).
+- `GF_UNIFIED_ALERTING_ENABLED=true` — required for alerting provisioning
+- "Total Errors" panel queries `api_requests_total{status=~"error|partial"}` (not `api_errors_total`)
+- "Request Rate" panel shows `partial` series in orange (mid-stream failures)
 
 ---
 

@@ -1,5 +1,8 @@
+import os
+
 from prometheus_client import (
     Counter,
+    CollectorRegistry,
     Histogram,
     generate_latest,
     CONTENT_TYPE_LATEST,
@@ -69,13 +72,38 @@ LATENCY = Histogram(
     buckets=(0.1, 0.3, 0.5, 1, 2, 5, 10)
 )
 
+STREAM_INTERRUPTIONS = Counter(
+    "stream_interruptions_total",
+    "Streams that delivered partial content then failed",
+)
+
+ALL_MODELS_FAILED = Counter(
+    "all_models_failed_total",
+    "Requests where every model in the fallback chain failed",
+)
+
+ARQ_JOB_FAILED = Counter(
+    "arq_job_failed_total",
+    "ARQ jobs permanently dropped after max retries",
+    ["job_type"],
+)
+
 # ─────────────────────────────────────────────
 # SNAPSHOT EXPORT
 # ─────────────────────────────────────────────
 
-def export_metrics() -> bytes:
+def _collect() -> bytes:
+    if "PROMETHEUS_MULTIPROC_DIR" in os.environ:
+        from prometheus_client import multiprocess
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        return generate_latest(registry)
     return generate_latest()
+
+
+def export_metrics() -> bytes:
+    return _collect()
 
 
 def metrics_output() -> bytes:
-    return generate_latest()
+    return _collect()

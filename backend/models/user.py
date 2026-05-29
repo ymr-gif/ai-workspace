@@ -61,6 +61,7 @@ class MemoryConflict(Base):
     conflict_type: Mapped[str]            = mapped_column(String(32), nullable=False)
     resolution:    Mapped[str | None]     = mapped_column(String(32), nullable=True, default="unresolved")
     resolved_at:   Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at:    Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at:    Mapped[datetime]       = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

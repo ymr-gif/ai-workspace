@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 import llm.client as llm_client
 from config import MODELS, MODEL_EMBEDDING, NVIDIA_API_KEY, NIM_URL, NIM_EMBEDDING_URL
+from llm.circuit_breaker import record_failure, _THRESHOLD
 from core.db import AsyncSessionLocal
 from core.redis_client import get_redis
 from observability.prom_metrics import CONTENT_TYPE_LATEST, export_metrics
@@ -89,6 +90,27 @@ async def _ping_db() -> dict:
         return {"status": "ok", "latency_ms": latency}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:120]}
+
+
+async def probe_models_on_startup() -> None:
+    async def _probe(role: str, model_id: str) -> None:
+        try:
+            resp = await llm_client.client.post(
+                NIM_URL,
+                headers={"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"},
+                json={"model": model_id, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
+                timeout=_PING_TIMEOUT,
+            )
+            if resp.status_code == 200:
+                logger.info("[probe] model=%s ok", role)
+                return
+            logger.warning("[probe] model=%s status=%s — pre-tripping circuit", role, resp.status_code)
+        except Exception as e:
+            logger.warning("[probe] model=%s error=%s — pre-tripping circuit", role, str(e)[:80])
+        for _ in range(_THRESHOLD):
+            await record_failure(model_id)
+
+    await asyncio.gather(*(_probe(role, model_id) for role, model_id in MODELS.items()))
 
 
 @router.get("/health")

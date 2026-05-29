@@ -186,7 +186,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(api_errors_total)",
+          "expr": "sum(api_requests_total{status=~\"error|partial\"})",
           "legendFormat": "Errors"
         }
       ],
@@ -284,6 +284,21 @@
                 "id": "color",
                 "value": {
                   "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "partial"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
                   "mode": "fixed"
                 }
               }

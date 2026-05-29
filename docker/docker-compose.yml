@@ -21,10 +21,13 @@ services:
       REDIS_URL: redis://redis:6379
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prom_multiproc
     ports:
       - "8000:8000"
     volumes:
       - ../backend/storage:/app/backend/storage
+    tmpfs:
+      - /tmp/prom_multiproc
     networks:
       - backend
 
@@ -170,6 +173,7 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
     depends_on:
       - api
     restart: unless-stopped
@@ -183,7 +187,7 @@ services:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_AUTH_ANONYMOUS_ENABLED: "false"
-      GF_UNIFIED_ALERTING_ENABLED: "false"
+      GF_UNIFIED_ALERTING_ENABLED: "true"
       GF_FEATURE_TOGGLES_ENABLE: ""
       POSTGRES_USER: ${POSTGRES_USER:-scylla}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scylla}
@@ -200,6 +204,7 @@ services:
 volumes:
   pgdata:
   neo4jdata:
+  prometheusdata:
 
 networks:
   backend:

@@ -18,11 +18,30 @@ _MODEL = MODELS["llama"]
 
 
 async def compact_memory(user_id: int) -> None:
-    async with AsyncSessionLocal() as db:
-        try:
-            await _compact_memory(db, user_id)
-        except Exception:
-            logger.exception("[summarizer] compact_memory failed user_id=%s", user_id)
+    lock_key = f"compact:running:{user_id}"
+    _locked = False
+    try:
+        from config import USE_REDIS
+        if USE_REDIS:
+            from core.redis_client import get_redis
+            await get_redis().set(lock_key, "1", ex=300)
+            _locked = True
+    except Exception:
+        pass
+
+    try:
+        async with AsyncSessionLocal() as db:
+            try:
+                await _compact_memory(db, user_id)
+            except Exception:
+                logger.exception("[summarizer] compact_memory failed user_id=%s", user_id)
+    finally:
+        if _locked:
+            try:
+                from core.redis_client import get_redis
+                await get_redis().delete(lock_key)
+            except Exception:
+                pass
 
 
 async def _compact_memory(db: AsyncSession, user_id: int) -> None:
