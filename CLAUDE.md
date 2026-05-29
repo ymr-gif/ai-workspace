@@ -6,7 +6,7 @@ React/Vite frontend. Docker Compose stack: Postgres + pgvector, Redis, Neo4j, Pr
 Features: SSE streaming, conversation history, multi-tier memory, pgvector RAG, file knowledge base, AI agent tool loop, model control, markdown rendering, workspace layer, invite-gated registration, conversation search + export, auto-title, graph memory (Neo4j), re-embed on MODEL_EMBEDDING change, retrieval eval harness (`tests/retrieval/test_hybrid_eval.py`), memory salience engine, context budget allocator, memory compaction, adaptive retrieval policy.
 
 > Subdir details: `backend/CLAUDE.md` · `docker/CLAUDE.md` · `frontend/CLAUDE.md`
-> Commands: `COMMANDS.md` · HANDOFF workflow: `HANDOFF_PROTOCOL.md`
+> Commands: `COMMANDS.md` · HANDOFF workflow: `HANDOFF_PROTOCOL.md` · Bug tracker: `BUGS.md`
 
 ---
 
@@ -49,6 +49,7 @@ ai-api/
 ## Non-obvious Reliability Settings
 | Setting | Value |
 |---------|-------|
+| NIM retries | `MAX_RETRIES=3` (4 total); exponential+jitter backoff; up to ~10s budget |
 | Circuit breaker | 5 failures → open; 90s cooldown; Redis-persisted; pre-tripped on startup |
 | Request timeout | `REQUEST_TIMEOUT` env (default 30s) |
 | Max concurrent | `MAX_CONCURRENT_REQUESTS` env (default 10, cap 50) |
