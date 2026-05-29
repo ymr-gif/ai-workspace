@@ -1,151 +1,212 @@
-# Chat Test Script — Memory System Full Coverage
+# Chat Test Script — Memory Verification + Full Coverage
 
-All messages go in **one conversation** unless noted. Paste each block exactly.
-Wait ~5 seconds between turns to avoid rate limit (15 req/60s).
+**Run this in a new conversation after completing `memory-seed.md`.**
 
-Triggers covered: auto-title · graph extraction · memory write · salience bump ·
-per-fact decay · history compression · conflict creation + resolution · graph prune ·
-context budget · retrieval re-ranking · compaction queue.
+This session does not re-introduce you or the project — if memory carried over correctly,
+the AI already knows everything from the seed. Every group here tests that.
+
+Wait ~5 seconds between turns. All turns in one conversation unless noted.
+
+Triggers covered: cross-session recall · graph context load · salience bump · wrong-statement
+correction · memory write · conflict create + resolve · history compression · per-fact decay ·
+graph prune · context budget allocator · retrieval re-ranking.
 
 ---
 
-## Group 1 — Establish identity (turns 1–3)
+## Group 1 — Verify the seed carried over (turns 1–3)
 
 ### Turn 1
 ```
-What routing system did I give you? I added a keyword classifier to your config that routes messages to three NIM models: llama for general, coder for coding, reasoning for complex tasks. Can you confirm you have that context?
+What do you know about me and the project I'm building?
 ```
-> Expect: AI references the routing logic. Salience bump fires on memory load.
-> Behind the scenes: `GET /memory`, graph context query, retrieval re-ranking.
+
+> **Expect:** AI recalls without prompting — NIM AI Gateway, FastAPI stack, PostgreSQL + pgvector +
+> Redis + Neo4j, routing to three models, preference for short general answers and detailed
+> technical answers.
+> If it draws a blank, the seed didn't persist — go back and re-run `memory-seed.md`.
+>
+> Behind the scenes: `GET /memory`, salience-ranked top-20 fact load, graph context query
+> (entities from seed session), retrieval re-ranking on "project".
 
 ---
 
 ### Turn 2
 ```
-Good. I'm the developer of this gateway. I build backend systems in Python. My main stack for this project is FastAPI, SQLAlchemy async, PostgreSQL with pgvector, Redis, and Neo4j. I want you to remember that.
+What's the NIM fallback chain and the circuit breaker config?
 ```
-> Expect: Memory card appears — click **Accept**.
-> Behind the scenes: `POST /memory` (new fact), graph extraction queued (entities: FastAPI, SQLAlchemy, PostgreSQL, Redis, Neo4j, user node).
-> Auto-title fires after this reply (2nd assistant message).
+
+> **Expect:** AI says: fallback is reasoning → coder → llama. Circuit breaker threshold 5,
+> cooldown 90s, Redis-persisted.
+>
+> Behind the scenes: graph keyword expansion on "circuit_breaker", "NIM", "fallback"; salience
+> bump on those facts.
 
 ---
 
 ### Turn 3
 ```
-I also added the fallback chain to your system context: if the chosen model fails, you fall back to reasoning, then coder, then llama. There's a circuit breaker with a threshold of 5 failures and a 90-second cooldown, persisted in Redis. What does that mean if the reasoning model goes down?
+Good. And what's my preferred answer style?
 ```
-> Expect: AI explains the fallback behavior using the system context you injected.
-> Behind the scenes: graph keyword expansion on "circuit_breaker", retrieval on circuit breaker chunks, `[reasoning]` label likely.
+
+> **Expect:** Short general answers, detailed with specifics for technical project questions.
+> Auto-title fires on this reply (2nd assistant message in this session).
 
 ---
 
-## Group 2 — Project depth + graph population (turns 4–7)
+## Group 2 — Deliberate wrong statements (turns 4–8)
+
+Say these exactly. The AI should push back and correct you.
+
+---
 
 ### Turn 4
 ```
-Remember that I care most about the memory system in this project. Specifically, I find the Neo4j graph layer the most interesting part — it extracts entities and relationships from every conversation and stores them per user with a 500-entity cap.
+I think the circuit breaker threshold is 3 failures, right? And the cooldown is like 30 seconds?
 ```
-> Expect: Memory card — click **Accept**.
-> Behind the scenes: `POST /memory`, graph extraction (entities: Neo4j, graph layer, entity cap). Check Graph tab in memory panel after this turn — you should see new nodes.
+
+> **Expect AI to correct:** Threshold is **5**, cooldown is **90 seconds** — not 3 and 30.
+> It has this from both the seeded memory and the system context.
 
 ---
 
 ### Turn 5
 ```
-I added the full memory injection order to your system prompt. It goes: system message, then graph context from Neo4j, then graph facts from keyword expansion, then user memory sheet top-20 facts, then workspace state, then retrieved chunks, then history summary, then last 10 messages, then file context, then your current message. Does that match what you see in your context?
+The fallback chain goes llama first, then coder, then reasoning — lightest model first to save cost?
 ```
-> Expect: AI confirms the injection order. All memory tiers are exercised on this load.
-> Behind the scenes: `GET /memory`, graph context (limit=50, min_score=0.5), keyword expansion, salience-ranked fact selection, context budget allocator.
+
+> **Expect AI to correct:** It goes the other way — **reasoning → coder → llama**. The chosen
+> model is tried first, then the fallback descends in that order.
 
 ---
 
 ### Turn 6
 ```
-I want you to remember two things that might conflict: first, I prefer extremely short responses with no explanation. Second, for this project specifically, I want detailed technical answers with examples.
+I'm pretty sure the memory sheet injects the top 30 facts sorted by salience.
 ```
-> Expect: Memory card — click **Accept** on both. This creates a style conflict.
-> Behind the scenes: `POST /memory` x2, conflict scanner runs, `MemoryConflict` row created with `expires_at = now + 7 days`.
+
+> **Expect AI to correct:** Top **20** facts, not 30. Ranked by salience with per-fact
+> time-based decay applied in-memory before selection.
 
 ---
 
 ### Turn 7
 ```
-Now go to the Memory panel → Conflicts tab. You should see an active conflict between response style preferences. Resolve it by keeping the second fact (detailed technical answers). Then come back and tell me what you know about my preferences.
+Graph extraction uses the small llama model — the 8B one — to keep it fast, right?
 ```
-> Instruction: In the UI, click the conflict → **Keep B** → confirm.
-> Behind the scenes: `POST /memory/conflicts/{id}/resolve` with `strategy=keep_b`.
-> Expect: AI confirms the resolved preference on next load.
+
+> **Expect AI to correct:** It uses the **70B reasoning model**. The 8B was the original
+> choice but was replaced because it produced unreliable structured JSON output.
 
 ---
-
-## Group 3 — History compression threshold (turns 8–11)
 
 ### Turn 8
 ```
-What's the salience decay formula in this system? I added it to your context. Facts decay at 0.95 per compaction cycle, and per-fact scores also decay in-memory at 0.95 to the power of hours-since-last-compaction divided by 24, before the top-20 selection. Facts below 0.05 get pruned from the JSONB column entirely.
+And the entity cap per user in Neo4j is 1000, evicting the newest ones when full?
 ```
-> Expect: AI confirms the formula. Salience-ranked facts now include this topic.
-> Behind the scenes: retrieval re-ranking (`final_score * (1 + memory_salience * 0.05)`), per-fact bump on accessed facts.
+
+> **Expect AI to correct:** Cap is **500**, and it evicts the **oldest** nodes (by `updated_at`)
+> when the limit is exceeded — not the newest.
 
 ---
 
+## Group 3 — New writes + conflict (turns 9–11)
+
 ### Turn 9
 ```
-How does the context budget allocator decide what to drop when a message is too long for the model's context window? I configured it to drop lowest-tier sources first — file context drops before history, history before graph facts, graph facts before the memory sheet.
+Remember that I always check BUGS.md before investigating anything that looks broken, and I prefer to fix docker issues without confirmation — just rebuild and restart automatically.
 ```
-> Expect: AI explains tier-based dropping using the system context.
-> Behind the scenes: context budget logic exercised on build.
+
+> **Accept memory card.**
+> Behind the scenes: `POST /memory`, graph extraction (BUGS.md entity, docker entity).
 
 ---
 
 ### Turn 10
 ```
-What are all the ARQ background jobs in this system? I set max tries to 4 with delays of 5s, 30s, 120s. There are four job types: process_file, generate_insight, re_embed_batch, and compact_memory. Each increments ARQ_JOB_FAILED on final failure.
+I want you to store two things that will conflict: first, MAX_RETRIES should stay at 2 for faster failure detection. Second, MAX_RETRIES should be 3 so the system has 4 total attempts to ride out transient NIM blips.
 ```
-> Expect: AI lists all 4 job types correctly.
-> Behind the scenes: graph extraction for new entities (ARQ, job types), retrieval.
+
+> **Accept both memory cards.**
+> Behind the scenes: `POST /memory` x2, conflict scanner creates `MemoryConflict` row
+> with `expires_at = now + 7 days`.
+>
+> Go to **Memory → Conflicts tab** — you should see the MAX_RETRIES conflict.
+> Click it → **Keep B** (MAX_RETRIES=3, 4 total attempts — this is what the code actually uses).
+>
+> Behind the scenes: `POST /memory/conflicts/{id}/resolve` with `strategy=keep_b`.
 
 ---
 
 ### Turn 11
 ```
-Summarize everything you know about me and this project. Include my stack, my preferences, the models I configured, the memory system architecture, and anything else you've retained.
+What does MAX_RETRIES=3 actually mean for how the system handles a NIM blip? Walk me through the timing.
 ```
-> Expect: Full memory recall — stack, preferences, routing, circuit breaker, memory injection order, salience, ARQ.
-> Behind the scenes: history compression likely triggers here (all_count > 10), `POST /memory` update if token threshold crossed (>3000 tok exchanged). Graph context full load.
+
+> **Expect:** AI explains 4 total attempts with exponential backoff + jitter:
+> attempt 0 → 0.75–1.25s, attempt 1 → 1.5–2.5s, attempt 2 → 3–5s, attempt 3 → 6–10s.
+> Uses the resolved conflict (keep_b) for context.
+>
+> Behind the scenes: retrieval re-ranking on retry/backoff chunks, reasoning model likely routed.
 
 ---
 
-## Group 4 — Cleanup + endpoint verification (manual steps)
+## Group 4 — History compression + full recall (turns 12–13)
 
-### After turn 11 — run these manually in the UI or curl:
+### Turn 12
+```
+Summarize everything you know about me, this project, and the reliability settings I've configured. Be thorough.
+```
 
-**Decay pass:**
+> **Expect:** Full recall across all seeded facts plus corrections and new writes from this session:
+> identity, stack, routing, fallback, circuit breaker (5/90s), retries (3/4 attempts), memory
+> injection order, entity cap (500/70B model), salience top-20, BUGS.md habit, docker auto-fix pref.
+>
+> Behind the scenes: history compression likely triggers here (all_count > 10 or >4000 tokens).
+> `POST /memory` update if token threshold crossed. Full graph context load.
+
+---
+
+### Turn 13
+```
+One more wrong one: I think memory writes trigger at 5000 tokens or every 15 assistant messages.
+```
+
+> **Expect AI to correct:** Writes trigger at **3000 tokens** or every **10 assistant messages**.
+> History compression is the one at 4000 tokens or every 15 total messages.
+
+---
+
+## Group 5 — Manual endpoint cleanup
+
+Run these after turn 13, either via the UI or curl.
+
+**Decay pass** — step all saliences down one cycle, prune below 0.05:
 ```
 POST /memory/decay
 ```
-> Expect: All fact saliences step down by one decay cycle. Facts below 0.05 pruned.
 
-**Graph prune:**
+**Graph prune** — remove stale OTHER-typed nodes older than 7 days, oversized names:
 ```
 POST /graph/prune
 ```
-> Expect: Any oversized entity names (>200 chars) or stale OTHER-typed nodes older than 7 days removed.
 
-**Graph stats check:**
+**Graph stats** — confirm entities populated from both sessions:
 ```
 GET /graph/stats
 ```
-> Expect: `entity_count` > 0, `relationship_count` > 0. Should reflect entities from turns 1–10.
+> Expect: `entity_count` > 0, `relationship_count` > 0.
 
 ---
 
-### Turn 12 — final recall check (new conversation)
+## Final check — new conversation
 
-> Start a **new conversation** for this turn.
+Start a **new conversation** (third session total).
 
 ```
-What project am I working on and what's my preferred answer style?
+What project am I building and what are the two things I always do before touching a broken system?
 ```
-> Expect: AI recalls FastAPI/Neo4j gateway + detailed technical answers — from persistent memory, no context given.
-> Behind the scenes: fresh `GET /memory` load, graph context query, salience-ranked top-20 facts injected — confirms cross-session persistence.
+
+> **Expect:** AI recalls NIM AI Gateway + (1) check BUGS.md first, (2) fix docker without asking.
+> From persistent memory only — no context given.
+>
+> If this passes, the full seed → test → persist loop is working correctly.
