@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-05-30
+Last updated: 2026-05-30 (User Preference Extraction ✅ — Behavioral Pattern Tracker in progress)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -133,10 +133,9 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 ~~- Backend: `write_memory` tool in `llm/tools/`; memory write path already exists~~
 ~~- Frontend: green confirmation card variant distinct from amber ask_user~~
 
-#### User Preference Extraction
-After every N conversations, ARQ job runs an LLM pass over recent history to extract preferences (verbosity, tone, domain vocabulary, response style). Writes structured result into `UserMemory.project_summary` or dedicated preference field.
-- Backend: new ARQ job + summarizer module (`llm/summarizer/preferences.py`)
-- No new model needed
+#### ~~User Preference Extraction~~ ✅
+~~After every N conversations, ARQ job runs an LLM pass over recent history to extract preferences (verbosity, tone, domain vocabulary, response style). Writes structured result into `UserMemory.project_summary` or dedicated preference field.~~
+~~- Backend: new ARQ job + summarizer module (`llm/summarizer/preferences.py`)~~
 
 #### Behavioral Pattern Tracker
 Track topics, query types, and tools engaged per user. Store as `UserBehaviorProfile` JSONB. Updated in background post-reply. Feeds adaptive retrieval policy (pre-warm) and agency.py hint generation.
@@ -247,7 +246,7 @@ Store image embeddings in pgvector. OCR + entity extraction from images. Graph e
 ```
 P0 — now
   ~~1. Autonomous Memory Writing        closes the biggest gap ("private AI mind" that learns)~~ ✅
-  2. User Preference Extraction       personalizes every response
+  ~~2. User Preference Extraction       personalizes every response~~ ✅
   3. Behavioral Pattern Tracker       feeds agency + adaptive retrieval
   4. Cross-Session Continuity Summary immediate UX win, very low cost
 
