@@ -1,8 +1,16 @@
 import { useState, useEffect } from 'react'
 
+const LS_KEY = 'nim_sidebar_ws_id'
+
 export default function useWorkspace(token) {
   const [sidebarWsList, setSidebarWsList] = useState([])
-  const [sidebarWsId, setSidebarWsId] = useState(null)
+  const [sidebarWsId, setSidebarWsId] = useState(() => localStorage.getItem(LS_KEY) || null)
+
+  function persistWsId(id) {
+    setSidebarWsId(id)
+    if (id) localStorage.setItem(LS_KEY, id)
+    else localStorage.removeItem(LS_KEY)
+  }
 
   // workspace modal (create / edit)
   const [wsModalOpen, setWsModalOpen] = useState(false)
@@ -17,7 +25,11 @@ export default function useWorkspace(token) {
   useEffect(() => {
     fetch('/api/workspaces', { headers: authHeaders })
       .then(r => r.ok ? r.json() : [])
-      .then(setSidebarWsList).catch(() => {})
+      .then(list => {
+        setSidebarWsList(list)
+        const stored = localStorage.getItem(LS_KEY)
+        if (stored && !list.find(w => w.id === stored)) persistWsId(null)
+      }).catch(() => {})
   }, [])
 
   function openCreateWs() { setWsModalTarget(null); setWsFieldName(''); setWsFieldDesc(''); setWsFieldSys(''); setWsModalOpen(true) }
@@ -46,14 +58,14 @@ export default function useWorkspace(token) {
     try {
       await fetch(`/api/workspaces/${wsModalTarget.id}`, { method: 'DELETE', headers: authHeaders })
       setSidebarWsList(prev => prev.filter(w => w.id !== wsModalTarget.id))
-      if (sidebarWsId === wsModalTarget.id) setSidebarWsId(null)
+      if (sidebarWsId === wsModalTarget.id) persistWsId(null)
       setWsModalOpen(false)
     } catch { /* ignore */ }
   }
 
   return {
     sidebarWsList, setSidebarWsList,
-    sidebarWsId, setSidebarWsId,
+    sidebarWsId, setSidebarWsId: persistWsId,
     wsModalOpen, setWsModalOpen,
     wsModalTarget,
     wsFieldName, setWsFieldName,
