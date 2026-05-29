@@ -15,9 +15,9 @@ Track topics, query types, and tools engaged per user. Store as `UserBehaviorPro
 ## backdir — Behavioral Pattern Tracker
 
 ### Goal
-After every assistant reply, fire a lightweight async task that increments per-user counters (query type, topic keywords, tools used, model used) in a new `user_behavior_profiles` table. The existing `generate_insight_job` in `arq_worker.py` is enhanced to load this profile and pass it to `generate_user_insight()` so insights become behavior-aware.
+After every assistant reply, enqueue an ARQ job (`update_behavior_profile_job`) that increments per-user counters (query type, topic keywords, tools used, model used) in a new `user_behavior_profiles` table. Same pattern as `extract_preferences_job` — `_MAX_TRIES=4`, `ARQ_JOB_FAILED` counter, no inline fallback (a missed increment is acceptable; a crashed job is retried). The existing `generate_insight_job` is also enhanced to load this profile and pass it to `generate_user_insight()` so insights become behavior-aware.
 
-Uses a dedicated ARQ job — same pattern as `compact_memory_job` / `extract_preferences_job`. `asyncio.create_task` was rejected: missed increments are unrecoverable (no re-embed equivalent), and ARQ gives retry + `ARQ_JOB_FAILED` observability for free. New migration 033.
+New migration 033. No LLM calls — pure counter increments.
 
 ### Tasks
 
@@ -49,16 +49,16 @@ Uses a dedicated ARQ job — same pattern as `compact_memory_job` / `extract_pre
   - Set `down_revision` to `"032"`, `revision` to `"033"`
 
 - [ ] Create `backend/services/behavior.py`
-  - `_STOP_WORDS` set: common English words to exclude from topic extraction (`{"about", "after", "also", "been", "before", "being", "between", "could", "does", "doing", "during", "each", "from", "have", "having", "here", "into", "just", "like", "make", "more", "other", "should", "some", "that", "their", "them", "then", "there", "these", "they", "this", "those", "through", "very", "want", "what", "when", "where", "which", "while", "will", "with", "would", "your"}`)
+  - `_STOP_WORDS`: standard English stopwords set (~50 words — the, is, at, which, on, for, etc.)
   - `_MAX_TOPICS = 50`
   - `async def update_behavior_profile(user_id: int, query_type: str, message: str, tool_names: list[str], model_used: str, db: AsyncSession) -> None`:
     1. `row = await db.get(UserBehaviorProfile, user_id)` — if None, create and `db.add(row)`
-    2. `profile = dict(row.profile)` — copy
+    2. `profile = dict(row.profile)` — copy (JSONB needs reassignment to trigger SQLAlchemy dirty-tracking)
     3. Increment `profile["query_types"][query_type]` (setdefault `{}`, get+1)
-    4. Topic keywords: split `message`, lowercase, strip punctuation, keep words `len > 4` and not in `_STOP_WORDS`, take first 10; increment each in `profile["topic_keywords"]`; if `len > _MAX_TOPICS`, prune to top 50 by count
-    5. Increment each tool name in `profile["tools_used"]`
+    4. Topic keywords: split `message.lower()`, strip punctuation, keep `len > 4` and not in `_STOP_WORDS`, take first 10; increment each in `profile["topic_keywords"]`; if `len > _MAX_TOPICS`, prune to top 50 by count
+    5. Increment each name in `tool_names` in `profile["tools_used"]`
     6. Increment `model_used` in `profile["models_used"]`
-    7. `profile["total_messages"] = profile.get("total_messages", 0) + 1`
+    7. `profile["total_messages"] += 1`
     8. `row.profile = profile`; `row.updated_at = datetime.utcnow()`; `await db.commit()`
 
 - [ ] Add `update_behavior_profile_job` to `backend/services/arq_worker.py`
@@ -69,9 +69,9 @@ Uses a dedicated ARQ job — same pattern as `compact_memory_job` / `extract_pre
   - Register in `WorkerSettings.functions`
 
 - [ ] Trigger in `backend/api/chat/stream.py` `event_generator()`
-  - Add `tools_in_turn: list[str] = []` near top of generator (alongside `model_used = "unknown"` at line 176)
-  - In the event loop, when `event["type"] == "tool_call"`, append `event.get("name", "")` to `tools_in_turn` (line ~201 block)
-  - After the `asst_count` / `pref_extract` block (~line 260), enqueue via ARQ pool:
+  - Add `tools_in_turn: list[str] = []` alongside `model_used = "unknown"` (~line 176)
+  - In the existing `elif event["type"] in ("tool_call", ...)` block (~line 201): if `event["type"] == "tool_call"`, append `event.get("name", "")` to `tools_in_turn`
+  - After the `pref_extract` block (~line 260), enqueue — `pool` is already in scope:
     ```python
     if pool:
         await pool.enqueue_job(
@@ -83,7 +83,7 @@ Uses a dedicated ARQ job — same pattern as `compact_memory_job` / `extract_pre
             model_used,
         )
     ```
-  - No inline fallback needed — a missed behavior increment is not critical enough to warrant spawning a raw coroutine on pool failure
+  - No inline fallback — silently skipped when pool is unavailable; a missed increment is acceptable
 
 - [ ] Enhance `backend/llm/agency.py` `generate_user_insight()`
   - Add `behavior_profile: dict | None = None` param (keyword-only, default None)
