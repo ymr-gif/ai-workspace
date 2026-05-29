@@ -17,7 +17,7 @@ Track topics, query types, and tools engaged per user. Store as `UserBehaviorPro
 ### Goal
 After every assistant reply, fire a lightweight async task that increments per-user counters (query type, topic keywords, tools used, model used) in a new `user_behavior_profiles` table. The existing `generate_insight_job` in `arq_worker.py` is enhanced to load this profile and pass it to `generate_user_insight()` so insights become behavior-aware.
 
-No new ARQ job needed — update fires via `asyncio.create_task` post-reply (same as `_embed_exchange`). New migration 033.
+Uses a dedicated ARQ job — same pattern as `compact_memory_job` / `extract_preferences_job`. `asyncio.create_task` was rejected: missed increments are unrecoverable (no re-embed equivalent), and ARQ gives retry + `ARQ_JOB_FAILED` observability for free. New migration 033.
 
 ### Tasks
 
@@ -61,33 +61,29 @@ No new ARQ job needed — update fires via `asyncio.create_task` post-reply (sam
     7. `profile["total_messages"] = profile.get("total_messages", 0) + 1`
     8. `row.profile = profile`; `row.updated_at = datetime.utcnow()`; `await db.commit()`
 
-- [ ] Add `_update_behavior` helper to `backend/api/chat/background.py`
-  ```python
-  async def _update_behavior(user_id: int, query_type: str, message: str, tool_names: list[str], model_used: str) -> None:
-      from services.behavior import update_behavior_profile
-      from core.db import AsyncSessionLocal
-      try:
-          async with AsyncSessionLocal() as db:
-              await update_behavior_profile(user_id, query_type, message, tool_names, model_used, db)
-      except Exception:
-          logger.exception("[behavior] update failed user=%s", user_id)
-  ```
-  Export it from the module (add to imports in `stream.py`).
+- [ ] Add `update_behavior_profile_job` to `backend/services/arq_worker.py`
+  - Signature: `async def update_behavior_profile_job(ctx, user_id: int, query_type: str, message: str, tool_names: list[str], model_used: str) -> None`
+  - Get DB session via `AsyncSessionLocal()` (same pattern as other jobs)
+  - Call `update_behavior_profile(user_id, query_type, message, tool_names, model_used, db)`
+  - `_MAX_TRIES = 4`; `ARQ_JOB_FAILED.labels(job_type="update_behavior_profile").inc()` on final failure
+  - Register in `WorkerSettings.functions`
 
 - [ ] Trigger in `backend/api/chat/stream.py` `event_generator()`
   - Add `tools_in_turn: list[str] = []` near top of generator (alongside `model_used = "unknown"` at line 176)
   - In the event loop, when `event["type"] == "tool_call"`, append `event.get("name", "")` to `tools_in_turn` (line ~201 block)
-  - After the `asst_count` / `pref_extract` block (after the preference extraction trigger, ~line 260), add:
+  - After the `asst_count` / `pref_extract` block (~line 260), enqueue via ARQ pool:
     ```python
-    asyncio.create_task(_update_behavior(
-        current_user.id,
-        ctx.get("policy_used", "factual"),
-        req.message,
-        tools_in_turn,
-        model_used,
-    ))
+    if pool:
+        await pool.enqueue_job(
+            "update_behavior_profile_job",
+            current_user.id,
+            ctx.get("policy_used", "factual"),
+            req.message,
+            tools_in_turn,
+            model_used,
+        )
     ```
-  - Import `_update_behavior` from `.background` (add to existing import line at line 29)
+  - No inline fallback needed — a missed behavior increment is not critical enough to warrant spawning a raw coroutine on pool failure
 
 - [ ] Enhance `backend/llm/agency.py` `generate_user_insight()`
   - Add `behavior_profile: dict | None = None` param (keyword-only, default None)
@@ -104,8 +100,8 @@ No new ARQ job needed — update fires via `asyncio.create_task` post-reply (sam
   - Pass `behavior_profile=behavior_profile` to `generate_user_insight(...)`
 
 - [ ] Update `backend/CLAUDE.md`
-  - Add `UserBehaviorProfile` to Key Models section: one row per user, JSONB `profile` with `query_types / topic_keywords / tools_used / models_used / total_messages`; updated async post-reply via `_update_behavior`; feeds `generate_user_insight()`; migration 033
-  - Note `_update_behavior` in the background tasks section alongside `_embed_exchange`
+  - Add `UserBehaviorProfile` to Key Models section: one row per user, JSONB `profile` with `query_types / topic_keywords / tools_used / models_used / total_messages`; updated via ARQ `update_behavior_profile_job` post-reply; feeds `generate_user_insight()`; migration 033
+  - Note `update_behavior_profile_job` in the ARQ jobs section alongside `extract_preferences_job`
 
 ### Recorded
 _(fill in after implementation)_
