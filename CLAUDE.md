@@ -49,7 +49,7 @@ ai-api/
 ## Non-obvious Reliability Settings
 | Setting | Value |
 |---------|-------|
-| Circuit breaker | 3 failures → open; 30s cooldown |
+| Circuit breaker | 5 failures → open; 90s cooldown; Redis-persisted; pre-tripped on startup |
 | Request timeout | `REQUEST_TIMEOUT` env (default 30s) |
 | Max concurrent | `MAX_CONCURRENT_REQUESTS` env (default 10, cap 50) |
 | Rate limit (chat) | 15 req / 60s per user |
@@ -62,11 +62,10 @@ ai-api/
 
 ## Known Issues
 - No chat integration tests — `/chat` requires live NIM API; retrieval is covered by `tests/retrieval/test_hybrid_eval.py` (26 tests, mocked DB)
-- `passlib` crypt warning on Python 3.13+ — harmless on 3.11
 - File RAG requires explicit attachment (Library → + button); upload alone is not enough
 - `_needs_file_tools` is keyword-based — may miss implicit file requests
-- Token counts on pre-migration 011 messages are NULL
-- Prometheus counters reset on container restart — rate panels lose history
+- Token counts on pre-migration 011 messages are NULL (migration 032 backfills with character heuristic; `token_estimate=true` flags estimated rows)
+- Prometheus in-process counters reset on container restart — mitigated by `prometheusdata` Prometheus volume + multiprocess mode tmpfs; rate panels recover within one scrape interval
 
 ---
 
