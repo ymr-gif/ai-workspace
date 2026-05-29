@@ -99,6 +99,14 @@ Without me telling you again: what project am I building, what's my stack, what 
 
 ## Done
 
-Memory is seeded. You can close this conversation and start a normal session — the facts will carry forward via `GET /memory` and graph context on every new conversation.
+Memory is seeded. Close this conversation.
 
 If graph entities didn't populate, go to **Memory → Graph → Refresh**. If entity count is still 0 after ~30 seconds, send one more message mentioning specific entity names (FastAPI, Neo4j, NIM Gateway) to force another extraction pass.
+
+---
+
+## Next step
+
+Open a **new conversation** and run `docs/chat-test-script.md`.
+
+That script assumes this seed completed successfully. It will verify cross-session recall, test that the AI corrects wrong statements using seeded facts, and exercise the remaining memory endpoints (conflict creation, salience decay, graph prune, history compression).
