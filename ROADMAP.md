@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-05-30
+Last updated: 2026-05-30 (P0 complete)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -34,7 +34,7 @@ Last updated: 2026-05-30
 
 ---
 
-## Current State (as of migration 033)
+## Current State (as of migration 033; all P0 complete)
 
 | Area | Status |
 |------|--------|
@@ -52,6 +52,7 @@ Last updated: 2026-05-30
 | User preference extraction (ARQ job every 50 msgs; `[PREFERENCES]` in UserMemory) | ✅ |
 | Behavioral pattern tracker (`UserBehaviorProfile` JSONB; ARQ job every reply; feeds insight generation) | ✅ |
 | Memory version history + diff view (History tab in Memory panel) | ✅ |
+| Cross-session continuity summary (`[LAST SESSION]` tier-8 block; `done.last_session`; "Welcome back" banner) | ✅ |
 | Proactive suggestions + insight generation (ARQ background; behavior-aware) | ✅ |
 | Scheduled prompts (PromptTemplate, ScheduledPrompt) | ✅ |
 | Workspace layer (isolated system prompts + workspace memory; localStorage persistence) | ✅ |
@@ -72,7 +73,7 @@ Last updated: 2026-05-30
 | ~~Preference extraction~~ | ~~No structured extraction of user preferences from conversations~~ ✅ |
 | ~~Memory timeline/chronicle~~ | ~~No temporal view of how memory evolved across sessions~~ ✅ |
 | ~~Autonomous memory writing~~ | ~~AI reads memory but never writes it; all writes are user-triggered~~ ✅ |
-| Cross-session continuity signal | No "last seen," session gap detection, or re-entry continuity summary |
+| ~~Cross-session continuity signal~~ | ~~No "last seen," session gap detection, or re-entry continuity summary~~ ✅ |
 
 ### Dimension 2 — Unified Interface
 | Gap | Notes |
@@ -144,10 +145,10 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 ~~Track topics, query types, and tools engaged per user. Store as `UserBehaviorProfile` (one row per user, JSONB `profile`). Updated via ARQ `update_behavior_profile_job` post-reply — no LLM, pure counter increments. Feeds `generate_user_insight()` in `agency.py` with richer behavioral context.~~
 ~~- Backend: `UserBehaviorProfile` model · migration 033 · `services/behavior.py` · ARQ job in `arq_worker.py` · trigger in `stream.py` · enhanced `agency.py` insight prompt~~
 
-#### Cross-Session Continuity Summary
-On new conversation start (returning user), inject a brief re-entry summary: last active timestamp, last conversation topic, active goals. Computed from last conversation title + memory snapshot. No new model.
-- Backend: `_build_stream_context()` addition; new `[LAST SESSION]` context block (low tier, drops first)
-- Frontend: subtle "Welcome back" banner above first assistant message
+#### ~~Cross-Session Continuity Summary~~ ✅
+~~On new conversation start (returning user), inject a brief re-entry summary: last active timestamp, last conversation topic. Computed from last conversation title. No new model.~~
+~~- Backend: `_build_stream_context()` + tier-8 `[LAST SESSION]` block; emitted in `done` SSE as `last_session`~~
+~~- Frontend: muted `✦ Last session: "…" — X ago` banner above first AI bubble; auto-dismisses 8s~~
 
 ---
 
@@ -251,7 +252,7 @@ P0 — now
   ~~1. Autonomous Memory Writing        closes the biggest gap ("private AI mind" that learns)~~ ✅
   ~~2. User Preference Extraction       personalizes every response~~ ✅
   ~~3. Behavioral Pattern Tracker       feeds agency insight generation~~ ✅
-  4. Cross-Session Continuity Summary immediate UX win, very low cost  ← IN PROGRESS
+  ~~4. Cross-Session Continuity Summary immediate UX win, very low cost~~ ✅
 
 P1 — next sprint
   5. Memory Conflict Resolution UI    backend done, frontend only
@@ -284,9 +285,9 @@ P3 — future
 
 | Dimension | Coverage | Blocker |
 |-----------|----------|---------|
-| 1. Persistent Memory | 92% | No cross-session continuity signal |
+| 1. Persistent Memory | 97% | P0 complete |
 | 2. Unified Interface | 60% | No unified search, no graph UI |
 | 3. Reasoning Loop | 65% | No grounding confidence, no intent classification |
 | 4. Autonomous Agency | 35% | No patterns, no goals, no user-defined agents |
 | 5. Real-Time Perception | 10% | No web search, no external integrations |
-| **Overall** | **~55%** | P0 #4 next; P1 would bring this to ~75% |
+| **Overall** | **~58%** | P0 complete; P1 next — would bring this to ~75% |

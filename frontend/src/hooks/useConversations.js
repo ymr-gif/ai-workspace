@@ -18,6 +18,9 @@ export default function useConversations(token, sidebarWsId) {
   const [searchResults, setSearchResults] = useState(null)
   const [searchLoading, setSearchLoading] = useState(false)
 
+  // last session continuity banner
+  const [lastSession, setLastSession] = useState('')
+
   // proactive suggestion
   const [proactive, setProactive] = useState(null)
 
@@ -115,6 +118,7 @@ export default function useConversations(token, sidebarWsId) {
     convSearch, setConvSearch,
     searchResults, setSearchResults,
     searchLoading,
+    lastSession, setLastSession,
     proactive, setProactive,
     pendingWriteFact, setPendingWriteFact,
     nextId,
