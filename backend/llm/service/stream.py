@@ -102,6 +102,7 @@ async def generate_stream(
     graph_facts:      str               = "",
     conflicted_facts: frozenset         = frozenset(),
     fact_saliences:   dict | None       = None,
+    last_session:     str               = "",
 ):
     # Cache excludes file/image/custom-params requests; history + model included in key
     use_cache = not file_chunks and not image_b64 and not model_params
@@ -155,6 +156,7 @@ async def generate_stream(
         history, memory_enabled, system_prompt, file_chunks, file_names, file_ids,
         workspace_memory=workspace_memory, graph_context=graph_context,
         graph_facts=graph_facts, conflicted_facts=conflicted_facts,
+        last_session=last_session,
     ) + [user_msg]
 
     for idx, current_model in enumerate(fallback_chain):

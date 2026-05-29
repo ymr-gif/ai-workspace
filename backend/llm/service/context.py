@@ -48,6 +48,7 @@ def build_context_messages(
     graph_context:    str             = "",
     graph_facts:      str             = "",
     conflicted_facts: frozenset[str]  = frozenset(),
+    last_session:     str             = "",
 ) -> list[dict]:
     messages = []
 
@@ -85,6 +86,9 @@ def build_context_messages(
         )})
 
     if memory_enabled:
+        if last_session:
+            messages.append({"role": "user",      "content": f"[LAST SESSION]\n{last_session}"})
+            messages.append({"role": "assistant", "content": "Understood."})
         if graph_context:
             messages.append({"role": "user",      "content": f"[GRAPH CONTEXT]\n{graph_context}"})
             messages.append({"role": "assistant", "content": "Understood."})
@@ -133,7 +137,8 @@ def build_context_messages(
 # ── Context Budget Allocator ─────────────────────────────────────────────────
 
 _TIER_PREFIXES = [
-    (7, re.compile(r'^\[FILE CONTEXT\]')),                            # drop first
+    (8, re.compile(r'^\[LAST SESSION\]')),                            # drop first
+    (7, re.compile(r'^\[FILE CONTEXT\]')),                            # drop second
     (6, re.compile(r'^\[RELEVANT CONTEXT')),                          # history / RAG
     (5, re.compile(r'^\[EARLIER IN THIS CONVERSATION\]')),            # conv summary
     (4, re.compile(r'^\[GRAPH (?:CONTEXT|FACTS)\]')),                 # graph

@@ -125,8 +125,9 @@ Injection order (build_context_messages):
 5. [WORKSPACE STATE] · [PROJECT STATE]
 6. [RELEVANT CONTEXT FROM EARLIER] — cosine top-K retrieved chunks
 7. [EARLIER IN THIS CONVERSATION] — history_summary
-8. last 10 importance-weighted messages (history)
-9. [FILE CONTEXT] — policy["top_k"] chunks (varies: factual=weighted, relational=RRF etc.); fallback top_k=10 sequential; appended last for recency bias
+8. [LAST SESSION] — tier 8 (drops first); new-conversation only; content = last conv title + elapsed time; emitted in `done` SSE event as `last_session`
+9. last 10 importance-weighted messages (history)
+10. [FILE CONTEXT] — policy["top_k"] chunks (varies: factual=weighted, relational=RRF etc.); fallback top_k=10 sequential; appended last for recency bias
 10. current user message
 
 - Triggers: memory update >3000 tok OR every 10 asst msgs; history compression + project summary update >4000 tok OR every 15 total msgs (all_count > 10); auto-title after 2nd msg via `asyncio.create_task`

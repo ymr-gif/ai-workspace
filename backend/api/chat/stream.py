@@ -143,6 +143,7 @@ async def chat_stream(
             graph_context=ctx.get("graph_context", ""),
             graph_facts=ctx.get("graph_facts", ""),
             conflicted_facts=ctx.get("conflicted_facts", frozenset()),
+            last_session=ctx.get("last_session", ""),
         )
         t_cmp = metrics.record_request_start()
 
@@ -194,6 +195,7 @@ async def chat_stream(
                 graph_facts=ctx.get("graph_facts", ""),
                 conflicted_facts=ctx.get("conflicted_facts", frozenset()),
                 fact_saliences=ctx.get("fact_saliences", {}),
+                last_session=ctx.get("last_session", ""),
             ):
                 if event["type"] == "token":
                     accumulated.append(event["content"])
@@ -320,8 +322,9 @@ async def chat_stream(
                             "retrieval_type": hit.get("retrieval_type", ""),
                         })
                     event["provenance"]  = provenance
-                    event["query_type"]  = ctx.get("policy_used", "")
-                    event["src_count"]   = len(provenance)
+                    event["query_type"]   = ctx.get("policy_used", "")
+                    event["src_count"]    = len(provenance)
+                    event["last_session"] = ctx.get("last_session", "")
 
                     event["conversation_id"] = conv_id_str
                     yield f"data: {_json.dumps(event)}\n\n"
