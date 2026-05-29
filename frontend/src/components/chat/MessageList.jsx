@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import s from '../../lib/chatStyles.js'
@@ -8,32 +9,40 @@ export default function MessageList({
   proactive, setProactive,
   setMessages,
   pendingWriteFact, onAcceptWrite, onDismissWrite,
+  lastSession,
 }) {
+  const firstAiIdx = messages.findIndex(m => m.role === 'ai')
   return (
     <div style={s.feed}>
       {messages.length === 0 && <p style={s.hint}>{activeConvId ? 'Loading…' : 'Send a message to start.'}</p>}
-      {messages.map(m => {
+      {messages.map((m, idx) => {
+        const isFirstAi = lastSession && m.role === 'ai' && idx === firstAiIdx
         if (m.role === 'compare') {
           return (
-            <div key={m.id} style={s.compareRow}>
-              {COMPARE_MODELS.map(model => {
-                const resp = m.responses[model] || { text: '', streaming: false }
-                return (
-                  <div key={model} style={s.compareCard}>
-                    <div style={s.cardHeader}>{MODEL_LABELS[model]}</div>
-                    {(resp.streaming || !resp.text)
-                      ? <p style={s.text}>{resp.text || <span style={{ color:'#334155' }}>…</span>}{resp.streaming && <span style={s.cursor} />}</p>
-                      : <div className="md-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{resp.text}</ReactMarkdown></div>
-                    }
-                    <span style={s.cardModel}>{MODEL_SUBLABELS[model]}</span>
-                  </div>
-                )
-              })}
-            </div>
+            <Fragment key={m.id}>
+              {isFirstAi && <div style={{ fontSize:'0.72rem', color:'#475569', marginBottom:'0.4rem' }}>✦ {lastSession}</div>}
+              <div style={s.compareRow}>
+                {COMPARE_MODELS.map(model => {
+                  const resp = m.responses[model] || { text: '', streaming: false }
+                  return (
+                    <div key={model} style={s.compareCard}>
+                      <div style={s.cardHeader}>{MODEL_LABELS[model]}</div>
+                      {(resp.streaming || !resp.text)
+                        ? <p style={s.text}>{resp.text || <span style={{ color:'#334155' }}>…</span>}{resp.streaming && <span style={s.cursor} />}</p>
+                        : <div className="md-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{resp.text}</ReactMarkdown></div>
+                      }
+                      <span style={s.cardModel}>{MODEL_SUBLABELS[model]}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </Fragment>
           )
         }
         return (
-          <div key={m.id} style={{ ...s.bubble, ...(m.role === 'user' ? s.userBubble : m.role === 'err' ? s.errBubble : s.aiBubble) }}>
+          <Fragment key={m.id}>
+            {isFirstAi && <div style={{ fontSize:'0.72rem', color:'#475569', marginBottom:'0.4rem' }}>✦ {lastSession}</div>}
+            <div style={{ ...s.bubble, ...(m.role === 'user' ? s.userBubble : m.role === 'err' ? s.errBubble : s.aiBubble) }}>
             {m.toolCalls && m.toolCalls.map((tc, i) => (
               <div key={i}>
                 <div style={s.toolPill} onClick={() => setMessages(prev => prev.map(msg => msg.id === m.id
@@ -66,6 +75,7 @@ export default function MessageList({
               <span style={{ fontSize:'0.68rem', marginLeft:'0.25rem', color: m.srcCount >= 3 ? '#34d399' : '#fbbf24' }}>· {m.srcCount} src</span>
             )}
           </div>
+        </Fragment>
         )
       })}
       <div ref={bottomRef} />

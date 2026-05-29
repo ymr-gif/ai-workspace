@@ -83,6 +83,20 @@ Full code detail is in CLAUDE.md and git history.
 
 ---
 
+## Cross-Session Continuity Summary
+**Completed:** 2026-05-30
+
+- **Backend** (`helpers.py`): `_build_stream_context()` — when `not req.conversation_id`, queries last prior conv `title + updated_at`, formats elapsed time (minutes/hours/days); stored in `ctx["last_session"]`
+- **Context injection** (`context.py`): `[LAST SESSION]` tier-8 block (drops first from budget); `build_context_messages()` `last_session` kwarg; injected inside `memory_enabled` guard before `[GRAPH CONTEXT]`; `_TIER_PREFIXES` entry `(8, [LAST SESSION])` before `(7, [FILE CONTEXT])`
+- **Stream wiring** (`stream.py`): passed through compare + main flows; emitted in `done` SSE event as `"last_session"`
+- **Frontend** (`useConversations.js`): `lastSession` state; set from `done.last_session`; cleared on send; `setTimeout(8000)` auto-dismiss
+- **Banner** (`MessageList.jsx`): `✦ {lastSession}` above first AI bubble; `fontSize: "0.72rem"`, `color: "#475569"`, no border/background
+- **No LLM, no migration, no new model**
+
+**Key files:** `api/chat/helpers.py` · `llm/service/context.py` · `llm/service/stream.py` · `api/chat/stream.py` · `hooks/useConversations.js` · `components/chat/MessageList.jsx`
+
+---
+
 ## Behavioral Pattern Tracker
 **Completed:** 2026-05-30
 

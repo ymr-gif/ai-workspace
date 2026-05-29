@@ -76,7 +76,7 @@ export default function Chat({ token, onLogout }) {
     const text = conv.input.trim(); if (!text || conv.loading) return
     const isCompare = modelParams.compareMode
     const userId = conv.nextId.current++, aiId = conv.nextId.current++
-    conv.setInput(''); conv.setLoading(true); conv.setProactive(null); conv.setPendingWriteFact(null)
+    conv.setInput(''); conv.setLoading(true); conv.setProactive(null); conv.setPendingWriteFact(null); conv.setLastSession('')
 
     if (isCompare) {
       conv.setMessages(prev => [...prev,
@@ -130,6 +130,7 @@ export default function Chat({ token, onLogout }) {
                 mem.setMemTick(t => t + 1)
                 setTimeout(() => { if (mem.memTab === 'graph') insights.loadGraphStats() }, 2000)
               }
+              if (event.last_session) conv.setLastSession(event.last_session)
               const cid = event.conversation_id
               if (cid) {
                 conv.setActiveConvId(cid)
@@ -196,6 +197,13 @@ export default function Chat({ token, onLogout }) {
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setUserRole(d.role) }).catch(() => {})
   }, [])
+
+  // auto-dismiss last session banner after 8s
+  useEffect(() => {
+    if (!conv.lastSession) return
+    const tid = setTimeout(() => conv.setLastSession(''), 8000)
+    return () => clearTimeout(tid)
+  }, [conv.lastSession])
 
   const anyOpen = mem.memOpen || files.filesOpen || settings.settingsOpen || toolLog.toolLogOpen || usage.usageOpen || admin.inviteOpen || insights.insightsOpen || ws.wsModalOpen
 
@@ -307,6 +315,7 @@ export default function Chat({ token, onLogout }) {
           pendingWriteFact={conv.pendingWriteFact}
           onAcceptWrite={handleAcceptWrite}
           onDismissWrite={handleDismissWrite}
+          lastSession={conv.lastSession}
         />
 
         <ModelToolbar
