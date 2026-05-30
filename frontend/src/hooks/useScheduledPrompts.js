@@ -73,7 +73,7 @@ export default function useScheduledPrompts(token) {
     setRunsLoading(prev => ({ ...prev, [id]: true }))
     try {
       const r = await fetch(`/api/scheduled-prompts/${id}/runs`, { headers: authHeaders })
-      if (r.ok) setRunsMap(prev => ({ ...prev, [id]: await r.json() }))
+      if (r.ok) { const data = await r.json(); setRunsMap(prev => ({ ...prev, [id]: data })) }
     } catch { /* ignore */ } finally { setRunsLoading(prev => ({ ...prev, [id]: false })) }
   }
 
