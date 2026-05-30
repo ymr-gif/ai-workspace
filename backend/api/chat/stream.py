@@ -142,6 +142,7 @@ async def chat_stream(
             workspace_memory=ctx.get("workspace_memory", ""),
             graph_context=ctx.get("graph_context", ""),
             graph_facts=ctx.get("graph_facts", ""),
+            active_goals=ctx.get("active_goals", ""),
             conflicted_facts=ctx.get("conflicted_facts", frozenset()),
             last_session=ctx.get("last_session", ""),
         )
@@ -193,6 +194,7 @@ async def chat_stream(
                 workspace_memory=ctx.get("workspace_memory", ""),
                 graph_context=ctx.get("graph_context", ""),
                 graph_facts=ctx.get("graph_facts", ""),
+                active_goals=ctx.get("active_goals", ""),
                 conflicted_facts=ctx.get("conflicted_facts", frozenset()),
                 fact_saliences=ctx.get("fact_saliences", {}),
                 last_session=ctx.get("last_session", ""),

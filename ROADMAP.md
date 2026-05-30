@@ -203,10 +203,10 @@ Post-reply: compare current query pattern against `UserBehaviorProfile`. If user
 ~~- Backend: `ScheduledPrompt` CRUD API already partially exists; expose fully~~
 ~~- Frontend: new Automations panel (schedule picker, prompt editor, history)~~
 
-#### Goal / Task Tracker
-`UserGoal` model: title, description, status (active/completed/paused), linked conversation IDs. AI references active goals as `[ACTIVE GOALS]` context block (new tier between USER STATE and WORKSPACE STATE). User manages via Goals panel.
-- Backend: new model + `api/goals.py`
-- Frontend: Goals panel sidebar tab
+#### ~~Goal / Task Tracker~~ ✅
+~~`UserGoal` model: title, description, status (active/completed/paused), linked conversation IDs. AI references active goals as `[ACTIVE GOALS]` context block (new tier between USER STATE and WORKSPACE STATE). User manages via Goals panel.~~
+~~- Backend: new model + `api/goals.py`~~
+~~- Frontend: Goals panel sidebar tab~~
 
 #### Web Search Tool
 `web_search(query)` tool in agent loop. Calls configurable backend (SearXNG self-hosted or Tavily API). Returns top 5 results as grounded context. Gated by `WEB_SEARCH_ENABLED` + `WEB_SEARCH_BACKEND` env vars.
@@ -271,7 +271,7 @@ P1 — next sprint
 
 P2 — following sprint
   ~~12. User-Defined Scheduled Agents   ScheduledPrompt already exists, low lift~~ ✅
-  13. Goal / Task Tracker             new model + UI, medium effort
+  ~~13. Goal / Task Tracker             new model + UI, medium effort~~ ✅
   14. Pattern Detection + Triggers    builds on Behavioral Profile (needs #3 first)
   15. Web Search Tool                 gated by env var, isolated
   16. Daily/Weekly Digest             scheduler already wired

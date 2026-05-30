@@ -35,7 +35,7 @@ async def process_file_job(ctx, file_id: str, storage_path: str, mime_type: str)
                 await db.commit()
 
 
-async def generate_insight_job(ctx, user_id: int) -> None:
+async def generate_insight_job(ctx, user_id: int, *, hint: str | None = None) -> None:
     from llm.agency import generate_user_insight
     from models import UserBehaviorProfile
 
@@ -66,7 +66,7 @@ async def generate_insight_job(ctx, user_id: int) -> None:
             bp_row = await db.get(UserBehaviorProfile, user_id)
             behavior_profile = bp_row.profile if bp_row else {}
 
-            insight = await generate_user_insight(user_id, memory, recent_topics, behavior_profile=behavior_profile)
+            insight = await generate_user_insight(user_id, memory, recent_topics, behavior_profile=behavior_profile, hint=hint)
             if not insight:
                 return
 
@@ -142,11 +142,36 @@ async def extract_preferences_job(ctx, user_id: int) -> None:
 
 
 async def update_behavior_profile_job(ctx, user_id: int, query_type: str, message: str, tool_names: list[str], model_used: str) -> None:
-    from services.behavior import update_behavior_profile
+    from services.behavior import detect_recurring_patterns, update_behavior_profile
 
     try:
         async with AsyncSessionLocal() as db:
             await update_behavior_profile(user_id, query_type, message, tool_names, model_used, db)
+
+            # Read fresh profile to detect recurring patterns
+            from core.arq_pool import get_arq_pool
+            from models import UserBehaviorProfile
+            bp_row = await db.get(UserBehaviorProfile, user_id)
+            if bp_row:
+                patterns = detect_recurring_patterns(bp_row.profile)
+                for topic in patterns:
+                    existed = await db.scalar(
+                        select(func.count()).where(
+                            UserInsight.user_id == user_id,
+                            UserInsight.content.ilike(f"%{topic}%"),
+                            UserInsight.created_at >= func.now() - timedelta(days=7),
+                        )
+                    )
+                    if existed:
+                        continue
+                    pool = get_arq_pool()
+                    if pool:
+                        await pool.enqueue_job(
+                            "generate_insight_job",
+                            user_id,
+                            hint=f"User frequently asks about: {topic}. Suggest creating a summary document.",
+                        )
+
             logger.debug("[arq] behavior_profile updated user_id=%s", user_id)
     except Exception:
         attempt = ctx.get("job_try", 1)

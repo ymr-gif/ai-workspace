@@ -15,6 +15,7 @@ import useAdmin from '../hooks/useAdmin.js'
 import useInsights from '../hooks/useInsights.js'
 import useSearch from '../hooks/useSearch.js'
 import useScheduledPrompts from '../hooks/useScheduledPrompts.js'
+import useGoals from '../hooks/useGoals.js'
 
 import Sidebar from './chat/Sidebar.jsx'
 import MessageList from './chat/MessageList.jsx'
@@ -30,6 +31,7 @@ import InvitePanel from './chat/InvitePanel.jsx'
 import MemoryPanel from './chat/MemoryPanel.jsx'
 import SearchPanel from './chat/SearchPanel.jsx'
 import AutomationsPanel from './chat/AutomationsPanel.jsx'
+import GoalsPanel from './chat/GoalsPanel.jsx'
 
 export default function Chat({ token, onLogout }) {
   const ws = useWorkspace(token)
@@ -44,6 +46,7 @@ export default function Chat({ token, onLogout }) {
   const modelParams = useModelParams()
   const search = useSearch(token)
   const auto   = useScheduledPrompts(token)
+  const goals  = useGoals(token)
 
   const [userRole, setUserRole] = useState(null)
 
@@ -211,7 +214,7 @@ export default function Chat({ token, onLogout }) {
     return () => clearTimeout(tid)
   }, [conv.lastSession])
 
-  const anyOpen = mem.memOpen || files.filesOpen || settings.settingsOpen || toolLog.toolLogOpen || usage.usageOpen || admin.inviteOpen || insights.insightsOpen || ws.wsModalOpen || search.searchOpen || auto.autoOpen
+  const anyOpen = mem.memOpen || files.filesOpen || settings.settingsOpen || toolLog.toolLogOpen || usage.usageOpen || admin.inviteOpen || insights.insightsOpen || ws.wsModalOpen || search.searchOpen || auto.autoOpen || goals.goalsOpen
 
   return (
     <div style={s.root}>
@@ -296,10 +299,15 @@ export default function Chat({ token, onLogout }) {
               title="Unified search">
               🔍
             </button>
-            <button onClick={() => { auto.setAutoOpen(o => !o); mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); insights.setInsightsOpen(false); admin.setInviteOpen(false); search.setSearchOpen(false) }}
+            <button onClick={() => { auto.setAutoOpen(o => !o); mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); insights.setInsightsOpen(false); admin.setInviteOpen(false); search.setSearchOpen(false); goals.setGoalsOpen(false) }}
               style={{ ...s.hdrBtn, ...(auto.autoOpen ? { color:'#818cf8', borderColor:'#4338ca' } : {}) }}
               title="Scheduled automations">
               ⏱ Auto
+            </button>
+            <button onClick={() => { goals.setGoalsOpen(o => !o); mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); insights.setInsightsOpen(false); admin.setInviteOpen(false); search.setSearchOpen(false); auto.setAutoOpen(false) }}
+              style={{ ...s.hdrBtn, ...(goals.goalsOpen ? { color:'#34d399', borderColor:'#1e4e3a' } : {}) }}
+              title="Goals & tasks">
+              🎯 Goals
             </button>
             <button onClick={() => { mem.setMemOpen(true); files.setFilesOpen(false) }} style={s.hdrBtn}>
               {mem.memPending ? <span style={s.updatingDot} /> : hasMemory && <span style={s.memDot} />}
@@ -367,7 +375,7 @@ export default function Chat({ token, onLogout }) {
           onClick={() => {
             if (ws.wsModalOpen) ws.setWsModalOpen(false)
             else if (settings.settingsOpen) settings.setSettingsOpen(false)
-            else { mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); admin.setInviteOpen(false); insights.setInsightsOpen(false); search.setSearchOpen(false); auto.setAutoOpen(false) }
+            else { mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); admin.setInviteOpen(false); insights.setInsightsOpen(false); search.setSearchOpen(false); auto.setAutoOpen(false); goals.setGoalsOpen(false) }
           }} />
       )}
 
@@ -502,6 +510,33 @@ export default function Chat({ token, onLogout }) {
         searchLoading={search.searchLoading}
         clearSearch={search.clearSearch}
         selectConv={selectConv}
+      />
+
+      <GoalsPanel
+        goalsOpen={goals.goalsOpen}
+        setGoalsOpen={goals.setGoalsOpen}
+        goals={goals.goals}
+        goalsLoading={goals.goalsLoading}
+        statusFilter={goals.statusFilter}
+        changeFilter={goals.changeFilter}
+        formOpen={goals.formOpen}
+        setFormOpen={goals.setFormOpen}
+        editTarget={goals.editTarget}
+        formTitle={goals.formTitle}
+        setFormTitle={goals.setFormTitle}
+        formDesc={goals.formDesc}
+        setFormDesc={goals.setFormDesc}
+        formStatus={goals.formStatus}
+        setFormStatus={goals.setFormStatus}
+        formSaving={goals.formSaving}
+        loadGoals={goals.loadGoals}
+        saveGoal={goals.saveGoal}
+        deleteGoal={goals.deleteGoal}
+        toggleStatus={goals.toggleStatus}
+        linkConversation={goals.linkConversation}
+        openCreate={goals.openCreate}
+        openEdit={goals.openEdit}
+        activeConvId={conv.activeConvId}
       />
 
       <AutomationsPanel

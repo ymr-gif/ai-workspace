@@ -100,6 +100,7 @@ async def generate_stream(
     workspace_memory: str               = "",
     graph_context:    str               = "",
     graph_facts:      str               = "",
+    active_goals:     str               = "",
     conflicted_facts: frozenset         = frozenset(),
     fact_saliences:   dict | None       = None,
     last_session:     str               = "",
@@ -155,8 +156,8 @@ async def generate_stream(
         memory_sheet, project_summary, retrieved_chunks, history_summary,
         history, memory_enabled, system_prompt, file_chunks, file_names, file_ids,
         workspace_memory=workspace_memory, graph_context=graph_context,
-        graph_facts=graph_facts, conflicted_facts=conflicted_facts,
-        last_session=last_session,
+        graph_facts=graph_facts, active_goals=active_goals,
+        conflicted_facts=conflicted_facts, last_session=last_session,
     ) + [user_msg]
 
     for idx, current_model in enumerate(fallback_chain):

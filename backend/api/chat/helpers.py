@@ -13,7 +13,7 @@ from llm.embeddings import embed as embed_text
 from llm.router import classify_query
 from llm.retriever.policy import get_policy
 from llm.summarizer.salience import bump_fact_saliences, compute_salience, score_facts
-from models import Conversation, MemoryConflict, Message, User, UserMemory, Workspace, WorkspaceMemory
+from models import Conversation, MemoryConflict, Message, User, UserGoal, UserMemory, Workspace, WorkspaceMemory
 
 from .schemas import ChatRequest
 
@@ -304,6 +304,20 @@ async def _build_stream_context(
         except Exception:
             logger.exception("[graph] query_by_keywords failed")
 
+    active_goals = ""
+    try:
+        goals_result = await db.execute(
+            select(UserGoal)
+            .where(UserGoal.user_id == current_user.id, UserGoal.status == "active")
+            .order_by(UserGoal.created_at.asc())
+        )
+        goals = goals_result.scalars().all()
+        if goals:
+            lines = [f"{i+1}. {g.title}" + (f" — {g.description}" if g.description else "") for i, g in enumerate(goals)]
+            active_goals = "\n".join(lines)
+    except Exception:
+        logger.exception("[goals] query failed")
+
     logger.info("[policy] rid=%s query_type=%s fusion=%s alpha=%s k_dense=%d k_sparse=%d top_k=%d",
                 rid, query_type, policy["fusion_mode"], policy["alpha"],
                 policy["k_dense"], policy["k_sparse"], policy["top_k"])
@@ -322,6 +336,7 @@ async def _build_stream_context(
         "workspace_sysprompt": workspace_sysprompt,
         "graph_context":       graph_context,
         "graph_facts":         graph_facts,
+        "active_goals":        active_goals,
         "conflicted_facts":    conflicted_facts,
         "policy_used":         query_type,
         "fact_saliences":      fact_saliences,
