@@ -349,7 +349,7 @@ frontend/src/
 
 ## Roadmap Status (as of 2026-05-30)
 
-**All P0 complete.** Overall vision alignment: ~58%.
+**P0 + P1 complete. P2 in progress (#12 done).** Overall vision alignment: ~78%.
 
 ### P0 — Core Cognition (all ✅)
 1. ✅ Autonomous Memory Writing — `write_memory` tool; user-confirm green card
@@ -357,17 +357,17 @@ frontend/src/
 3. ✅ Behavioral Pattern Tracker — `UserBehaviorProfile` JSONB; ARQ every reply; feeds insight gen
 4. ✅ Cross-Session Continuity Summary — `[LAST SESSION]` tier-8 context block; `done.last_session` SSE field; banner UI
 
-### P1 — Platform Completeness (next sprint)
+### P1 — Platform Completeness (all ✅)
 5. ✅ Memory Conflict Resolution UI — Conflicts tab in MemoryPanel; `useMemory.js` state; per-card type badge + resolve buttons
 6. ✅ Fact-Level Salience Panel — score bar (4px, color-coded) + last-access timestamp per fact
 7. ✅ Unified Search — `GET /api/search?q=&scope=`; fan-out via `asyncio.gather`; `SearchPanel.jsx` + `useSearch.js`
-8. Knowledge Graph Explorer UI — `react-force-graph` or `vis-network`
-9. ✅ Memory Timeline View (backend ✅, frontend ✅)
-10. Full Data Export / Portability — ZIP of all conversations, files, memory, graph
-11. Scheduled Backup — APScheduler calling `backup.sh`
+8. ✅ Knowledge Graph Explorer UI — SVG circle-layout graph; click-to-highlight; entity_type + limit filters
+9. ✅ Memory Timeline View — `GET /memory/history`; expandable diff view in History tab
+10. ✅ Full Data Export — `GET /api/export/full`; ZIP stream; export button in `UsagePanel.jsx`
+11. ✅ Scheduled Backup — `run_backup()` in `scheduler_worker.py`; `BACKUP_SCHEDULE` env var (default `0 2 * * *`)
 
-### P2 — Autonomous Agency
-12. User-Defined Scheduled Agents (ScheduledPrompt CRUD already partial)
+### P2 — Autonomous Agency (in progress)
+12. ✅ User-Defined Scheduled Agents — `AutomationsPanel.jsx`; `useScheduledPrompts.js`; full CRUD + run history; workspace + cron alias support; migration 034
 13. Goal / Task Tracker — `UserGoal` model + `[ACTIVE GOALS]` context block
 14. Pattern Detection + Proactive Triggers
 15. Web Search Tool — `WEB_SEARCH_ENABLED` + `WEB_SEARCH_BACKEND` env vars
@@ -381,11 +381,11 @@ Live webpage ingestion · External integrations (Drive, Notion, GitHub) · Image
 | Dimension | Coverage |
 |-----------|----------|
 | 1. Persistent Memory | 97% |
-| 2. Unified Interface | 60% |
+| 2. Unified Interface | 90% |
 | 3. Reasoning Loop | 65% |
-| 4. Autonomous Agency | 35% |
+| 4. Autonomous Agency | 45% |
 | 5. Real-Time Perception | 10% |
-| **Overall** | **~58%** |
+| **Overall** | **~78%** |
 
 ---
 

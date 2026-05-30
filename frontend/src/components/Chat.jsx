@@ -14,6 +14,7 @@ import useUsage from '../hooks/useUsage.js'
 import useAdmin from '../hooks/useAdmin.js'
 import useInsights from '../hooks/useInsights.js'
 import useSearch from '../hooks/useSearch.js'
+import useScheduledPrompts from '../hooks/useScheduledPrompts.js'
 
 import Sidebar from './chat/Sidebar.jsx'
 import MessageList from './chat/MessageList.jsx'
@@ -28,6 +29,7 @@ import InsightsPanel from './chat/InsightsPanel.jsx'
 import InvitePanel from './chat/InvitePanel.jsx'
 import MemoryPanel from './chat/MemoryPanel.jsx'
 import SearchPanel from './chat/SearchPanel.jsx'
+import AutomationsPanel from './chat/AutomationsPanel.jsx'
 
 export default function Chat({ token, onLogout }) {
   const ws = useWorkspace(token)
@@ -41,6 +43,7 @@ export default function Chat({ token, onLogout }) {
   const insights = useInsights(token)
   const modelParams = useModelParams()
   const search = useSearch(token)
+  const auto   = useScheduledPrompts(token)
 
   const [userRole, setUserRole] = useState(null)
 
@@ -208,7 +211,7 @@ export default function Chat({ token, onLogout }) {
     return () => clearTimeout(tid)
   }, [conv.lastSession])
 
-  const anyOpen = mem.memOpen || files.filesOpen || settings.settingsOpen || toolLog.toolLogOpen || usage.usageOpen || admin.inviteOpen || insights.insightsOpen || ws.wsModalOpen || search.searchOpen
+  const anyOpen = mem.memOpen || files.filesOpen || settings.settingsOpen || toolLog.toolLogOpen || usage.usageOpen || admin.inviteOpen || insights.insightsOpen || ws.wsModalOpen || search.searchOpen || auto.autoOpen
 
   return (
     <div style={s.root}>
@@ -288,10 +291,15 @@ export default function Chat({ token, onLogout }) {
             <button onClick={() => { files.setFilesOpen(true); mem.setMemOpen(false); toolLog.setToolLogOpen(false) }} style={{ ...s.hdrBtn, ...(files.attachedFiles.length > 0 ? { color:'#fbbf24', borderColor:'#78350f' } : {}) }}>
               {files.attachedFiles.length > 0 ? `📎 ${files.attachedFiles.length}` : '📎'} Files
             </button>
-            <button onClick={() => { search.setSearchOpen(o => !o); mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); insights.setInsightsOpen(false); admin.setInviteOpen(false) }}
+            <button onClick={() => { search.setSearchOpen(o => !o); mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); insights.setInsightsOpen(false); admin.setInviteOpen(false); auto.setAutoOpen(false) }}
               style={{ ...s.hdrBtn, ...(search.searchOpen ? { color:'#38bdf8', borderColor:'#0369a1' } : {}) }}
               title="Unified search">
               🔍
+            </button>
+            <button onClick={() => { auto.setAutoOpen(o => !o); mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); insights.setInsightsOpen(false); admin.setInviteOpen(false); search.setSearchOpen(false) }}
+              style={{ ...s.hdrBtn, ...(auto.autoOpen ? { color:'#818cf8', borderColor:'#4338ca' } : {}) }}
+              title="Scheduled automations">
+              ⏱ Auto
             </button>
             <button onClick={() => { mem.setMemOpen(true); files.setFilesOpen(false) }} style={s.hdrBtn}>
               {mem.memPending ? <span style={s.updatingDot} /> : hasMemory && <span style={s.memDot} />}
@@ -359,7 +367,7 @@ export default function Chat({ token, onLogout }) {
           onClick={() => {
             if (ws.wsModalOpen) ws.setWsModalOpen(false)
             else if (settings.settingsOpen) settings.setSettingsOpen(false)
-            else { mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); admin.setInviteOpen(false); insights.setInsightsOpen(false); search.setSearchOpen(false) }
+            else { mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); admin.setInviteOpen(false); insights.setInsightsOpen(false); search.setSearchOpen(false); auto.setAutoOpen(false) }
           }} />
       )}
 
@@ -456,6 +464,7 @@ export default function Chat({ token, onLogout }) {
         usageData={usage.usageData}
         usageLoading={usage.usageLoading}
         loadUsage={usage.loadUsage}
+        token={token}
       />
 
       <InsightsPanel
@@ -493,6 +502,40 @@ export default function Chat({ token, onLogout }) {
         searchLoading={search.searchLoading}
         clearSearch={search.clearSearch}
         selectConv={selectConv}
+      />
+
+      <AutomationsPanel
+        autoOpen={auto.autoOpen}
+        setAutoOpen={auto.setAutoOpen}
+        schedules={auto.schedules}
+        schedulesLoading={auto.schedulesLoading}
+        formOpen={auto.formOpen}
+        setFormOpen={auto.setFormOpen}
+        editTarget={auto.editTarget}
+        formName={auto.formName}
+        setFormName={auto.setFormName}
+        formPrompt={auto.formPrompt}
+        setFormPrompt={auto.setFormPrompt}
+        formSchedule={auto.formSchedule}
+        setFormSchedule={auto.setFormSchedule}
+        formModel={auto.formModel}
+        setFormModel={auto.setFormModel}
+        formWsId={auto.formWsId}
+        setFormWsId={auto.setFormWsId}
+        formSaving={auto.formSaving}
+        runsMap={auto.runsMap}
+        runsLoading={auto.runsLoading}
+        expandedId={auto.expandedId}
+        triggeringId={auto.triggeringId}
+        loadSchedules={auto.loadSchedules}
+        saveSchedule={auto.saveSchedule}
+        deleteSchedule={auto.deleteSchedule}
+        toggleActive={auto.toggleActive}
+        triggerRun={auto.triggerRun}
+        openCreate={auto.openCreate}
+        openEdit={auto.openEdit}
+        toggleExpanded={auto.toggleExpanded}
+        sidebarWsList={ws.sidebarWsList}
       />
 
       <MemoryPanel
@@ -544,6 +587,9 @@ export default function Chat({ token, onLogout }) {
         loadGraphStats={insights.loadGraphStats}
         graphLoading={insights.graphLoading}
         graphStats={insights.graphStats}
+        graphSample={insights.graphSample}
+        graphSampleLoading={insights.graphSampleLoading}
+        loadGraphSample={insights.loadGraphSample}
         conflicts={mem.conflicts}
         conflictsLoading={mem.conflictsLoading}
         loadConflicts={mem.loadConflicts}

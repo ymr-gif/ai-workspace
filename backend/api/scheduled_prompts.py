@@ -18,6 +18,17 @@ def _next_run(cron_expr: str) -> datetime:
     return croniter(cron_expr, datetime.now(timezone.utc)).get_next(datetime)
 
 
+_SCHEDULE_ALIASES = {
+    "daily":   "0 0 * * *",
+    "weekly":  "0 0 * * 0",
+    "monthly": "0 0 1 * *",
+}
+
+
+def _resolve_schedule(schedule: str) -> str:
+    return _SCHEDULE_ALIASES.get(schedule.lower().strip(), schedule)
+
+
 def _schedule_row(s: ScheduledPrompt) -> dict:
     return {
         "id":             str(s.id),
@@ -25,6 +36,7 @@ def _schedule_row(s: ScheduledPrompt) -> dict:
         "prompt":         s.prompt,
         "cron_expr":      s.cron_expr,
         "model_override": s.model_override,
+        "workspace_id":   str(s.workspace_id) if s.workspace_id else None,
         "is_active":      s.is_active,
         "last_run_at":    s.last_run_at.isoformat()  if s.last_run_at  else None,
         "next_run_at":    s.next_run_at.isoformat()  if s.next_run_at  else None,
@@ -44,32 +56,38 @@ def _run_row(r: ScheduledPromptRun) -> dict:
 
 
 class ScheduleCreate(BaseModel):
-    name:           str = Field(..., min_length=1, max_length=100)
-    prompt:         str = Field(..., min_length=1)
-    cron_expr:      str = Field(..., min_length=1, max_length=100)
-    model_override: str | None = None
+    name:           str  = Field(..., min_length=1, max_length=100)
+    prompt:         str  = Field(..., min_length=1)
+    schedule:       str  = Field(..., min_length=1, max_length=100, description="Cron expression or daily/weekly/monthly")
+    model_override: str  | None = None
+    workspace_id:   str  | None = None
 
-    @field_validator("cron_expr")
+    @field_validator("schedule")
     @classmethod
-    def validate_cron(cls, v: str) -> str:
-        if not croniter.is_valid(v):
-            raise ValueError(f"Invalid cron expression: {v!r}")
-        return v
+    def validate_schedule(cls, v: str) -> str:
+        resolved = _resolve_schedule(v)
+        if not croniter.is_valid(resolved):
+            raise ValueError(f"Invalid schedule: {v!r} — not a valid cron or alias")
+        return resolved
 
 
 class SchedulePatch(BaseModel):
-    name:           str | None = Field(None, min_length=1, max_length=100)
-    prompt:         str | None = Field(None, min_length=1)
-    cron_expr:      str | None = Field(None, min_length=1, max_length=100)
-    model_override: str | None = None
+    name:           str  | None = Field(None, min_length=1, max_length=100)
+    prompt:         str  | None = Field(None, min_length=1)
+    schedule:       str  | None = Field(None, min_length=1, max_length=100, description="Cron expression or daily/weekly/monthly")
+    model_override: str  | None = None
+    workspace_id:   str  | None = None
     is_active:      bool | None = None
 
-    @field_validator("cron_expr")
+    @field_validator("schedule")
     @classmethod
-    def validate_cron(cls, v: str | None) -> str | None:
-        if v is not None and not croniter.is_valid(v):
-            raise ValueError(f"Invalid cron expression: {v!r}")
-        return v
+    def validate_schedule(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        resolved = _resolve_schedule(v)
+        if not croniter.is_valid(resolved):
+            raise ValueError(f"Invalid schedule: {v!r} — not a valid cron or alias")
+        return resolved
 
 
 @router.post("", status_code=201)
@@ -78,13 +96,21 @@ async def create_schedule(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
 ):
+    wid = None
+    if body.workspace_id:
+        try:
+            wid = uuid.UUID(body.workspace_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid workspace_id")
+
     s = ScheduledPrompt(
         user_id        = current_user.id,
         name           = body.name.strip(),
         prompt         = body.prompt,
-        cron_expr      = body.cron_expr,
+        cron_expr      = body.schedule,
         model_override = body.model_override,
-        next_run_at    = _next_run(body.cron_expr),
+        workspace_id   = wid,
+        next_run_at    = _next_run(body.schedule),
     )
     db.add(s)
     await db.commit()
@@ -150,9 +176,14 @@ async def patch_schedule(
     if "prompt"         in updated: s.prompt         = body.prompt
     if "model_override" in updated: s.model_override = body.model_override
     if "is_active"      in updated: s.is_active      = body.is_active
-    if "cron_expr"      in updated:
-        s.cron_expr   = body.cron_expr
-        s.next_run_at = _next_run(body.cron_expr)
+    if "workspace_id"   in updated:
+        try:
+            s.workspace_id = uuid.UUID(body.workspace_id) if body.workspace_id else None
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid workspace_id")
+    if "schedule" in updated:
+        s.cron_expr   = body.schedule
+        s.next_run_at = _next_run(body.schedule)
 
     await db.commit()
     return _schedule_row(s)

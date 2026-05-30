@@ -4,8 +4,8 @@
 - React + Vite; `vite.config.js` proxies `/api` → `localhost:8000`
 - `src/App.jsx` — login form, JWT in localStorage as `nim_token`
 - `src/components/Chat.jsx` — orchestrator; imports hooks + sub-components under `chat/`
-- `src/hooks/` — 11 hooks: useConversations, useMemory, useWorkspace, useFiles, useModelParams, useSettings, useToolLogs, useUsage, useAdmin, useInsights, useSearch
-- `src/components/chat/` — 13 sub-components: Sidebar, MessageList, ModelToolbar, SettingsModal, WorkspaceModal, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel
+- `src/hooks/` — 12 hooks: useConversations, useMemory, useWorkspace, useFiles, useModelParams, useSettings, useToolLogs, useUsage, useAdmin, useInsights, useSearch, useScheduledPrompts
+- `src/components/chat/` — 14 sub-components: Sidebar, MessageList, ModelToolbar, SettingsModal, WorkspaceModal, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel, AutomationsPanel
 - **All fetch calls must use `/api/` prefix** — bare paths bypass proxy and 404 silently
 - **JWT flow:** login → `POST /api/auth/token` → store token as `nim_token` in localStorage → `Authorization: Bearer` on all fetch calls
 
@@ -20,8 +20,9 @@
 - **Conversation export** — ⬇ per conv; `GET /api/conversations/{id}/export?format=markdown`
 - **Invite panel** (admin) — ⚡ button; load `GET /api/auth/invites`; generate `POST /api/auth/invite`; click to copy
 - **Admin endpoints** (API-only, no frontend panel): `/api/admin/users`, `/api/admin/users/{id}/cost-limit`, `/api/admin/audit-log`
-- **$ Usage panel** — slide-in; aggregate `GET /api/usage`
+- **$ Usage panel** — slide-in; aggregate `GET /api/usage`; **⬇ Export All Data** button at bottom → `GET /api/export/full` (bearer token header) → downloads `export.zip` (conversations · files · memory · graph); token passed as prop from `Chat.jsx`
 - **Compare mode** — same streaming/done split per model card
+- **Automations panel** (ROADMAP #12) — ⏱ Auto header button; slide-in; `useScheduledPrompts.js`; CRUD for scheduled prompts via `/api/scheduled-prompts`; create/edit form with preset aliases (daily/weekly/monthly) or custom cron, optional model_override + workspace; per-row: active toggle (`PATCH is_active`) · ▶ Run (`POST /run`) · ▼ Runs (expandable run history from `GET /id/runs`) · Edit · 🗑 delete; form overlays panel with zIndex:2
 
 ## Files Panel
 - 📎 header button; amber + count when files attached; 2 tabs: Library / Attached
@@ -46,6 +47,7 @@
 - **confirm_write_memory**: green card "MEMORY SUGGESTION" on `{type:"confirm_write_memory", fact}` SSE; Accept → `POST /api/memory/write {fact}`, Dismiss → null; clears on next send
 - **Memory panel**: tabs View / [Workspace] / Edit / History / Graph / Conflicts — "Workspace" tab appears only when a workspace is selected; View tab renders per-fact cards from `memData.facts[]` (each card: content + salience score bar (4px, green ≥0.7 / amber ≥0.4 / grey below) with % label to right + `Last accessed: X ago` / `Never accessed` timestamp from `last_used_at`); falls back to splitting `content` by newline if `facts`/sections missing; PROJECT STATE section; WORKSPACE section (inline workspace memory from `GET /api/workspaces/{id}/memory` when sidebarWsId set); Workspace tab: full workspace memory view + inline edit + `Updated` timestamp; Graph tab: `GET /api/graph/stats` → `{available, entities, relations}`; auto-refreshes 2s after each AI reply if tab open; `useMemory.js` loads workspace memory whenever memOpen + (memTab=view or workspace)
 - **Conflicts tab** (ROADMAP #5): `GET /api/memory/conflicts` on tab open → list; tab label shows count when > 0; per-card: `fact_a` + `fact_b` side by side, type badge (red=contradiction, yellow=duplicate, grey=ambiguous), four resolve buttons (Keep A / Keep B / Merge / Discard Both) → `POST /api/memory/conflicts/{id}/resolve` `{ strategy: "keep_a"|"keep_b"|"merge"|"discard_both" }` → removes card on success; empty state: "No conflicts"; state in `useMemory.js` (`conflicts`, `conflictsLoading`, `loadConflicts`, `resolveConflict`)
+- **Graph tab** (ROADMAP #8): interactive SVG circle-layout graph; tab open calls `loadGraphStats()` + `loadGraphSample(limit, entityType)`; controls: entity_type text filter + limit number input (default 50, max 200) + refresh; nodes = circles (6px), edges = lines; click node → highlights its edges + neighbors, shows relation list below (`source —[relation]→ target`); labels shown for selected/neighbors/graphs ≤12 nodes; state in `useInsights.js` (`graphSample`, `graphSampleLoading`, `loadGraphSample`); endpoint: `GET /api/graph/sample?limit=&entity_type=`
 - **Re-embed button**: ↺ Re-embed All in Invite panel admin section → `POST /api/admin/re-embed`
 
 ## Unified Search Panel (ROADMAP #7)

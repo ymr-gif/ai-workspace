@@ -109,6 +109,51 @@ Full code detail is in CLAUDE.md and git history.
 
 ---
 
+## User-Defined Scheduled Agents (ROADMAP #12)
+**Completed:** 2026-05-30
+
+- **Backend audit**: `ScheduledPrompt` CRUD already existed in `api/scheduled_prompts.py` (233 lines); router registered at `/scheduled-prompts` in `main.py`
+- **Backend additions**: `_SCHEDULE_ALIASES` (`daily/weekly/monthly` → cron); `_resolve_schedule()` helper; `croniter` validation; `workspace_id` column (UUID FK, migration 034) added to model + schemas + `_schedule_row()`
+- **Frontend**: `useScheduledPrompts.js` hook (`loadPrompts`, `createPrompt`, `updatePrompt`, `deletePrompt`, `triggerRun`); `AutomationsPanel.jsx` slide-in (⏱ button in header); card list with schedule badge + active toggle; create/edit inline overlay (name, prompt, schedule pills, workspace selector, model override); 🗑 delete per card; expandable run history with ▶ manual trigger
+
+**Key files:** `backend/models/prompts_scheduled.py` · `backend/alembic/versions/034_scheduled_prompt_workspace.py` · `backend/api/scheduled_prompts.py` · `frontend/src/hooks/useScheduledPrompts.js` (new) · `frontend/src/components/chat/AutomationsPanel.jsx` (new) · `frontend/src/components/Chat.jsx`
+
+---
+
+## Scheduled Backup (ROADMAP #11)
+**Completed:** 2026-05-30
+
+- **`config.py`**: `BACKUP_SCHEDULE = os.getenv("BACKUP_SCHEDULE", "0 2 * * *")`
+- **`scheduler_worker.py`**: `run_backup()` async function; resolves `docker/backup.sh` via `Path(__file__).resolve().parent.parent.parent / "docker" / "backup.sh"`; runs via `asyncio.create_subprocess_exec("bash", ...)`; logs stdout (truncated 300 chars) + stderr on failure; registered with `CronTrigger.from_crontab(BACKUP_SCHEDULE)`
+- **`.env.example`**: `BACKUP_SCHEDULE=0 2 * * *` added under Scheduled Backup section
+
+**Key files:** `backend/config.py` · `backend/services/scheduler_worker.py` · `.env.example`
+
+---
+
+## Full Data Export (ROADMAP #10)
+**Completed:** 2026-05-30
+
+- **Endpoint**: `GET /api/export/full` in `backend/api/export.py`; `StreamingResponse(application/zip)` with `Content-Disposition: attachment; filename=export.zip`
+- **ZIP contents**: `conversations/<uuid>_<title>.md` (role+content markdown) · `files/<filename>` (raw bytes from `storage_path`, missing skipped) · `memory/sheet.txt` · `memory/versions/<version>.txt` · `graph/entities.json` (top 500 entities, skipped if Neo4j unavailable)
+- **Graceful degradation**: each section wrapped independently; empty data = ZIP with directories only
+- **Frontend**: "⬇ Export All Data" button at bottom of `UsagePanel.jsx`; fetch → blob → `URL.createObjectURL` → `<a download="export.zip">`; `exporting` loading state disables button during fetch; token from `localStorage.getItem("nim_token")`
+
+**Key files:** `backend/api/export.py` (new) · `backend/main.py` · `frontend/src/components/chat/UsagePanel.jsx`
+
+---
+
+## Knowledge Graph Explorer UI (ROADMAP #8)
+**Completed:** 2026-05-30
+
+- **Backend**: `GET /api/graph/sample?limit=&entity_type=` — `limit` int default 50 clamped 1–200; `entity_type` optional string filter on source node `.type`; dynamic WHERE clause in Cypher; shape unchanged (`{available, triples[{source, relation, target}]}`)
+- **Frontend**: SVG circle-layout graph in Memory → Graph tab; nodes as circles, edges as lines; click node → highlights edges + neighbors + shows relation list below; controls: entity_type text filter + limit input + refresh button; stats count cards kept above graph
+- **State**: `graphSample` / `graphSampleLoading` / `loadGraphSample` in `useInsights.js`; loads on tab click alongside existing stats
+
+**Key files:** `backend/api/graph.py` · `frontend/src/components/chat/MemoryPanel.jsx` · `frontend/src/hooks/useInsights.js`
+
+---
+
 ## Unified Search (ROADMAP #7)
 **Completed:** 2026-05-30
 
