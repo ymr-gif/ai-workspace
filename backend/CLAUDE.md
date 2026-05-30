@@ -73,6 +73,7 @@
 │   ├── graph.py            — /graph/stats, /health, /sample; DELETE /graph/entities/{name}; POST /graph/prune (removes long names + stale OTHER-type entities >7 days)
 │   ├── system.py           — /health, /metrics; probe_models_on_startup() pings all MODELS, pre-trips circuit on failure
 │   ├── memory.py           — GET /memory returns active_conflicts count; scan_conflicts sets expires_at=+7d; conflicts auto-resolved keep_a after expiry
+│   ├── search.py            — GET /api/search unified search; fans out to files/conversations/memory/graph via asyncio.gather
 │   ├── compat.py / templates.py / scheduled_prompts.py / usage.py / tool_logs.py
 ├── services/
 │   ├── processor.py        — extract→chunk→embed; CPU work in asyncio.to_thread()

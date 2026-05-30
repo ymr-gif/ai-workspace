@@ -359,8 +359,8 @@ frontend/src/
 
 ### P1 — Platform Completeness (next sprint)
 5. ✅ Memory Conflict Resolution UI — Conflicts tab in MemoryPanel; `useMemory.js` state; per-card type badge + resolve buttons
-6. Fact-Level Salience Panel — badge done; score bar + timestamp remaining
-7. Unified Search — `/api/search?scope=all|files|conversations|memory|graph`
+6. ✅ Fact-Level Salience Panel — score bar (4px, color-coded) + last-access timestamp per fact
+7. ✅ Unified Search — `GET /api/search?q=&scope=`; fan-out via `asyncio.gather`; `SearchPanel.jsx` + `useSearch.js`
 8. Knowledge Graph Explorer UI — `react-force-graph` or `vis-network`
 9. ✅ Memory Timeline View (backend ✅, frontend ✅)
 10. Full Data Export / Portability — ZIP of all conversations, files, memory, graph

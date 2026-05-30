@@ -158,14 +158,14 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 ~~Surface `GET /memory/conflicts` in Memory panel. Per-conflict card: fact_a vs fact_b, conflict type badge (red=contradiction, yellow=duplicate, grey=ambiguous). Resolve buttons: Keep A / Keep B / Merge / Discard Both. Calls `POST /memory/conflicts/{id}/resolve`.~~
 ~~- Frontend only (backend complete)~~
 
-#### Fact-Level Salience Panel _(partial)_
-Per-fact salience % badge already rendered in View tab (color-coded green/amber/grey). Remaining: replace badge with a visual score bar, add last-access timestamp per fact. Uses existing `facts[]` array from `GET /memory`.
-- Frontend only (backend complete)
+#### ~~Fact-Level Salience Panel~~ ✅
+~~Per-fact salience % badge already rendered in View tab (color-coded green/amber/grey). Remaining: replace badge with a visual score bar, add last-access timestamp per fact. Uses existing `facts[]` array from `GET /memory`.~~
+~~- Frontend only (backend complete)~~
 
-#### Unified Search
-`GET /api/search?q=&scope=all|files|conversations|memory|graph` fans out to all four stores in parallel, merges results with source labels and scores. Single UI search bar replaces per-panel search.
-- Backend: new `api/search.py` router, parallel `asyncio.gather` across stores
-- Frontend: global search bar in header
+#### ~~Unified Search~~ ✅
+~~`GET /api/search?q=&scope=all|files|conversations|memory|graph` fans out to all four stores in parallel, merges results with source labels and scores. Single UI search bar replaces per-panel search.~~
+~~- Backend: new `api/search.py` router, parallel `asyncio.gather` across stores~~
+~~- Frontend: global search bar in header~~
 
 #### Knowledge Graph Explorer (UI)
 Visual graph in Memory → Graph tab. Nodes = entities, edges = relations. Click node → panel shows linked facts and conversation references. Uses `GET /api/graph/sample` extended with pagination and type filter.
@@ -256,8 +256,8 @@ P0 — now
 
 P1 — next sprint
   ~~5. Memory Conflict Resolution UI    backend done, frontend only~~ ✅
-  6. Fact-Level Salience Panel        partial — badge done, bar + timestamp remaining
-  7. Unified Search                   one interface to everything
+  ~~6. Fact-Level Salience Panel        partial — badge done, bar + timestamp remaining~~ ✅
+  ~~7. Unified Search                   one interface to everything~~ ✅
   8. Knowledge Graph Explorer UI      high visual impact
   ~~9. Memory Timeline View            backend done, frontend only~~ ✅
   10. Full Data Export                user trust / portability

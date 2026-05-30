@@ -109,6 +109,33 @@ Full code detail is in CLAUDE.md and git history.
 
 ---
 
+## Unified Search (ROADMAP #7)
+**Completed:** 2026-05-30
+
+- **Endpoint**: `GET /api/search?q=&scope=all|files|conversations|memory|graph` in `backend/api/search.py`; registered at `/api/search` in `main.py`
+- **Fan-out**: `asyncio.gather` across all 4 stores when `scope=all`; graceful degradation — each store wrapped in try/except, failures return `[]`
+- `files`: vector cosine sim on `FileChunk.embedding`; embedding fetched first
+- `conversations`: `content_tsv @@ websearch_to_tsquery`; GIN index; scored via `ts_rank`
+- `memory`: case-insensitive substring match on `UserMemory.content` lines; score from `fact_saliences` or 1.0
+- `graph`: Neo4j `entity_name_ft` fulltext index; returns name, type, relation_count; empty when driver unavailable
+- **Response**: `{query, scope, results[{source, score, title, snippet, id}]}` sorted descending; top 5 per store
+- **Frontend**: `SearchPanel.jsx` slide-in (🔍 button in header); `useSearch.js` hook; 300ms debounce; scope filter pills (All/Files/Conversations/Memory/Graph); results grouped by source with colored labels; conversation click calls `selectConv(id)`
+
+**Key files:** `backend/api/search.py` (new) · `backend/main.py` · `frontend/src/components/chat/SearchPanel.jsx` (new) · `frontend/src/hooks/useSearch.js` (new) · `frontend/src/components/Chat.jsx`
+
+---
+
+## Fact-Level Salience Panel
+**Completed:** 2026-05-30
+
+- **Score bar**: replaced `<span>` text badge with a narrow horizontal bar (`height: 4px`, `border-radius: 2px`); width = `salience * 100%`; color green (`#34d399`) ≥ 0.7, amber (`#fbbf24`) ≥ 0.4, grey (`#475569`) below; `%` label as small text to the right
+- **Last-access timestamp**: muted line below each fact card — `Last accessed: X ago` (relative minutes/hours/days); `Never accessed` when `last_used_at` is null; `font-size: 0.65rem`, `color: #475569`
+- **Data source**: `facts[].last_used_at` (ISO or null) already returned by `GET /api/memory` — no backend changes
+
+**Key files:** `frontend/src/components/chat/MemoryPanel.jsx`
+
+---
+
 ## Memory Conflict Resolution UI
 **Completed:** 2026-05-30
 
