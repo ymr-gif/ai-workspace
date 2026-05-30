@@ -27,8 +27,10 @@ Start with "You " or "Your " or "Pattern: ".
 If nothing meaningful, respond with exactly: NONE"""
 
 
-async def generate_user_insight(user_id: int, memory: str, recent_topics: str, *, behavior_profile: dict | None = None) -> str | None:
+async def generate_user_insight(user_id: int, memory: str, recent_topics: str, *, behavior_profile: dict | None = None, hint: str | None = None) -> str | None:
     behavior_hint = ""
+    if hint:
+        behavior_hint += hint + "\n"
     if behavior_profile:
         qtypes = behavior_profile.get("query_types", {})
         sorted_qt = sorted(qtypes.items(), key=lambda x: -x[1])[:3]
@@ -44,26 +46,6 @@ async def generate_user_insight(user_id: int, memory: str, recent_topics: str, *
         memory=memory[:600],
         recent_topics=recent_topics[:400],
         behavior_hint=behavior_hint,
-    )
-    try:
-        result = await call(
-            model=MODELS["llama"],
-            messages=[{"role": "user", "content": prompt}],
-            request_id="proactive",
-            model_params={"max_tokens": 35, "temperature": 0.3},
-        )
-        text = (result.get("content") or "").strip().strip('"')
-        if text and text.upper() != "NONE" and len(text) > 8:
-            return text
-    except Exception:
-        logger.warning("[agency] proactive suggestion failed")
-    return None
-
-
-async def generate_user_insight(user_id: int, memory: str, recent_topics: str) -> str | None:
-    prompt = _INSIGHT_PROMPT.format(
-        memory=memory[:600],
-        recent_topics=recent_topics[:400],
     )
     try:
         result = await call(

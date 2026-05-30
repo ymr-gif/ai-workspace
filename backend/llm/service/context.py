@@ -26,6 +26,12 @@ def _needs_file_tools(message: str) -> bool:
 _MEMORY_STANDALONE_TRIGGERS = frozenset({"remember", "memorize"})
 
 
+def _format_active_goals(active_goals: str) -> str:
+    if not active_goals.strip():
+        return ""
+    return f"[ACTIVE GOALS]\n{active_goals}"
+
+
 def _needs_memory_tool(message: str) -> bool:
     tokens = set(message.lower().split())
     if tokens & _MEMORY_STANDALONE_TRIGGERS:
@@ -47,6 +53,7 @@ def build_context_messages(
     workspace_memory: str             = "",
     graph_context:    str             = "",
     graph_facts:      str             = "",
+    active_goals:     str             = "",
     conflicted_facts: frozenset[str]  = frozenset(),
     last_session:     str             = "",
 ) -> list[dict]:
@@ -106,6 +113,9 @@ def build_context_messages(
                 filtered = memory_sheet
             if filtered.strip():
                 messages.append({"role": "system", "content": f"[USER STATE]\n{filtered}"})
+        if active_goals:
+            messages.append({"role": "user",      "content": _format_active_goals(active_goals)})
+            messages.append({"role": "assistant", "content": "Understood."})
         if workspace_memory:
             messages.append({"role": "user",      "content": f"[WORKSPACE STATE]\n{workspace_memory}"})
             messages.append({"role": "assistant", "content": "Understood."})
@@ -142,7 +152,7 @@ _TIER_PREFIXES = [
     (6, re.compile(r'^\[RELEVANT CONTEXT')),                          # history / RAG
     (5, re.compile(r'^\[EARLIER IN THIS CONVERSATION\]')),            # conv summary
     (4, re.compile(r'^\[GRAPH (?:CONTEXT|FACTS)\]')),                 # graph
-    (3, re.compile(r'^\[WORKSPACE STATE\]')),                         # workspace
+    (3, re.compile(r'^\[(?:WORKSPACE STATE|ACTIVE GOALS)\]')),        # workspace + goals
     (2, re.compile(r'^\[PROJECT STATE\]')),                           # project
     (1, re.compile(r'^\[USER STATE\]')),                              # user state (keep)
 ]

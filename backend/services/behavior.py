@@ -22,6 +22,11 @@ _STOP_WORDS = frozenset({
 _MAX_TOPICS = 50
 
 
+def detect_recurring_patterns(profile: dict) -> list[str]:
+    topics = profile.get("topic_keywords", {})
+    return sorted(t for t, c in topics.items() if c >= 3)
+
+
 def _extract_keywords(message: str) -> list[str]:
     words = message.lower().split()
     result = []

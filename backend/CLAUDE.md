@@ -4,17 +4,17 @@
 ```
 ├── main.py                 — lifespan, middleware, router includes
 ├── config.py               — env vars loaded from ../.env via find_dotenv()
-├── models/                 — ORM (20 classes across 8 sub-modules)
+├── models/                 — ORM (21 classes across 8 sub-modules)
 │   ├── __init__.py         — re-exports all models
 │   ├── workspace.py        — Workspace, WorkspaceMemory
 │   ├── auth.py             — Invitation
-│   ├── user.py             — User, UserInsight, AdminAuditLog, UserMemory, UserMemoryVersion
+│   ├── user.py             — User, UserInsight, AdminAuditLog, UserMemory, UserMemoryVersion, UserGoal
 │   ├── file.py             — File, FileChunk, FileVersion
 │   ├── chat.py             — Conversation, Message, MessageEmbedding, ConversationFile
 │   ├── tools.py            — ToolCallLog
 │   ├── prompts_scheduled.py — PromptTemplate, ScheduledPrompt, ScheduledPromptRun
 │   └── system.py           — SystemConfig
-├── alembic/versions/       — 034 migrations; latest: 034_scheduled_prompt_workspace.py
+├── alembic/versions/       — 035 migrations; latest: 035_user_goals.py
 ├── auth/                   — JWT, bcrypt (direct, no passlib), API key fallback, invite validation
 ├── tests/
 │   ├── test.py             — 21 unit tests (standalone, no docker)
@@ -75,6 +75,7 @@
 │   ├── memory.py           — GET /memory returns active_conflicts count; scan_conflicts sets expires_at=+7d; conflicts auto-resolved keep_a after expiry
 │   ├── export.py            — GET /export/full; builds ZIP in memory with conversations/files/memory/graph data
 │   ├── search.py            — GET /api/search unified search; fans out to files/conversations/memory/graph via asyncio.gather
+│   ├── goals.py             — CRUD for UserGoal; status filter, conversation linking
 │   ├── scheduled_prompts.py — CRUD for user-defined automated prompts; schedule alias support (daily/weekly/monthly); POST /run trigger
 │   ├── compat.py / templates.py / usage.py / tool_logs.py
 ├── services/
@@ -125,6 +126,7 @@ Injection order (build_context_messages):
 2. [GRAPH CONTEXT] — Neo4j entity/relation context (when memory_enabled + Neo4j up); limit=50, min_score=0.5; cached in Redis 60s per (user_id, query_text)
 3. [GRAPH FACTS] — keyword-triggered neighborhood expansion via query_by_keywords; cached in Redis 60s
 4. [USER STATE] — memory_sheet (top 20 facts by salience; conflicted facts suppressed)
+4.5 [ACTIVE GOALS] — active UserGoal entries formatted as numbered list; queried in helpers.py; drops with WORKSPACE STATE (tier 3)
 5. [WORKSPACE STATE] · [PROJECT STATE]
 6. [RELEVANT CONTEXT FROM EARLIER] — cosine top-K retrieved chunks
 7. [EARLIER IN THIS CONVERSATION] — history_summary
