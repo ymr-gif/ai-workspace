@@ -99,7 +99,7 @@ Last updated: 2026-05-30 (P0 + P1 complete; P2 in progress — #12 done)
 ### Dimension 4 — Autonomous Agency
 | Gap | Notes |
 |-----|-------|
-| Pattern detection | No recurring question/behavior detection to trigger proactive actions |
+| ~~Pattern detection~~ | ~~No recurring question/behavior detection to trigger proactive actions~~ ✅ |
 | ~~User-defined scheduled agents~~ | ~~User can't define "check X every week and summarize"~~ ✅ |
 | Goal / task tracking | No persistent goal list the AI maintains on behalf of user |
 | Event-driven triggers | No webhook/event system (file upload → trigger AI action) |
@@ -272,7 +272,7 @@ P1 — next sprint
 P2 — following sprint
   ~~12. User-Defined Scheduled Agents   ScheduledPrompt already exists, low lift~~ ✅
   ~~13. Goal / Task Tracker             new model + UI, medium effort~~ ✅
-  14. Pattern Detection + Triggers    builds on Behavioral Profile (needs #3 first)
+  ~~14. Pattern Detection + Triggers    builds on Behavioral Profile (needs #3 first)~~ ✅
   15. Web Search Tool                 gated by env var, isolated
   16. Daily/Weekly Digest             scheduler already wired
 

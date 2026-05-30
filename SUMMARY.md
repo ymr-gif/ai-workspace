@@ -369,7 +369,7 @@ frontend/src/
 ### P2 — Autonomous Agency (in progress)
 12. ✅ User-Defined Scheduled Agents — `AutomationsPanel.jsx`; `useScheduledPrompts.js`; full CRUD + run history; workspace + cron alias support; migration 034
 13. ✅ Goal / Task Tracker — `UserGoal` model; `[ACTIVE GOALS]` context block (tier 3); `GoalsPanel.jsx` + `useGoals.js`; migration 035
-14. Pattern Detection + Proactive Triggers
+14. ✅ Pattern Detection + Proactive Triggers — `detect_recurring_patterns()`; 7-day dedup guard; ARQ enqueue with hint; `agency.py` merged + hint kwarg
 15. Web Search Tool — `WEB_SEARCH_ENABLED` + `WEB_SEARCH_BACKEND` env vars
 16. Daily/Weekly Digest
 
