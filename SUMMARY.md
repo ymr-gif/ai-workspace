@@ -358,7 +358,7 @@ frontend/src/
 4. ✅ Cross-Session Continuity Summary — `[LAST SESSION]` tier-8 context block; `done.last_session` SSE field; banner UI
 
 ### P1 — Platform Completeness (next sprint)
-5. Memory Conflict Resolution UI (backend ✅, frontend pending)
+5. ✅ Memory Conflict Resolution UI — Conflicts tab in MemoryPanel; `useMemory.js` state; per-card type badge + resolve buttons
 6. Fact-Level Salience Panel — badge done; score bar + timestamp remaining
 7. Unified Search — `/api/search?scope=all|files|conversations|memory|graph`
 8. Knowledge Graph Explorer UI — `react-force-graph` or `vis-network`

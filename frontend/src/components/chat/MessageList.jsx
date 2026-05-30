@@ -68,10 +68,10 @@ export default function MessageList({
             )}
             {m.model && !m.streaming && <span style={s.tag}>{MODEL_LABELS[m.model] || m.model} · {MODEL_SUBLABELS[m.model] || ''}</span>}
             {m.totalTokens && !m.streaming && <span style={s.tokMeta}>{m.totalTokens.toLocaleString()} tok · ${(m.costUsd || 0).toFixed(5)}</span>}
-            {!m.streaming && m.role === 'assistant' && m.queryType && (
+            {!m.streaming && m.role === 'ai' && m.queryType && (
               <span style={{ fontSize:'0.65rem', color:'#334155', marginLeft:'0.15rem', textTransform:'uppercase', letterSpacing:'0.04em' }}>[{m.queryType}]</span>
             )}
-            {!m.streaming && m.role === 'assistant' && m.srcCount > 0 && (
+            {!m.streaming && m.role === 'ai' && m.srcCount > 0 && (
               <span style={{ fontSize:'0.68rem', marginLeft:'0.25rem', color: m.srcCount >= 3 ? '#34d399' : '#fbbf24' }}>· {m.srcCount} src</span>
             )}
           </div>

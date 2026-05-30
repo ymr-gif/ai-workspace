@@ -19,6 +19,8 @@ export default function useMemory(token, sidebarWsId) {
   const [wsMemEditing, setWsMemEditing] = useState(false)
   const [wsMemContent, setWsMemContent] = useState('')
   const [wsMemSaving, setWsMemSaving] = useState(false)
+  const [conflicts, setConflicts] = useState([])
+  const [conflictsLoading, setConflictsLoading] = useState(false)
 
   const authHeaders = { 'Authorization': `Bearer ${token}` }
   const prevMemSig = useRef('')
@@ -99,6 +101,24 @@ export default function useMemory(token, sidebarWsId) {
     } catch { /* ignore */ } finally { setMemSaving(false) }
   }
 
+  const loadConflicts = useCallback(async () => {
+    setConflictsLoading(true)
+    try {
+      const r = await fetch('/api/memory/conflicts', { headers: authHeaders })
+      if (r.ok) setConflicts(await r.json())
+    } catch { /* ignore */ } finally { setConflictsLoading(false) }
+  }, [token])
+
+  async function resolveConflict(id, strategy) {
+    try {
+      const r = await fetch(`/api/memory/conflicts/${id}/resolve`, {
+        method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ strategy }),
+      })
+      if (r.ok) setConflicts(prev => prev.filter(c => c.id !== id))
+    } catch { /* ignore */ }
+  }
+
   async function exportMemory() {
     try { const r = await fetch('/api/memory/export',{headers:authHeaders}); if(!r.ok) return; const blob=await r.blob(); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='memory.json'; a.click(); URL.revokeObjectURL(url) } catch{/* ignore */}
   }
@@ -129,6 +149,10 @@ export default function useMemory(token, sidebarWsId) {
     wsMemContent, setWsMemContent,
     wsMemSaving,
     prevMemSig,
+    conflicts,
+    conflictsLoading,
+    loadConflicts,
+    resolveConflict,
     pollMemory,
     loadWsMemory,
     saveWsMemory,

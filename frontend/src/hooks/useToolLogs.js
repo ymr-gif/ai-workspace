@@ -10,7 +10,7 @@ export default function useToolLogs(token, activeConvId) {
   const loadToolLogs = useCallback(async (convId) => {
     setToolLogsLoading(true)
     try {
-      const qs = convId ? `?conversation_id=${convId}&limit=100` : '?limit=100'
+      const qs = convId ? `?conversation_id=${encodeURIComponent(convId)}&limit=100` : '?limit=100'
       const r = await fetch(`/api/tool-calls${qs}`, { headers: authHeaders })
       if (r.ok) setToolLogs(await r.json())
     } catch { /* ignore */ } finally { setToolLogsLoading(false) }

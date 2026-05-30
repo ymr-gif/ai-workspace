@@ -36,6 +36,7 @@
 ## Tool Log Panel
 - 🔧 button → slide-in; `GET /api/tool-calls?conversation_id=&limit=100`
 - Filter: This conversation / All; per-row: tool name (purple), timestamp, args, result preview
+- `conversation_id` query param is `encodeURIComponent`-encoded in `useToolLogs.js`
 
 ## Panels & Cards
 - **Last session banner**: muted line `✦ Last session: "…" — X ago` above first AI bubble on SSE `done.last_session`; `lastSession` state in `useConversations.js`; auto-dismisses after 8s or on next send
@@ -43,7 +44,8 @@
 - **Insights**: 💡 button; unread badge; `GET /api/insights`; click → mark read; 🗑 delete; indigo dot for unread
 - **ask_user**: amber card "NEEDS CLARIFICATION" on `{type:"ask_user"}` SSE; user reply resumes with full context
 - **confirm_write_memory**: green card "MEMORY SUGGESTION" on `{type:"confirm_write_memory", fact}` SSE; Accept → `POST /api/memory/write {fact}`, Dismiss → null; clears on next send
-- **Memory panel**: tabs View / [Workspace] / Edit / History / Graph — "Workspace" tab appears only when a workspace is selected; View tab renders per-fact cards from `memData.facts[]` (each line = one card, salience % badge green/amber/grey), then PROJECT STATE section, then WORKSPACE section (inline workspace memory from `GET /api/workspaces/{id}/memory` when sidebarWsId set); falls back to splitting `content` by newline if `facts`/sections missing; Workspace tab: full workspace memory view + inline edit + `Updated` timestamp; Graph tab: `GET /api/graph/stats` → `{available, entities, relations}`; auto-refreshes 2s after each AI reply if tab open; `useMemory.js` loads workspace memory whenever memOpen + (memTab=view or workspace)
+- **Memory panel**: tabs View / [Workspace] / Edit / History / Graph / Conflicts — "Workspace" tab appears only when a workspace is selected; View tab renders per-fact cards from `memData.facts[]` (each line = one card, salience % badge green/amber/grey), then PROJECT STATE section, then WORKSPACE section (inline workspace memory from `GET /api/workspaces/{id}/memory` when sidebarWsId set); falls back to splitting `content` by newline if `facts`/sections missing; Workspace tab: full workspace memory view + inline edit + `Updated` timestamp; Graph tab: `GET /api/graph/stats` → `{available, entities, relations}`; auto-refreshes 2s after each AI reply if tab open; `useMemory.js` loads workspace memory whenever memOpen + (memTab=view or workspace)
+- **Conflicts tab** (ROADMAP #5): `GET /api/memory/conflicts` on tab open → list; tab label shows count when > 0; per-card: `fact_a` + `fact_b` side by side, type badge (red=contradiction, yellow=duplicate, grey=ambiguous), four resolve buttons (Keep A / Keep B / Merge / Discard Both) → `POST /api/memory/conflicts/{id}/resolve` `{ strategy: "keep_a"|"keep_b"|"merge"|"discard_both" }` → removes card on success; empty state: "No conflicts"; state in `useMemory.js` (`conflicts`, `conflictsLoading`, `loadConflicts`, `resolveConflict`)
 - **Re-embed button**: ↺ Re-embed All in Invite panel admin section → `POST /api/admin/re-embed`
 
 ## Model Control Toolbar
@@ -53,6 +55,14 @@
 
 ## Markdown CSS
 Scoped to `.md-body` via `<style>` tag. Covers: p · h1-h4 · code/pre · ul/ol/li · blockquote · table · a · strong · em · hr
+
+## Conventions & Known Fixes
+- **Message roles:** AI messages use `role: 'ai'` (not `'assistant'`) — `MessageList.jsx` conditions must match `'ai'`
+- **`queryType` / `srcCount` badges** render only on `role === 'ai'` + `!streaming`
+- **`deleteInsight`** captures `wasUnread` before the `await` to avoid stale closure
+- **`attachedIds`** in `useFiles.js` is a `useMemo` — do not revert to inline `new Set()`
+- **Derived memory values** in `Chat.jsx` (`sections`, `projectSections`, `hasMemory`, `wordCount`, `diffTarget`, `diffLines`) are all `useMemo` — keep them that way
+- **`parseMemory`** in `MemoryPanel.jsx` workspace view is called once via IIFE — do not split into two calls
 
 ---
 

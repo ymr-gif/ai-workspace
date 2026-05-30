@@ -17,7 +17,9 @@ export default function MemoryPanel({
   exportMemory, handleImport,
   activeConvId, convMemEnabled, toggleConvMemory, memToggling,
   importRef, loadGraphStats, graphLoading, graphStats,
+  conflicts, conflictsLoading, loadConflicts, resolveConflict,
 }) {
+  const CONFLICT_BADGE = { contradiction: '#f87171', duplicate: '#fbbf24', ambiguous: '#64748b' }
   return (
     <div style={{ ...s.memPanel, transform: panelSlide }}>
       <div style={s.memHeader}>
@@ -38,15 +40,16 @@ export default function MemoryPanel({
       </div>
 
       <div style={s.tabBar}>
-        {['view', ...(sidebarWsId ? ['workspace'] : []), 'edit', 'history', 'graph'].map(tab => (
+        {['view', ...(sidebarWsId ? ['workspace'] : []), 'edit', 'history', 'graph', 'conflicts'].map(tab => (
           <button key={tab} onClick={() => {
             if (tab === 'edit') openEdit()
             else if (tab === 'workspace') { setMemTab('workspace'); loadWsMemory(sidebarWsId) }
             else if (tab === 'graph') { setMemTab('graph'); loadGraphStats() }
+            else if (tab === 'conflicts') { setMemTab('conflicts'); loadConflicts() }
             else setMemTab(tab)
           }}
             style={{ ...s.tabBtn, ...(memTab === tab ? s.tabActive : {}) }}>
-            {tab === 'view' ? 'View' : tab === 'edit' ? 'Edit' : tab === 'workspace' ? 'Workspace' : tab === 'graph' ? 'Graph' : 'History'}
+            {tab === 'view' ? 'View' : tab === 'edit' ? 'Edit' : tab === 'workspace' ? 'Workspace' : tab === 'graph' ? 'Graph' : tab === 'conflicts' ? `Conflicts${conflicts.length ? ` (${conflicts.length})` : ''}` : 'History'}
           </button>
         ))}
       </div>
@@ -104,9 +107,10 @@ export default function MemoryPanel({
                 <div style={s.divider}><span style={s.divLabel}>WORKSPACE</span><div style={{ flex:1, borderTop:'1px solid #1e293b' }} /></div>
                 {wsMemLoading && <p style={s.emptyMem}>Loading…</p>}
                 {!wsMemLoading && !wsMemData?.content && <p style={s.emptyMem}>No workspace memory yet.</p>}
-                {!wsMemLoading && wsMemData?.content && (
-                  parseMemory(wsMemData.content).length > 0
-                    ? parseMemory(wsMemData.content).map(sec => (
+                {!wsMemLoading && wsMemData?.content && (() => {
+                  const parsed = parseMemory(wsMemData.content)
+                  return parsed.length > 0
+                    ? parsed.map(sec => (
                         <div key={sec.name} style={s.section}>
                           <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||'#818cf8', background: (SECTION_COLORS[sec.name]||'#818cf8')+'18' }}>{sec.name}</span>
                           {sec.pairs.map((p, i) => (
@@ -117,7 +121,7 @@ export default function MemoryPanel({
                     : wsMemData.content.split('\n').filter(Boolean).map((line, i) => (
                         <div key={i} style={{ background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px', padding:'0.5rem 0.75rem', fontSize:'0.78rem', color:'#cbd5e1', lineHeight:1.5 }}>{line}</div>
                       ))
-                )}
+                })()}
               </>
             )}
           </>
@@ -228,6 +232,39 @@ export default function MemoryPanel({
               <p style={s.emptyMem}>No data yet.</p>
             )}
             <button onClick={loadGraphStats} style={{ ...s.actionBtn, marginTop:'0.5rem' }} disabled={graphLoading}>↻ Refresh</button>
+          </div>
+        )}
+        {memTab === 'conflicts' && (
+          <div>
+            {conflictsLoading && <p style={s.emptyMem}>Loading…</p>}
+            {!conflictsLoading && conflicts.length === 0 && <p style={s.emptyMem}>No conflicts.</p>}
+            {!conflictsLoading && conflicts.map(c => {
+              const badgeColor = CONFLICT_BADGE[c.conflict_type] || '#64748b'
+              return (
+                <div key={c.id} style={{ background:'#0a1220', border:'1px solid #1e293b', borderRadius:'8px', padding:'0.75rem', marginBottom:'0.6rem' }}>
+                  <span style={{ fontSize:'0.65rem', fontWeight:600, color: badgeColor, background: badgeColor + '18', borderRadius:'4px', padding:'0.1em 0.45em', letterSpacing:'0.04em', textTransform:'uppercase', marginBottom:'0.5rem', display:'inline-block' }}>{c.conflict_type}</span>
+                  <div style={{ display:'flex', gap:'0.5rem', marginBottom:'0.5rem' }}>
+                    <div style={{ flex:1, background:'#0f172a', border:'1px solid #1e293b', borderRadius:'6px', padding:'0.5rem 0.65rem', fontSize:'0.78rem', color:'#cbd5e1', lineHeight:1.5 }}>
+                      <div style={{ fontSize:'0.62rem', color:'#475569', marginBottom:'0.2rem', fontWeight:600 }}>A</div>
+                      {c.fact_a}
+                    </div>
+                    <div style={{ flex:1, background:'#0f172a', border:'1px solid #1e293b', borderRadius:'6px', padding:'0.5rem 0.65rem', fontSize:'0.78rem', color:'#cbd5e1', lineHeight:1.5 }}>
+                      <div style={{ fontSize:'0.62rem', color:'#475569', marginBottom:'0.2rem', fontWeight:600 }}>B</div>
+                      {c.fact_b}
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:'0.4rem', flexWrap:'wrap' }}>
+                    {[['Keep A','keep_a','#818cf8'],['Keep B','keep_b','#34d399'],['Merge','merge','#fbbf24'],['Discard Both','discard_both','#f87171']].map(([label, strategy, color]) => (
+                      <button key={strategy} onClick={() => resolveConflict(c.id, strategy)}
+                        style={{ padding:'0.2rem 0.6rem', borderRadius:'5px', border:`1px solid ${color}40`, background:`${color}12`, color, cursor:'pointer', fontSize:'0.75rem', fontWeight:600 }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+            <button onClick={loadConflicts} style={{ ...s.actionBtn, marginTop:'0.5rem' }} disabled={conflictsLoading}>↻ Refresh</button>
           </div>
         )}
       </div>

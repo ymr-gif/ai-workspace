@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 
 export default function useFiles(token, activeConvId) {
   const [filesOpen, setFilesOpen] = useState(false)
@@ -199,7 +199,7 @@ export default function useFiles(token, activeConvId) {
     libFiles.filter(f => f.status === 'processing').forEach(f => startStatusStream(f.id))
   }, [filesOpen, libFiles])
 
-  const attachedIds = new Set(attachedFiles.map(f => f.id))
+  const attachedIds = useMemo(() => new Set(attachedFiles.map(f => f.id)), [attachedFiles])
 
   function statusColor(s) {
     if (s === 'ready')      return { bg:'rgba(52,211,153,0.15)', color:'#34d399' }
