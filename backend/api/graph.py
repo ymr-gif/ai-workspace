@@ -43,7 +43,12 @@ async def graph_health():
 
 
 @router.get("/sample")
-async def graph_sample(current_user: User = Depends(get_current_user)):
+async def graph_sample(
+    limit: int = 50,
+    entity_type: str | None = None,
+    current_user: User = Depends(get_current_user),
+):
+    limit = max(1, min(limit, 200))
     from core.neo4j_client import get_driver
 
     driver = get_driver()
@@ -51,13 +56,18 @@ async def graph_sample(current_user: User = Depends(get_current_user)):
         return {"available": False, "triples": []}
 
     try:
+        query = (
+            "MATCH (a:Entity {user_id: $uid})-[r:RELATED_TO]->(b:Entity {user_id: $uid}) "
+        )
+        params: dict = {"uid": current_user.id, "limit": limit}
+        if entity_type:
+            query += "WHERE a.type = $etype "
+            params["etype"] = entity_type
+        query += "RETURN a.name AS source, r.type AS relation, b.name AS target "
+        query += "ORDER BY random() LIMIT $limit"
+
         async with driver.session() as session:
-            result = await session.run(
-                "MATCH (a:Entity {user_id: $uid})-[r:RELATED_TO]->(b:Entity {user_id: $uid}) "
-                "RETURN a.name AS source, r.type AS relation, b.name AS target "
-                "ORDER BY random() LIMIT 10",
-                uid=current_user.id,
-            )
+            result = await session.run(query, **params)
             rows = await result.data()
             return {
                 "available": True,
@@ -67,6 +77,7 @@ async def graph_sample(current_user: User = Depends(get_current_user)):
                 ],
             }
     except Exception:
+        logger.exception("[graph] sample failed")
         return {"available": False, "triples": []}
 
 

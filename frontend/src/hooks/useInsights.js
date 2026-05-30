@@ -7,6 +7,8 @@ export default function useInsights(token) {
   const [unreadCount, setUnreadCount] = useState(0)
   const [graphStats, setGraphStats] = useState(null)
   const [graphLoading, setGraphLoading] = useState(false)
+  const [graphSample, setGraphSample] = useState(null)
+  const [graphSampleLoading, setGraphSampleLoading] = useState(false)
 
   const authHeaders = { 'Authorization': `Bearer ${token}` }
 
@@ -48,6 +50,16 @@ export default function useInsights(token) {
     } catch { /* ignore */ }
   }
 
+  const loadGraphSample = useCallback(async (limit = 50, entityType = '') => {
+    setGraphSampleLoading(true)
+    try {
+      const qs = new URLSearchParams({ limit: String(limit) })
+      if (entityType) qs.set('entity_type', entityType)
+      const r = await fetch(`/api/graph/sample?${qs}`, { headers: authHeaders })
+      if (r.ok) setGraphSample(await r.json())
+    } catch { /* ignore */ } finally { setGraphSampleLoading(false) }
+  }, [token])
+
   const loadGraphStats = useCallback(async () => {
     setGraphLoading(true)
     try {
@@ -63,6 +75,9 @@ export default function useInsights(token) {
     unreadCount,
     graphStats,
     graphLoading,
+    graphSample,
+    graphSampleLoading,
+    loadGraphSample,
     loadInsights,
     markInsightRead,
     deleteInsight,

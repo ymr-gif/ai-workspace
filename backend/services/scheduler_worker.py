@@ -1,8 +1,10 @@
 """Standalone scheduler worker — runs APScheduler jobs for ScheduledPrompt rows."""
 import asyncio
 import logging
+import subprocess
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -11,7 +13,7 @@ from croniter import croniter
 from sqlalchemy import select
 
 import llm.client as llm_client
-from config import MODELS, REQUEST_TIMEOUT
+from config import BACKUP_SCHEDULE, MODELS, REQUEST_TIMEOUT
 from core.db import AsyncSessionLocal, init_db
 from core.logger import setup_logging
 from llm.nim import call as nim_call
@@ -157,6 +159,23 @@ async def run_memory_compaction() -> None:
     logger.info("[scheduler] compaction queued for %d users", count)
 
 
+async def run_backup() -> None:
+    script = Path(__file__).resolve().parent.parent.parent / "docker" / "backup.sh"
+    logger.info("[backup] starting — %s", script)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "bash", str(script),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            logger.info("[backup] success — %s", stdout.decode().strip())
+        else:
+            logger.warning("[backup] failed (rc=%d) — %s", proc.returncode, stderr.decode().strip())
+    except Exception as e:
+        logger.exception("[backup] exception — %s", e)
+
+
 async def main() -> None:
     logger.info("[scheduler] starting up")
     await init_db()
@@ -181,6 +200,17 @@ async def main() -> None:
         CronTrigger.from_crontab("0 3 * * *", timezone="UTC"),
         id = "__compact_memory__",
     )
+
+    # Scheduled backup via BACKUP_SCHEDULE env (default: 2 AM UTC)
+    try:
+        scheduler.add_job(
+            lambda: asyncio.create_task(run_backup()),
+            CronTrigger.from_crontab(BACKUP_SCHEDULE, timezone="UTC"),
+            id = "__backup__",
+        )
+        logger.info("[scheduler] backup scheduled cron=%s", BACKUP_SCHEDULE)
+    except Exception as e:
+        logger.warning("[scheduler] invalid backup schedule %s: %s", BACKUP_SCHEDULE, e)
 
     scheduler.start()
     logger.info("[scheduler] running")

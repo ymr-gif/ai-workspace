@@ -77,6 +77,9 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "")
 # ── Storage ───────────────────────────────────────────────────────────────────
 STORAGE_DIR = os.getenv("STORAGE_DIR", "storage/files")
 
+# ── Backup ────────────────────────────────────────────────────────────────────
+BACKUP_SCHEDULE = os.getenv("BACKUP_SCHEDULE", "0 2 * * *")
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 REQUIRE_INVITE = os.getenv("REQUIRE_INVITE", "false").lower() == "true"
 

@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-05-30 (P0 complete)
+Last updated: 2026-05-30 (P0 + P1 complete; P2 in progress — #12 done)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -34,19 +34,24 @@ Last updated: 2026-05-30 (P0 complete)
 
 ---
 
-## Current State (as of migration 033; all P0 complete)
+## Current State (as of migration 034; P0 + P1 complete; P2 #12 done)
 
 | Area | Status |
 |------|--------|
 | Multi-tier memory (sheet + history + project summary) | ✅ |
 | Memory salience engine (per-fact scoring, decay, compaction) | ✅ |
 | Memory conflict resolver (detect, suppress, resolve) | ✅ |
+| Memory conflict resolution UI (Conflicts tab, type badges, resolve buttons) | ✅ |
+| Fact-level salience panel (score bar + last-access timestamp per fact) | ✅ |
 | Graph memory — Neo4j entity/relation extraction + keyword query | ✅ |
+| Knowledge graph explorer UI (SVG circle-layout, click-to-highlight, filters) | ✅ |
 | Context budget allocator (priority-tiered, partial drop) | ✅ |
 | Adaptive retrieval policy (factual/relational/temporal/broad) | ✅ |
 | Hybrid retrieval — vector + BM25, RRF/weighted fusion, provenance | ✅ |
+| Unified search (`GET /api/search?scope=all\|files\|conversations\|memory\|graph`) | ✅ |
 | File storage — SHA256 dedup, versioning, chunk quality states | ✅ |
 | File formats — PDF, DOCX, XLSX, text/code/markdown | ✅ |
+| Full data export (`GET /api/export/full` ZIP stream) | ✅ |
 | AI agent tool loop (10 tools, ask_user, query_graph, write_memory) | ✅ |
 | Autonomous memory writing (write_memory tool, user-confirm green card) | ✅ |
 | User preference extraction (ARQ job every 50 msgs; `[PREFERENCES]` in UserMemory) | ✅ |
@@ -54,7 +59,8 @@ Last updated: 2026-05-30 (P0 complete)
 | Memory version history + diff view (History tab in Memory panel) | ✅ |
 | Cross-session continuity summary (`[LAST SESSION]` tier-8 block; `done.last_session`; "Welcome back" banner) | ✅ |
 | Proactive suggestions + insight generation (ARQ background; behavior-aware) | ✅ |
-| Scheduled prompts (PromptTemplate, ScheduledPrompt) | ✅ |
+| User-defined scheduled agents (AutomationsPanel; CRUD + run history; workspace + cron support) | ✅ |
+| Scheduled backup (APScheduler daily cron; `BACKUP_SCHEDULE` env var) | ✅ |
 | Workspace layer (isolated system prompts + workspace memory; localStorage persistence) | ✅ |
 | Multi-tenant user isolation (all data scoped per user_id) | ✅ |
 | Cost caps + rolling window billing per user | ✅ |
@@ -78,8 +84,8 @@ Last updated: 2026-05-30 (P0 complete)
 ### Dimension 2 — Unified Interface
 | Gap | Notes |
 |-----|-------|
-| Unified search | No single endpoint spanning files + conversations + memory + graph |
-| Knowledge graph explorer (UI) | Frontend shows entity/relation counts only; no visual graph |
+| ~~Unified search~~ | ~~No single endpoint spanning files + conversations + memory + graph~~ ✅ |
+| ~~Knowledge graph explorer (UI)~~ | ~~Frontend shows entity/relation counts only; no visual graph~~ ✅ |
 | ~~Memory timeline view (UI)~~ | ~~No chronological view of memory evolution in frontend~~ ✅ |
 | Cross-conversation knowledge propagation | Insights from conversations don't auto-write to memory |
 
@@ -94,7 +100,7 @@ Last updated: 2026-05-30 (P0 complete)
 | Gap | Notes |
 |-----|-------|
 | Pattern detection | No recurring question/behavior detection to trigger proactive actions |
-| User-defined scheduled agents | User can't define "check X every week and summarize" |
+| ~~User-defined scheduled agents~~ | ~~User can't define "check X every week and summarize"~~ ✅ |
 | Goal / task tracking | No persistent goal list the AI maintains on behalf of user |
 | Event-driven triggers | No webhook/event system (file upload → trigger AI action) |
 | Autonomous summarization push | Daily/weekly digest not yet user-configurable |
@@ -109,9 +115,9 @@ Last updated: 2026-05-30 (P0 complete)
 ### Platform / UX
 | Gap | Notes |
 |-----|-------|
-| Memory conflict resolution UI | Backend complete; no frontend panel |
-| Fact-level salience visualization | Partial — per-fact % badge rendered in View tab; no score bar or last-access timestamp yet |
-| Full data export / portability | Conversation export exists; no full memory + file export bundle |
+| ~~Memory conflict resolution UI~~ | ~~Backend complete; no frontend panel~~ ✅ |
+| ~~Fact-level salience visualization~~ | ~~Partial — per-fact % badge rendered in View tab; no score bar or last-access timestamp yet~~ ✅ |
+| ~~Full data export / portability~~ | ~~Conversation export exists; no full memory + file export bundle~~ ✅ |
 | Image storage + indexing | Base64 image input works; images not persisted or searchable |
 | User onboarding | No guided first-run experience |
 | Push/email notifications | Insights in DB but not delivered outside the UI |
@@ -119,7 +125,7 @@ Last updated: 2026-05-30 (P0 complete)
 ### Infrastructure
 | Gap | Notes |
 |-----|-------|
-| Scheduled backup | `backup.sh` exists but not cron-scheduled |
+| ~~Scheduled backup~~ | ~~`backup.sh` exists but not cron-scheduled~~ ✅ |
 | Horizontal scaling | Single-node; no k8s or multi-replica setup |
 
 ---
@@ -167,22 +173,22 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 ~~- Backend: new `api/search.py` router, parallel `asyncio.gather` across stores~~
 ~~- Frontend: global search bar in header~~
 
-#### Knowledge Graph Explorer (UI)
-Visual graph in Memory → Graph tab. Nodes = entities, edges = relations. Click node → panel shows linked facts and conversation references. Uses `GET /api/graph/sample` extended with pagination and type filter.
-- Frontend: `react-force-graph` or `vis-network` canvas; replaces stats-only graph tab
-- Backend: extend `GET /api/graph/sample` with `?limit=&entity_type=`
+#### ~~Knowledge Graph Explorer (UI)~~ ✅
+~~Visual graph in Memory → Graph tab. Nodes = entities, edges = relations. Click node → panel shows linked facts and conversation references. Uses `GET /api/graph/sample` extended with pagination and type filter.~~
+~~- Frontend: `react-force-graph` or `vis-network` canvas; replaces stats-only graph tab~~
+~~- Backend: extend `GET /api/graph/sample` with `?limit=&entity_type=`~~
 
 #### ~~Memory Timeline View~~ ✅
 ~~Memory → History tab: chronological list of `UserMemoryVersion` snapshots. Expandable diff view per version (added lines green, removed lines red). Uses existing `GET /memory/history`.~~
 ~~- Frontend only (backend complete)~~
 
-#### Full Data Export / Portability
-`GET /api/export/full` returns a ZIP: all conversations (markdown), all files (originals), memory sheet, memory versions, graph entity dump. User-initiated. Streamed via `StreamingResponse`.
-- Backend: new `api/export.py`, `zipfile` + `StreamingResponse`
+#### ~~Full Data Export / Portability~~ ✅
+~~`GET /api/export/full` returns a ZIP: all conversations (markdown), all files (originals), memory sheet, memory versions, graph entity dump. User-initiated. Streamed via `StreamingResponse`.~~
+~~- Backend: new `api/export.py`, `zipfile` + `StreamingResponse`~~
 
-#### Scheduled Backup (Infra)
-APScheduler job in `scheduler_worker.py` calls `pg_dump` daily. Env var `BACKUP_SCHEDULE` (default `0 2 * * *`). Stores to `storage/backups/` with 7-day prune (matches existing `backup.sh` logic).
-- Backend: scheduler entry; env var
+#### ~~Scheduled Backup (Infra)~~ ✅
+~~APScheduler job in `scheduler_worker.py` calls `pg_dump` daily. Env var `BACKUP_SCHEDULE` (default `0 2 * * *`). Stores to `storage/backups/` with 7-day prune (matches existing `backup.sh` logic).~~
+~~- Backend: scheduler entry; env var~~
 
 ---
 
@@ -192,10 +198,10 @@ APScheduler job in `scheduler_worker.py` calls `pg_dump` daily. Env var `BACKUP_
 Post-reply: compare current query pattern against `UserBehaviorProfile`. If user has asked similar questions 3+ times, enqueue an ARQ insight: "You ask about X often — want me to create a summary document?" Extends `agency.py`.
 - Backend: `agency.py` + behavior profile reader; ARQ job
 
-#### User-Defined Scheduled Agents
-User-facing CRUD for `ScheduledPrompt`: create/edit/delete via UI with natural-language schedule (daily/weekly/monthly), target workspace, and prompt. On trigger, injects into full chat pipeline.
-- Backend: `ScheduledPrompt` CRUD API already partially exists; expose fully
-- Frontend: new Automations panel (schedule picker, prompt editor, history)
+#### ~~User-Defined Scheduled Agents~~ ✅
+~~User-facing CRUD for `ScheduledPrompt`: create/edit/delete via UI with natural-language schedule (daily/weekly/monthly), target workspace, and prompt. On trigger, injects into full chat pipeline.~~
+~~- Backend: `ScheduledPrompt` CRUD API already partially exists; expose fully~~
+~~- Frontend: new Automations panel (schedule picker, prompt editor, history)~~
 
 #### Goal / Task Tracker
 `UserGoal` model: title, description, status (active/completed/paused), linked conversation IDs. AI references active goals as `[ACTIVE GOALS]` context block (new tier between USER STATE and WORKSPACE STATE). User manages via Goals panel.
@@ -258,13 +264,13 @@ P1 — next sprint
   ~~5. Memory Conflict Resolution UI    backend done, frontend only~~ ✅
   ~~6. Fact-Level Salience Panel        partial — badge done, bar + timestamp remaining~~ ✅
   ~~7. Unified Search                   one interface to everything~~ ✅
-  8. Knowledge Graph Explorer UI      high visual impact
+  ~~8. Knowledge Graph Explorer UI      high visual impact~~ ✅
   ~~9. Memory Timeline View            backend done, frontend only~~ ✅
-  10. Full Data Export                user trust / portability
-  11. Scheduled Backup                ops reliability
+  ~~10. Full Data Export                user trust / portability~~ ✅
+  ~~11. Scheduled Backup                ops reliability~~ ✅
 
 P2 — following sprint
-  12. User-Defined Scheduled Agents   ScheduledPrompt already exists, low lift
+  ~~12. User-Defined Scheduled Agents   ScheduledPrompt already exists, low lift~~ ✅
   13. Goal / Task Tracker             new model + UI, medium effort
   14. Pattern Detection + Triggers    builds on Behavioral Profile (needs #3 first)
   15. Web Search Tool                 gated by env var, isolated
@@ -286,8 +292,8 @@ P3 — future
 | Dimension | Coverage | Blocker |
 |-----------|----------|---------|
 | 1. Persistent Memory | 97% | P0 complete |
-| 2. Unified Interface | 60% | No unified search, no graph UI |
+| 2. Unified Interface | 90% | Cross-conversation knowledge propagation remaining |
 | 3. Reasoning Loop | 65% | No grounding confidence, no intent classification |
-| 4. Autonomous Agency | 35% | No patterns, no goals, no user-defined agents |
+| 4. Autonomous Agency | 45% | No patterns, no goals, no digest |
 | 5. Real-Time Perception | 10% | No web search, no external integrations |
-| **Overall** | **~58%** | P0 complete; P1 next — would bring this to ~75% |
+| **Overall** | **~78%** | P1 complete; P2 in progress (#12 done) |

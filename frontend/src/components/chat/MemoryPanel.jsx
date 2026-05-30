@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import s from '../../lib/chatStyles.js'
 import { SECTION_COLORS } from '../../lib/chatConstants.js'
 import { fmtDate, parseMemory, computeDiff } from '../../lib/chatUtils.js'
@@ -25,9 +26,13 @@ export default function MemoryPanel({
   exportMemory, handleImport,
   activeConvId, convMemEnabled, toggleConvMemory, memToggling,
   importRef, loadGraphStats, graphLoading, graphStats,
+  graphSample, graphSampleLoading, loadGraphSample,
   conflicts, conflictsLoading, loadConflicts, resolveConflict,
 }) {
   const CONFLICT_BADGE = { contradiction: '#f87171', duplicate: '#fbbf24', ambiguous: '#64748b' }
+  const [selectedNode, setSelectedNode] = useState(null)
+  const [graphLimit, setGraphLimit] = useState(50)
+  const [graphEntityType, setGraphEntityType] = useState('')
   return (
     <div style={{ ...s.memPanel, transform: panelSlide }}>
       <div style={s.memHeader}>
@@ -52,7 +57,7 @@ export default function MemoryPanel({
           <button key={tab} onClick={() => {
             if (tab === 'edit') openEdit()
             else if (tab === 'workspace') { setMemTab('workspace'); loadWsMemory(sidebarWsId) }
-            else if (tab === 'graph') { setMemTab('graph'); loadGraphStats() }
+            else if (tab === 'graph') { setMemTab('graph'); loadGraphStats(); loadGraphSample(graphLimit, graphEntityType); setSelectedNode(null) }
             else if (tab === 'conflicts') { setMemTab('conflicts'); loadConflicts() }
             else setMemTab(tab)
           }}
@@ -228,33 +233,123 @@ export default function MemoryPanel({
             )}
           </div>
         )}
-        {memTab === 'graph' && (
-          <div>
-            {graphLoading && <p style={s.emptyMem}>Loading…</p>}
-            {!graphLoading && graphStats && !graphStats.available && (
-              <p style={s.emptyMem}>Graph memory unavailable.<br /><span style={{ fontSize:'0.75rem' }}>Set NEO4J_PASSWORD to enable.</span></p>
-            )}
-            {!graphLoading && graphStats?.available && (
-              <>
-                <div style={{ display:'flex', gap:'1rem', marginBottom:'1rem' }}>
-                  <div style={{ flex:1, background:'#0a1220', border:'1px solid #1e293b', borderRadius:'8px', padding:'0.75rem', textAlign:'center' }}>
-                    <div style={{ fontSize:'1.5rem', fontWeight:700, color:'#818cf8' }}>{graphStats.entities}</div>
-                    <div style={{ fontSize:'0.72rem', color:'#475569', marginTop:'2px' }}>Entities</div>
+        {memTab === 'graph' && (() => {
+          const triples = graphSample?.triples || []
+          const nodeIds = [...new Set(triples.flatMap(t => [t.source, t.target]))]
+          const N = nodeIds.length
+          const SW = 320, SH = 260, CX = SW / 2, CY = SH / 2
+          const R = N <= 1 ? 0 : Math.min(CX - 24, CY - 24)
+          const nr = N > 30 ? 4 : 6
+          const nodes = nodeIds.map((id, i) => {
+            const angle = (2 * Math.PI * i) / N - Math.PI / 2
+            return { id, x: N === 1 ? CX : CX + R * Math.cos(angle), y: N === 1 ? CY : CY + R * Math.sin(angle) }
+          })
+          const posMap = Object.fromEntries(nodes.map(n => [n.id, n]))
+          const selEdges = selectedNode ? triples.filter(t => t.source === selectedNode || t.target === selectedNode) : []
+          const selNeighbors = new Set(selEdges.flatMap(t => [t.source, t.target]))
+
+          return (
+            <div>
+              {!graphStats?.available && !graphLoading && (
+                <p style={s.emptyMem}>Graph memory unavailable.<br /><span style={{ fontSize:'0.75rem' }}>Set NEO4J_PASSWORD to enable.</span></p>
+              )}
+              {graphStats?.available && (
+                <>
+                  <div style={{ display:'flex', gap:'0.75rem', marginBottom:'0.75rem' }}>
+                    <div style={{ flex:1, background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px', padding:'0.5rem', textAlign:'center' }}>
+                      <div style={{ fontSize:'1.2rem', fontWeight:700, color:'#818cf8' }}>{graphStats.entities}</div>
+                      <div style={{ fontSize:'0.65rem', color:'#475569' }}>Entities</div>
+                    </div>
+                    <div style={{ flex:1, background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px', padding:'0.5rem', textAlign:'center' }}>
+                      <div style={{ fontSize:'1.2rem', fontWeight:700, color:'#34d399' }}>{graphStats.relations}</div>
+                      <div style={{ fontSize:'0.65rem', color:'#475569' }}>Relations</div>
+                    </div>
                   </div>
-                  <div style={{ flex:1, background:'#0a1220', border:'1px solid #1e293b', borderRadius:'8px', padding:'0.75rem', textAlign:'center' }}>
-                    <div style={{ fontSize:'1.5rem', fontWeight:700, color:'#34d399' }}>{graphStats.relations}</div>
-                    <div style={{ fontSize:'0.72rem', color:'#475569', marginTop:'2px' }}>Relations</div>
+
+                  <div style={{ display:'flex', gap:'0.4rem', marginBottom:'0.6rem', alignItems:'center' }}>
+                    <input value={graphEntityType} onChange={e => setGraphEntityType(e.target.value)}
+                      placeholder="Type filter (PERSON…)" style={{ ...s.sideSearchInput, flex:1, padding:'0.3rem 0.5rem', fontSize:'0.72rem' }} />
+                    <input type="number" value={graphLimit} min={5} max={200}
+                      onChange={e => setGraphLimit(Number(e.target.value))}
+                      style={{ ...s.sideSearchInput, width:'52px', padding:'0.3rem 0.4rem', fontSize:'0.72rem', textAlign:'center' }} />
+                    <button onClick={() => { loadGraphSample(graphLimit, graphEntityType); setSelectedNode(null) }}
+                      disabled={graphSampleLoading} style={s.actionBtn}>
+                      {graphSampleLoading ? '…' : '↻'}
+                    </button>
                   </div>
-                </div>
-                <p style={{ fontSize:'0.72rem', color:'#334155' }}>Graph is built automatically from conversations when memory is enabled.</p>
-              </>
-            )}
-            {!graphLoading && !graphStats && (
-              <p style={s.emptyMem}>No data yet.</p>
-            )}
-            <button onClick={loadGraphStats} style={{ ...s.actionBtn, marginTop:'0.5rem' }} disabled={graphLoading}>↻ Refresh</button>
-          </div>
-        )}
+
+                  {graphSampleLoading && <p style={s.emptyMem}>Loading graph…</p>}
+                  {!graphSampleLoading && graphSample && !graphSample.available && (
+                    <p style={s.emptyMem}>Graph unavailable.</p>
+                  )}
+                  {!graphSampleLoading && graphSample?.available && N === 0 && (
+                    <p style={s.emptyMem}>No entities yet.</p>
+                  )}
+                  {!graphSampleLoading && graphSample?.available && N > 0 && (
+                    <>
+                      <div style={{ background:'#0a1220', border:'1px solid #1e293b', borderRadius:'8px', overflow:'hidden', marginBottom:'0.6rem' }}>
+                        <svg viewBox={`0 0 ${SW} ${SH}`} style={{ width:'100%', display:'block' }}>
+                          {triples.map((t, i) => {
+                            const a = posMap[t.source], b = posMap[t.target]
+                            if (!a || !b) return null
+                            const isSelEdge = selEdges.includes(t)
+                            return (
+                              <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                                stroke={isSelEdge ? '#6366f1' : '#1e293b'}
+                                strokeWidth={isSelEdge ? 1.5 : 1} />
+                            )
+                          })}
+                          {nodes.map(n => {
+                            const isSel = n.id === selectedNode
+                            const isNeighbor = selNeighbors.has(n.id) && !isSel
+                            const fill = isSel ? '#818cf8' : isNeighbor ? '#6366f1' : selectedNode ? '#1e293b' : '#334155'
+                            const stroke = isSel ? '#c7d2fe' : isNeighbor ? '#818cf8' : '#475569'
+                            return (
+                              <g key={n.id} style={{ cursor:'pointer' }} onClick={() => setSelectedNode(n.id === selectedNode ? null : n.id)}>
+                                <circle cx={n.x} cy={n.y} r={nr + 4} fill="transparent" />
+                                <circle cx={n.x} cy={n.y} r={nr} fill={fill} stroke={stroke} strokeWidth={1.5} />
+                                {(isSel || isNeighbor || N <= 12) && (
+                                  <text x={n.x} y={n.y - nr - 3} textAnchor="middle"
+                                    style={{ fontSize:'7px', fill: isSel ? '#c7d2fe' : '#64748b', pointerEvents:'none', userSelect:'none' }}>
+                                    {n.id.length > 14 ? n.id.slice(0, 13) + '…' : n.id}
+                                  </text>
+                                )}
+                              </g>
+                            )
+                          })}
+                        </svg>
+                      </div>
+
+                      {selectedNode ? (
+                        <div style={{ background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px', padding:'0.6rem 0.75rem', marginBottom:'0.5rem' }}>
+                          <div style={{ fontSize:'0.78rem', fontWeight:600, color:'#818cf8', marginBottom:'0.4rem' }}>{selectedNode}</div>
+                          {selEdges.length === 0
+                            ? <div style={{ fontSize:'0.72rem', color:'#475569' }}>No relations.</div>
+                            : selEdges.map((t, i) => (
+                                <div key={i} style={{ fontSize:'0.72rem', color:'#64748b', padding:'0.15rem 0', borderBottom:'1px solid #0f172a', lineHeight:1.45 }}>
+                                  {t.source === selectedNode
+                                    ? <><span style={{ color:'#cbd5e1' }}>{t.source}</span> <span style={{ color:'#475569' }}>—[{t.relation}]→</span> <span style={{ color:'#94a3b8' }}>{t.target}</span></>
+                                    : <><span style={{ color:'#94a3b8' }}>{t.source}</span> <span style={{ color:'#475569' }}>—[{t.relation}]→</span> <span style={{ color:'#cbd5e1' }}>{t.target}</span></>
+                                  }
+                                </div>
+                              ))
+                          }
+                        </div>
+                      ) : (
+                        <p style={{ fontSize:'0.68rem', color:'#334155', textAlign:'center' }}>Click a node to explore its relations.</p>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+              {!graphStats && !graphLoading && <p style={s.emptyMem}>No data yet.</p>}
+              <button onClick={() => { loadGraphStats(); loadGraphSample(graphLimit, graphEntityType); setSelectedNode(null) }}
+                style={{ ...s.actionBtn, marginTop:'0.5rem' }} disabled={graphLoading || graphSampleLoading}>
+                ↻ Refresh
+              </button>
+            </div>
+          )
+        })()}
         {memTab === 'conflicts' && (
           <div>
             {conflictsLoading && <p style={s.emptyMem}>Loading…</p>}

@@ -14,7 +14,7 @@
 │   ├── tools.py            — ToolCallLog
 │   ├── prompts_scheduled.py — PromptTemplate, ScheduledPrompt, ScheduledPromptRun
 │   └── system.py           — SystemConfig
-├── alembic/versions/       — 032 migrations; latest: 032_message_token_estimate.py
+├── alembic/versions/       — 034 migrations; latest: 034_scheduled_prompt_workspace.py
 ├── auth/                   — JWT, bcrypt (direct, no passlib), API key fallback, invite validation
 ├── tests/
 │   ├── test.py             — 21 unit tests (standalone, no docker)
@@ -70,17 +70,19 @@
 │   │   ├── audit.py        — GET /audit-log
 │   │   ├── env.py          — GET/PUT env vars, reload
 │   │   └── system.py       — POST /re-embed
-│   ├── graph.py            — /graph/stats, /health, /sample; DELETE /graph/entities/{name}; POST /graph/prune (removes long names + stale OTHER-type entities >7 days)
+│   ├── graph.py            — /graph/stats, /health, /sample (?limit=1-200, ?entity_type=); DELETE /graph/entities/{name}; POST /graph/prune (removes long names + stale OTHER-type entities >7 days)
 │   ├── system.py           — /health, /metrics; probe_models_on_startup() pings all MODELS, pre-trips circuit on failure
 │   ├── memory.py           — GET /memory returns active_conflicts count; scan_conflicts sets expires_at=+7d; conflicts auto-resolved keep_a after expiry
+│   ├── export.py            — GET /export/full; builds ZIP in memory with conversations/files/memory/graph data
 │   ├── search.py            — GET /api/search unified search; fans out to files/conversations/memory/graph via asyncio.gather
-│   ├── compat.py / templates.py / scheduled_prompts.py / usage.py / tool_logs.py
+│   ├── scheduled_prompts.py — CRUD for user-defined automated prompts; schedule alias support (daily/weekly/monthly); POST /run trigger
+│   ├── compat.py / templates.py / usage.py / tool_logs.py
 ├── services/
 │   ├── processor.py        — extract→chunk→embed; CPU work in asyncio.to_thread()
 │   ├── arq_worker.py       — _MAX_TRIES=4 (5s/30s/120s); ARQ_JOB_FAILED counter on final failure for all jobs; process_file_job sets upload_status="error" on final failure
 │   ├── re_embed.py         — batches of 100; triggered on startup or /admin/re-embed
 │   ├── file_service.py     — fuzzy-patch, save-version-before-mutate; sync I/O in asyncio.to_thread()
-│   └── scheduler_worker.py — APScheduler cron runner; daily memory compaction at 3 AM UTC
+│   └── scheduler_worker.py — APScheduler cron runner; daily memory compaction at 3 AM UTC; backup via BACKUP_SCHEDULE env (default 2 AM UTC)
 ├── storage/                — SHA256 streaming write
 └── HANDOFF_PROTOCOL.md     — worker handoff protocol (shared from root)
 ```
@@ -92,7 +94,7 @@
 - **File**: sha256_hash dedup `(user_id, hash)`, workspace_id FK SET NULL
 - **Message**: content_tsv GIN for full-text search; tracks token + cost; `token_estimate` (bool, nullable) — true = character-heuristic backfill (migration 032), null = real NIM data
 - **SystemConfig**: key/value store — tracks MODEL_EMBEDDING for re-embed triggers
-- Others: 15 more in `models/` (chat, file, workspace, memory, tools, scheduled, auth)
+- Others: 15 more in `models/` (chat, file, workspace, memory, tools, scheduled, auth); ScheduledPrompt now has `workspace_id` (UUID, FK to workspaces, nullable)
 - **UserBehaviorProfile**: one row per user, JSONB `profile` with `query_types / topic_keywords / tools_used / models_used / total_messages`; updated via ARQ `update_behavior_profile_job` post-reply; feeds `generate_user_insight()`; migration 033
 
 ---
