@@ -21,6 +21,7 @@ from api.scheduled_prompts import router as scheduled_prompts_router
 from api.system import router as system_router
 from api.templates import router as templates_router
 from api.tool_logs import router as tool_logs_router
+from api.search import router as search_router
 from api.usage import router as usage_router
 from auth import auth_router, invite_router
 from config import REQUEST_TIMEOUT
@@ -120,6 +121,7 @@ app.include_router(usage_router)
 app.include_router(templates_router)
 app.include_router(scheduled_prompts_router)
 app.include_router(workspaces_router)
+app.include_router(search_router)
 app.include_router(graph_router)
 app.include_router(invite_router)
 

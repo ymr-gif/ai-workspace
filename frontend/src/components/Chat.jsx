@@ -13,6 +13,7 @@ import useToolLogs from '../hooks/useToolLogs.js'
 import useUsage from '../hooks/useUsage.js'
 import useAdmin from '../hooks/useAdmin.js'
 import useInsights from '../hooks/useInsights.js'
+import useSearch from '../hooks/useSearch.js'
 
 import Sidebar from './chat/Sidebar.jsx'
 import MessageList from './chat/MessageList.jsx'
@@ -26,6 +27,7 @@ import UsagePanel from './chat/UsagePanel.jsx'
 import InsightsPanel from './chat/InsightsPanel.jsx'
 import InvitePanel from './chat/InvitePanel.jsx'
 import MemoryPanel from './chat/MemoryPanel.jsx'
+import SearchPanel from './chat/SearchPanel.jsx'
 
 export default function Chat({ token, onLogout }) {
   const ws = useWorkspace(token)
@@ -38,6 +40,7 @@ export default function Chat({ token, onLogout }) {
   const admin = useAdmin(token)
   const insights = useInsights(token)
   const modelParams = useModelParams()
+  const search = useSearch(token)
 
   const [userRole, setUserRole] = useState(null)
 
@@ -205,7 +208,7 @@ export default function Chat({ token, onLogout }) {
     return () => clearTimeout(tid)
   }, [conv.lastSession])
 
-  const anyOpen = mem.memOpen || files.filesOpen || settings.settingsOpen || toolLog.toolLogOpen || usage.usageOpen || admin.inviteOpen || insights.insightsOpen || ws.wsModalOpen
+  const anyOpen = mem.memOpen || files.filesOpen || settings.settingsOpen || toolLog.toolLogOpen || usage.usageOpen || admin.inviteOpen || insights.insightsOpen || ws.wsModalOpen || search.searchOpen
 
   return (
     <div style={s.root}>
@@ -285,6 +288,11 @@ export default function Chat({ token, onLogout }) {
             <button onClick={() => { files.setFilesOpen(true); mem.setMemOpen(false); toolLog.setToolLogOpen(false) }} style={{ ...s.hdrBtn, ...(files.attachedFiles.length > 0 ? { color:'#fbbf24', borderColor:'#78350f' } : {}) }}>
               {files.attachedFiles.length > 0 ? `📎 ${files.attachedFiles.length}` : '📎'} Files
             </button>
+            <button onClick={() => { search.setSearchOpen(o => !o); mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); insights.setInsightsOpen(false); admin.setInviteOpen(false) }}
+              style={{ ...s.hdrBtn, ...(search.searchOpen ? { color:'#38bdf8', borderColor:'#0369a1' } : {}) }}
+              title="Unified search">
+              🔍
+            </button>
             <button onClick={() => { mem.setMemOpen(true); files.setFilesOpen(false) }} style={s.hdrBtn}>
               {mem.memPending ? <span style={s.updatingDot} /> : hasMemory && <span style={s.memDot} />}
               Memory
@@ -351,7 +359,7 @@ export default function Chat({ token, onLogout }) {
           onClick={() => {
             if (ws.wsModalOpen) ws.setWsModalOpen(false)
             else if (settings.settingsOpen) settings.setSettingsOpen(false)
-            else { mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); admin.setInviteOpen(false); insights.setInsightsOpen(false) }
+            else { mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); admin.setInviteOpen(false); insights.setInsightsOpen(false); search.setSearchOpen(false) }
           }} />
       )}
 
@@ -472,6 +480,19 @@ export default function Chat({ token, onLogout }) {
         reEmbedding={admin.reEmbedding}
         reEmbedMsg={admin.reEmbedMsg}
         triggerReEmbed={admin.triggerReEmbed}
+      />
+
+      <SearchPanel
+        searchOpen={search.searchOpen}
+        setSearchOpen={search.setSearchOpen}
+        searchQuery={search.searchQuery}
+        setSearchQuery={search.setSearchQuery}
+        searchScope={search.searchScope}
+        setSearchScope={search.setSearchScope}
+        searchResults={search.searchResults}
+        searchLoading={search.searchLoading}
+        clearSearch={search.clearSearch}
+        selectConv={selectConv}
       />
 
       <MemoryPanel

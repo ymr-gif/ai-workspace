@@ -4,8 +4,8 @@
 - React + Vite; `vite.config.js` proxies `/api` → `localhost:8000`
 - `src/App.jsx` — login form, JWT in localStorage as `nim_token`
 - `src/components/Chat.jsx` — orchestrator; imports hooks + sub-components under `chat/`
-- `src/hooks/` — 10 hooks: useConversations, useMemory, useWorkspace, useFiles, useModelParams, useSettings, useToolLogs, useUsage, useAdmin, useInsights
-- `src/components/chat/` — 12 sub-components: Sidebar, MessageList, ModelToolbar, SettingsModal, WorkspaceModal, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel
+- `src/hooks/` — 11 hooks: useConversations, useMemory, useWorkspace, useFiles, useModelParams, useSettings, useToolLogs, useUsage, useAdmin, useInsights, useSearch
+- `src/components/chat/` — 13 sub-components: Sidebar, MessageList, ModelToolbar, SettingsModal, WorkspaceModal, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel
 - **All fetch calls must use `/api/` prefix** — bare paths bypass proxy and 404 silently
 - **JWT flow:** login → `POST /api/auth/token` → store token as `nim_token` in localStorage → `Authorization: Bearer` on all fetch calls
 
@@ -44,9 +44,18 @@
 - **Insights**: 💡 button; unread badge; `GET /api/insights`; click → mark read; 🗑 delete; indigo dot for unread
 - **ask_user**: amber card "NEEDS CLARIFICATION" on `{type:"ask_user"}` SSE; user reply resumes with full context
 - **confirm_write_memory**: green card "MEMORY SUGGESTION" on `{type:"confirm_write_memory", fact}` SSE; Accept → `POST /api/memory/write {fact}`, Dismiss → null; clears on next send
-- **Memory panel**: tabs View / [Workspace] / Edit / History / Graph / Conflicts — "Workspace" tab appears only when a workspace is selected; View tab renders per-fact cards from `memData.facts[]` (each line = one card, salience % badge green/amber/grey), then PROJECT STATE section, then WORKSPACE section (inline workspace memory from `GET /api/workspaces/{id}/memory` when sidebarWsId set); falls back to splitting `content` by newline if `facts`/sections missing; Workspace tab: full workspace memory view + inline edit + `Updated` timestamp; Graph tab: `GET /api/graph/stats` → `{available, entities, relations}`; auto-refreshes 2s after each AI reply if tab open; `useMemory.js` loads workspace memory whenever memOpen + (memTab=view or workspace)
+- **Memory panel**: tabs View / [Workspace] / Edit / History / Graph / Conflicts — "Workspace" tab appears only when a workspace is selected; View tab renders per-fact cards from `memData.facts[]` (each card: content + salience score bar (4px, green ≥0.7 / amber ≥0.4 / grey below) with % label to right + `Last accessed: X ago` / `Never accessed` timestamp from `last_used_at`); falls back to splitting `content` by newline if `facts`/sections missing; PROJECT STATE section; WORKSPACE section (inline workspace memory from `GET /api/workspaces/{id}/memory` when sidebarWsId set); Workspace tab: full workspace memory view + inline edit + `Updated` timestamp; Graph tab: `GET /api/graph/stats` → `{available, entities, relations}`; auto-refreshes 2s after each AI reply if tab open; `useMemory.js` loads workspace memory whenever memOpen + (memTab=view or workspace)
 - **Conflicts tab** (ROADMAP #5): `GET /api/memory/conflicts` on tab open → list; tab label shows count when > 0; per-card: `fact_a` + `fact_b` side by side, type badge (red=contradiction, yellow=duplicate, grey=ambiguous), four resolve buttons (Keep A / Keep B / Merge / Discard Both) → `POST /api/memory/conflicts/{id}/resolve` `{ strategy: "keep_a"|"keep_b"|"merge"|"discard_both" }` → removes card on success; empty state: "No conflicts"; state in `useMemory.js` (`conflicts`, `conflictsLoading`, `loadConflicts`, `resolveConflict`)
 - **Re-embed button**: ↺ Re-embed All in Invite panel admin section → `POST /api/admin/re-embed`
+
+## Unified Search Panel (ROADMAP #7)
+- 🔍 header button → slide-in `SearchPanel.jsx`; state in `useSearch.js`
+- Input debounced 300ms → `GET /api/search?q=&scope=all|files|conversations|memory|graph`
+- Scope pills: All / Files / Conversations / Memory / Graph
+- Results grouped by source; source label colors: files=amber, conversations=indigo, memory=green, graph=sky
+- Score shown as monospace float right of title; snippet clamped to 2 lines
+- Clicking a `conversations` result calls `selectConv(id)` and closes the panel
+- Response shape: `{ query, scope, results: [{ source, score, title, snippet, id }] }`
 
 ## Model Control Toolbar
 - Pills: Auto / LLaMA 8B / DeepSeek / 70B · ⊞ Compare · ⚙ params (temp, max_tokens, top_p with per-slider enable)

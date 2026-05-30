@@ -2,6 +2,14 @@ import s from '../../lib/chatStyles.js'
 import { SECTION_COLORS } from '../../lib/chatConstants.js'
 import { fmtDate, parseMemory, computeDiff } from '../../lib/chatUtils.js'
 
+function timeAgo(iso) {
+  const diff = (Date.now() - new Date(iso)) / 1000
+  if (diff < 60)    return 'just now'
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
+}
+
 export default function MemoryPanel({
   memOpen, setMemOpen,
   memData, memTab, setMemTab, memLoading, memFlashed,
@@ -64,21 +72,34 @@ export default function MemoryPanel({
                 {(memData.facts?.length > 0
                   ? memData.facts
                   : (memData.content || '').split('\n').filter(Boolean).map(line => ({ content: line }))
-                ).map((f, i) => (
-                  <div key={i} style={{
-                    background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px',
-                    padding:'0.5rem 0.75rem', fontSize:'0.78rem', color:'#cbd5e1', lineHeight:1.5,
-                    display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'0.5rem',
-                  }}>
-                    <span style={{ flex:1 }}>{f.content}</span>
-                    {f.salience != null && (
-                      <span style={{
-                        fontSize:'0.65rem', color: f.salience >= 0.7 ? '#34d399' : f.salience >= 0.4 ? '#fbbf24' : '#475569',
-                        flexShrink:0, marginTop:'1px',
-                      }}>{Math.min(Math.round(f.salience * 100), 100)}%</span>
-                    )}
-                  </div>
-                ))}
+                ).map((f, i) => {
+                  const sal = f.salience != null ? Math.min(Math.round(f.salience * 100), 100) : null
+                  const salColor = f.salience >= 0.7 ? '#34d399' : f.salience >= 0.4 ? '#fbbf24' : '#475569'
+                  return (
+                    <div key={i} style={{
+                      background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px',
+                      padding:'0.5rem 0.75rem', fontSize:'0.78rem', color:'#cbd5e1', lineHeight:1.5,
+                      display:'flex', flexDirection:'column', gap:'0.3rem',
+                    }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'0.5rem' }}>
+                        <span style={{ flex:1 }}>{f.content}</span>
+                        {sal != null && (
+                          <div style={{ display:'flex', alignItems:'center', gap:'0.35rem', flexShrink:0, marginTop:'3px' }}>
+                            <div style={{ width:'48px', height:'4px', borderRadius:'2px', background:'#1e293b', overflow:'hidden' }}>
+                              <div style={{ height:'100%', width:`${sal}%`, background: salColor, borderRadius:'2px' }} />
+                            </div>
+                            <span style={{ fontSize:'0.65rem', color: salColor, minWidth:'26px' }}>{sal}%</span>
+                          </div>
+                        )}
+                      </div>
+                      {'last_used_at' in f && (
+                        <div style={{ fontSize:'0.65rem', color:'#475569' }}>
+                          {f.last_used_at ? `Last accessed: ${timeAgo(f.last_used_at)}` : 'Never accessed'}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
             {sections.map(sec => (
