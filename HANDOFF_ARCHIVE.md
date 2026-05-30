@@ -97,6 +97,32 @@ Full code detail is in CLAUDE.md and git history.
 
 ---
 
+## Security & Perf Fixes (Frontend)
+**Completed:** 2026-05-30
+
+- **Role bug**: AI messages use `role: 'ai'` (not `'assistant'`) — `MessageList.jsx` conditions updated to match
+- **Stale closure**: `deleteInsight` in `InsightsPanel` now captures `wasUnread` before the `await` to avoid reading stale state
+- **URL encode**: `conversation_id` query param in `useToolLogs.js` wrapped in `encodeURIComponent`
+- **useMemo**: `attachedIds` in `useFiles.js` converted from inline `new Set()` to `useMemo`; derived memory values in `Chat.jsx` (`sections`, `projectSections`, `hasMemory`, `wordCount`, `diffTarget`, `diffLines`) confirmed as `useMemo`
+
+**Key files:** `components/chat/MessageList.jsx` · `components/chat/InsightsPanel.jsx` · `hooks/useToolLogs.js` · `hooks/useFiles.js` · `components/Chat.jsx`
+
+---
+
+## Memory Conflict Resolution UI
+**Completed:** 2026-05-30
+
+- **Tab**: Conflicts tab added to `MemoryPanel.jsx` (after Graph); label shows count badge when > 0
+- **Load**: `GET /api/memory/conflicts` on tab open; `conflicts` / `conflictsLoading` / `loadConflicts` / `resolveConflict` state in `useMemory.js`
+- **Card**: `fact_a` + `fact_b` side by side; type badge red=contradiction / yellow=duplicate / grey=ambiguous
+- **Resolve**: Keep A / Keep B / Merge / Discard Both → `POST /api/memory/conflicts/{id}/resolve` `{ strategy }` → card removed on success
+- **Empty state**: "No conflicts" placeholder
+- **Backend**: no changes — `GET /memory/conflicts` + `POST /memory/conflicts/{id}/resolve` were already complete
+
+**Key files:** `frontend/src/components/chat/MemoryPanel.jsx` · `frontend/src/hooks/useMemory.js`
+
+---
+
 ## Behavioral Pattern Tracker
 **Completed:** 2026-05-30
 

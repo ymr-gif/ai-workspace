@@ -154,9 +154,9 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 
 ### P1 — Platform Completeness
 
-#### Memory Conflict Resolution UI
-Surface `GET /memory/conflicts` in Memory panel. Per-conflict card: fact_a vs fact_b, conflict type badge (red=contradiction, yellow=duplicate, grey=ambiguous). Resolve buttons: Keep A / Keep B / Merge / Discard Both. Calls `POST /memory/conflicts/{id}/resolve`.
-- Frontend only (backend complete)
+#### ~~Memory Conflict Resolution UI~~ ✅
+~~Surface `GET /memory/conflicts` in Memory panel. Per-conflict card: fact_a vs fact_b, conflict type badge (red=contradiction, yellow=duplicate, grey=ambiguous). Resolve buttons: Keep A / Keep B / Merge / Discard Both. Calls `POST /memory/conflicts/{id}/resolve`.~~
+~~- Frontend only (backend complete)~~
 
 #### Fact-Level Salience Panel _(partial)_
 Per-fact salience % badge already rendered in View tab (color-coded green/amber/grey). Remaining: replace badge with a visual score bar, add last-access timestamp per fact. Uses existing `facts[]` array from `GET /memory`.
@@ -255,7 +255,7 @@ P0 — now
   ~~4. Cross-Session Continuity Summary immediate UX win, very low cost~~ ✅
 
 P1 — next sprint
-  5. Memory Conflict Resolution UI    backend done, frontend only
+  ~~5. Memory Conflict Resolution UI    backend done, frontend only~~ ✅
   6. Fact-Level Salience Panel        partial — badge done, bar + timestamp remaining
   7. Unified Search                   one interface to everything
   8. Knowledge Graph Explorer UI      high visual impact

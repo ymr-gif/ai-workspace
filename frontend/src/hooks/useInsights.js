@@ -40,13 +40,11 @@ export default function useInsights(token) {
   }
 
   async function deleteInsight(id) {
+    const wasUnread = insights.find(i => i.id === id && !i.is_read)
     try {
       await fetch(`/api/insights/${id}`, { method: 'DELETE', headers: authHeaders })
       setInsights(prev => prev.filter(i => i.id !== id))
-      setUnreadCount(prev => {
-        const wasUnread = insights.find(i => i.id === id && !i.is_read)
-        return wasUnread ? Math.max(0, prev - 1) : prev
-      })
+      if (wasUnread) setUnreadCount(prev => Math.max(0, prev - 1))
     } catch { /* ignore */ }
   }
 

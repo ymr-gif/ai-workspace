@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import s from '../lib/chatStyles.js'
 import { MODEL_KEYS, MODEL_LABELS, MODEL_SUBLABELS } from '../lib/chatConstants.js'
 import { fmtDate, parseMemory, computeDiff } from '../lib/chatUtils.js'
@@ -179,13 +179,13 @@ export default function Chat({ token, onLogout }) {
   }
 
   // memory panel derived
-  const sections        = parseMemory(mem.memData?.content)
-  const projectSections = parseMemory(mem.memData?.project_summary)
-  const hasMemory       = mem.memData?.content?.trim() || mem.memData?.project_summary?.trim()
+  const sections        = useMemo(() => parseMemory(mem.memData?.content), [mem.memData?.content])
+  const projectSections = useMemo(() => parseMemory(mem.memData?.project_summary), [mem.memData?.project_summary])
+  const hasMemory       = useMemo(() => mem.memData?.content?.trim() || mem.memData?.project_summary?.trim(), [mem.memData])
   const panelSlide      = mem.memOpen ? 'translateX(0)' : 'translateX(100%)'
-  const wordCount       = hasMemory ? ((mem.memData.content||'')+' '+(mem.memData.project_summary||'')).split(/\s+/).filter(Boolean).length : 0
-  const diffTarget      = mem.diffIdx !== null ? mem.memHistory[mem.diffIdx] : null
-  const diffLines       = diffTarget ? computeDiff((diffTarget.content||'')+'\n'+(diffTarget.project_summary||''), (mem.memData?.content||'')+'\n'+(mem.memData?.project_summary||'')) : []
+  const wordCount       = useMemo(() => hasMemory ? ((mem.memData.content||'')+' '+(mem.memData.project_summary||'')).split(/\s+/).filter(Boolean).length : 0, [hasMemory, mem.memData])
+  const diffTarget      = useMemo(() => mem.diffIdx !== null ? mem.memHistory[mem.diffIdx] : null, [mem.diffIdx, mem.memHistory])
+  const diffLines       = useMemo(() => diffTarget ? computeDiff((diffTarget.content||'')+'\n'+(diffTarget.project_summary||''), (mem.memData?.content||'')+'\n'+(mem.memData?.project_summary||'')) : [], [diffTarget, mem.memData])
 
   const lockedModelLabel = conv.convLockModel
     ? (MODEL_LABELS[conv.convLockModel] || conv.convLockModel)
@@ -523,6 +523,10 @@ export default function Chat({ token, onLogout }) {
         loadGraphStats={insights.loadGraphStats}
         graphLoading={insights.graphLoading}
         graphStats={insights.graphStats}
+        conflicts={mem.conflicts}
+        conflictsLoading={mem.conflictsLoading}
+        loadConflicts={mem.loadConflicts}
+        resolveConflict={mem.resolveConflict}
       />
     </div>
   )
