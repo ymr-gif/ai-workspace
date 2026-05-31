@@ -85,7 +85,6 @@ async def generate_stream(
     history_summary:  str,
     retrieved_chunks: list[str],
     request_id:       str,
-    memory_enabled:   bool              = True,
     model_override:   str | None        = None,
     model_params:     dict | None       = None,
     system_prompt:    str | None        = None,
@@ -140,7 +139,7 @@ async def generate_stream(
     file_tools = TOOL_SCHEMAS if (file_ids and db is not None) else []
     # write_memory: reasoning model only + user must explicitly request save (prevents 70B saving on its own initiative)
     _is_reasoning = fallback_chain[0] == MODELS["reasoning"]
-    mem_tools = [WRITE_MEMORY_SCHEMA] if (memory_enabled and db is not None and _is_reasoning and _needs_memory_tool(message)) else []
+    mem_tools = [WRITE_MEMORY_SCHEMA] if (db is not None and _is_reasoning and _needs_memory_tool(message)) else []
     tools = file_tools + mem_tools or None
 
     if image_b64 and image_mime_type:
@@ -154,7 +153,7 @@ async def generate_stream(
 
     base_messages = build_context_messages(
         memory_sheet, project_summary, retrieved_chunks, history_summary,
-        history, memory_enabled, system_prompt, file_chunks, file_names, file_ids,
+        history, system_prompt, file_chunks, file_names, file_ids,
         workspace_memory=workspace_memory, graph_context=graph_context,
         graph_facts=graph_facts, active_goals=active_goals,
         conflicted_facts=conflicted_facts, last_session=last_session,

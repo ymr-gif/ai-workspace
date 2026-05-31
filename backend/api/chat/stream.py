@@ -137,7 +137,7 @@ async def chat_stream(
         await db.commit()
         common  = service.build_context_messages(
             ctx["memory_sheet"], ctx["project_summary"], ctx["retrieved"],
-            ctx["history_summary"], ctx["history"], ctx["memory_enabled"],
+            ctx["history_summary"], ctx["history"],
             system_prompt, ctx["file_chunks"], ctx["file_names"], ctx["file_ids"],
             workspace_memory=ctx.get("workspace_memory", ""),
             graph_context=ctx.get("graph_context", ""),
@@ -185,7 +185,7 @@ async def chat_stream(
             async for event in service.generate_stream(
                 req.message, ctx["history"], ctx["memory_sheet"], ctx["project_summary"],
                 ctx["history_summary"], ctx["retrieved"], rid,
-                memory_enabled=ctx["memory_enabled"], model_override=effective_model,
+                model_override=effective_model,
                 model_params=model_params, system_prompt=system_prompt,
                 file_chunks=ctx["file_chunks"], file_names=ctx["file_names"],
                 file_ids=ctx["file_ids"], conv_id=conv.id,
@@ -227,9 +227,8 @@ async def chat_stream(
                         await db.commit()
                         record_tokens(model_used, pt, ct, cost)
                         asyncio.create_task(_embed_exchange(asst_msg.id, conv.id, req.message, full_response))
-                        if ctx.get("memory_enabled"):
-                            from llm.graph_memory import extract_and_store as _graph_extract
-                            asyncio.create_task(_graph_extract(current_user.id, req.message, full_response))
+                        from llm.graph_memory import extract_and_store as _graph_extract
+                        asyncio.create_task(_graph_extract(current_user.id, req.message, full_response))
 
                         cnt       = await db.execute(select(func.count()).select_from(Message).where(Message.conversation_id == conv.id))
                         all_count = cnt.scalar_one()

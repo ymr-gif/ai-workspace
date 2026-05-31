@@ -150,7 +150,7 @@ async def list_workspace_conversations(
         {
             "id":           str(c.id),
             "title":        c.title,
-            "memory_enabled": c.memory_enabled,
+            "memory_enabled": True,
             "locked_model": c.locked_model,
             "updated_at":   c.updated_at.isoformat(),
         }

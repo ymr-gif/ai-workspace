@@ -8,8 +8,6 @@ export default function useConversations(token, sidebarWsId) {
   const [loading, setLoading] = useState(false)
 
   // conversation settings
-  const [convMemEnabled, setConvMemEnabled] = useState(true)
-  const [memToggling, setMemToggling] = useState(false)
   const [convSysPrompt, setConvSysPrompt] = useState('')
   const [convLockModel, setConvLockModel] = useState('')
 
@@ -61,28 +59,17 @@ export default function useConversations(token, sidebarWsId) {
     return () => clearTimeout(tid)
   }, [convSearch, sidebarWsId])
 
-  function newChat() { setActiveConvId(null); setMessages([]); setInput(''); setConvMemEnabled(true); setConvSysPrompt(''); setConvLockModel('') }
+  function newChat() { setActiveConvId(null); setMessages([]); setInput(''); setConvSysPrompt(''); setConvLockModel('') }
 
   function selectConv(id) {
     if (id === activeConvId) return
     setActiveConvId(id); setMessages([])
     const c = conversations.find(x => x.id === id)
     if (c) {
-      setConvMemEnabled(c.memory_enabled !== false)
       setConvSysPrompt(c.system_prompt || '')
       setConvLockModel(c.locked_model || '')
     }
     return c
-  }
-
-  async function toggleConvMemory() {
-    if (!activeConvId || memToggling) return
-    const next = !convMemEnabled; setMemToggling(true)
-    try {
-      await fetch(`/api/conversations/${activeConvId}`, { method:'PATCH', headers:{...authHeaders,'Content-Type':'application/json'}, body: JSON.stringify({ memory_enabled: next }) })
-      setConvMemEnabled(next)
-      setConversations(prev => prev.map(c => c.id === activeConvId ? { ...c, memory_enabled: next } : c))
-    } catch { /* ignore */ } finally { setMemToggling(false) }
   }
 
   async function deleteConv(e, id) {
@@ -111,8 +98,6 @@ export default function useConversations(token, sidebarWsId) {
     messages, setMessages,
     input, setInput,
     loading, setLoading,
-    convMemEnabled, setConvMemEnabled,
-    memToggling,
     convSysPrompt,
     convLockModel,
     convSearch, setConvSearch,
@@ -125,7 +110,6 @@ export default function useConversations(token, sidebarWsId) {
     bottomRef,
     newChat,
     selectConv,
-    toggleConvMemory,
     deleteConv,
     exportConv,
   }

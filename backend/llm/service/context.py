@@ -45,7 +45,6 @@ def build_context_messages(
     retrieved_chunks: list[str],
     history_summary:  str,
     history:          list[dict],
-    memory_enabled:   bool,
     system_prompt:    str | None      = None,
     file_chunks:      list[str]       = (),
     file_names:       list[str]       = (),
@@ -92,45 +91,44 @@ def build_context_messages(
             "Without that card, nothing is persisted. Do not simulate or pretend to save memory."
         )})
 
-    if memory_enabled:
-        if last_session:
-            messages.append({"role": "user",      "content": f"[LAST SESSION]\n{last_session}"})
-            messages.append({"role": "assistant", "content": "Understood."})
-        if graph_context:
-            messages.append({"role": "user",      "content": f"[GRAPH CONTEXT]\n{graph_context}"})
-            messages.append({"role": "assistant", "content": "Understood."})
-        if graph_facts:
-            messages.append({"role": "user",      "content": f"[GRAPH FACTS]\n{graph_facts}"})
-            messages.append({"role": "assistant", "content": "Understood."})
-        if memory_sheet:
-            # conflicted facts suppressed until resolved
-            if conflicted_facts:
-                filtered = "\n".join(
-                    l for l in memory_sheet.split("\n")
-                    if l.strip() not in conflicted_facts
-                )
-            else:
-                filtered = memory_sheet
-            if filtered.strip():
-                messages.append({"role": "system", "content": f"[USER STATE]\n{filtered}"})
-        if active_goals:
-            messages.append({"role": "user",      "content": _format_active_goals(active_goals)})
-            messages.append({"role": "assistant", "content": "Understood."})
-        if workspace_memory:
-            messages.append({"role": "user",      "content": f"[WORKSPACE STATE]\n{workspace_memory}"})
-            messages.append({"role": "assistant", "content": "Understood."})
-        if project_summary:
-            messages.append({"role": "user",      "content": f"[PROJECT STATE]\n{project_summary}"})
-            messages.append({"role": "assistant", "content": "Understood."})
-        if retrieved_chunks:
-            chunks_text = "\n\n".join(
-                c["content"] if isinstance(c, dict) else c for c in retrieved_chunks
+    if last_session:
+        messages.append({"role": "user",      "content": f"[LAST SESSION]\n{last_session}"})
+        messages.append({"role": "assistant", "content": "Understood."})
+    if graph_context:
+        messages.append({"role": "user",      "content": f"[GRAPH CONTEXT]\n{graph_context}"})
+        messages.append({"role": "assistant", "content": "Understood."})
+    if graph_facts:
+        messages.append({"role": "user",      "content": f"[GRAPH FACTS]\n{graph_facts}"})
+        messages.append({"role": "assistant", "content": "Understood."})
+    if memory_sheet:
+        # conflicted facts suppressed until resolved
+        if conflicted_facts:
+            filtered = "\n".join(
+                l for l in memory_sheet.split("\n")
+                if l.strip() not in conflicted_facts
             )
-            messages.append({"role": "user",      "content": f"[RELEVANT CONTEXT FROM EARLIER]\n{chunks_text}"})
-            messages.append({"role": "assistant", "content": "Understood."})
-        if history_summary:
-            messages.append({"role": "user",      "content": f"[EARLIER IN THIS CONVERSATION]\n{history_summary}"})
-            messages.append({"role": "assistant", "content": "Understood."})
+        else:
+            filtered = memory_sheet
+        if filtered.strip():
+            messages.append({"role": "system", "content": f"[USER STATE]\n{filtered}"})
+    if active_goals:
+        messages.append({"role": "user",      "content": _format_active_goals(active_goals)})
+        messages.append({"role": "assistant", "content": "Understood."})
+    if workspace_memory:
+        messages.append({"role": "user",      "content": f"[WORKSPACE STATE]\n{workspace_memory}"})
+        messages.append({"role": "assistant", "content": "Understood."})
+    if project_summary:
+        messages.append({"role": "user",      "content": f"[PROJECT STATE]\n{project_summary}"})
+        messages.append({"role": "assistant", "content": "Understood."})
+    if retrieved_chunks:
+        chunks_text = "\n\n".join(
+            c["content"] if isinstance(c, dict) else c for c in retrieved_chunks
+        )
+        messages.append({"role": "user",      "content": f"[RELEVANT CONTEXT FROM EARLIER]\n{chunks_text}"})
+        messages.append({"role": "assistant", "content": "Understood."})
+    if history_summary:
+        messages.append({"role": "user",      "content": f"[EARLIER IN THIS CONVERSATION]\n{history_summary}"})
+        messages.append({"role": "assistant", "content": "Understood."})
 
     messages += history
 

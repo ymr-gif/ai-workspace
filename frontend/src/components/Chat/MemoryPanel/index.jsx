@@ -15,7 +15,7 @@ function timeAgo(iso) {
 export default function MemoryPanel() {
   const p = usePanelProps()
   const { memOpen, setMemOpen, memData, memTab, setMemTab, memLoading, memFlashed, memPending, memHistory, histLoading, diffIdx, setDiffIdx, editContent, setEditContent, editProj, setEditProj, memSaving, wsMemData, wsMemLoading, wsMemEditing, setWsMemEditing, wsMemContent, setWsMemContent, wsMemSaving, pollMemory, loadWsMemory, saveWsMemory, openEdit, cancelEdit, saveEdit, exportMemory, handleImport, conflicts, conflictsLoading, loadConflicts, resolveConflict } = p.mem
-  const { activeConvId, convMemEnabled, toggleConvMemory, memToggling } = p.conv
+  const { activeConvId } = p.conv
   const { sidebarWsId } = p.ws
   const { loadGraphStats, graphLoading, graphStats, graphSample, graphSampleLoading, loadGraphSample } = p.insights
   const { hasMemory, sections, projectSections, wordCount, panelSlide, diffTarget, diffLines, importRef } = p
@@ -384,16 +384,6 @@ export default function MemoryPanel() {
           </div>
           <span style={s.footerStats}>{hasMemory ? `${sections.length+projectSections.length} sec · ${wordCount}w` : 'Empty'}</span>
         </div>
-        {activeConvId && (
-          <div style={s.memToggleRow}>
-            <span style={s.memToggleLabel}>Memory in this conversation</span>
-            <button onClick={toggleConvMemory} disabled={memToggling}
-              style={{ ...s.togglePill, color: convMemEnabled ? GRN : FG4, borderColor: convMemEnabled ? GRN : LINE2 }}>
-              <span style={{ width:'7px', height:'7px', background: convMemEnabled ? GRN : FG4 }} />
-              {convMemEnabled ? 'Enabled' : 'Disabled'}
-            </button>
-          </div>
-        )}
       </div>
     </div>
   )

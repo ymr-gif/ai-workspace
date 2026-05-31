@@ -44,7 +44,6 @@ export default function Sidebar({
               <span style={s.convTitle}>{c.title}</span>
               <span style={s.convDate}>
                 {fmtDate(c.updated_at)}
-                {c.memory_enabled === false && <span style={{ color:FG4, marginLeft:'4px' }}>⊘</span>}
                 {c.locked_model && <span style={{ color:RED, marginLeft:'4px' }}>🔒</span>}
               </span>
             </div>

@@ -54,7 +54,7 @@ async def list_conversations(
             "id":             str(c.id),
             "title":          c.title,
             "updated_at":     c.updated_at.isoformat(),
-            "memory_enabled": c.memory_enabled,
+            "memory_enabled": True,
             "system_prompt":  c.system_prompt  or "",
             "locked_model":   c.locked_model   or "",
             "workspace_id":   str(c.workspace_id) if c.workspace_id else None,
@@ -104,10 +104,9 @@ def _safe_filename(title: str, ext: str) -> str:
 
 
 class ConversationPatch(BaseModel):
-    memory_enabled: bool | None = None
-    system_prompt:  str  | None = None
-    locked_model:   str  | None = None
-    workspace_id:   str  | None = None
+    system_prompt: str | None = None
+    locked_model:  str | None = None
+    workspace_id:  str | None = None
 
 
 @router.patch("/conversations/{conversation_id}")
@@ -127,9 +126,6 @@ async def patch_conversation(
         raise HTTPException(status_code=404, detail="Not found")
 
     updated = body.model_dump(exclude_unset=True)
-
-    if "memory_enabled" in updated:
-        conv.memory_enabled = body.memory_enabled
 
     if "system_prompt" in updated:
         conv.system_prompt = body.system_prompt.strip() or None if body.system_prompt else None
@@ -157,7 +153,7 @@ async def patch_conversation(
     await db.commit()
     return {
         "ok":             True,
-        "memory_enabled": conv.memory_enabled,
+        "memory_enabled": True,
         "system_prompt":  conv.system_prompt  or "",
         "locked_model":   conv.locked_model   or "",
         "workspace_id":   str(conv.workspace_id) if conv.workspace_id else None,
