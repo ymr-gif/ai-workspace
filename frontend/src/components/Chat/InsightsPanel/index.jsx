@@ -1,5 +1,5 @@
-import s from '../../lib/chatStyles.js'
-import { fmtDate } from '../../lib/chatUtils.js'
+import s, { LINE, CYN } from '../../../lib/chatStyles.js'
+import { fmtDate } from '../../../lib/chatUtils.js'
 
 export default function InsightsPanel({
   insightsOpen, setInsightsOpen,
@@ -21,7 +21,7 @@ export default function InsightsPanel({
           <p style={s.emptyMem}>No insights yet.<br /><span style={{ fontSize:'0.75rem' }}>Generated after every 10 exchanges.</span></p>
         )}
         {insights.map(i => (
-          <div key={i.id} style={{ ...s.insightRow, borderColor: i.is_read ? '#1e293b' : 'rgba(129,140,248,0.35)', opacity: i.is_read ? 0.65 : 1 }}
+          <div key={i.id} style={{ ...s.insightRow, borderColor: i.is_read ? LINE : `rgba(39,216,255,0.35)`, opacity: i.is_read ? 0.65 : 1 }}
             onClick={() => !i.is_read && markInsightRead(i.id)}>
             {!i.is_read && <span style={s.insightDot} />}
             <div style={{ ...s.insightContent, paddingLeft: i.is_read ? '15px' : 0 }}>

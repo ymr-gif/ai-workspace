@@ -1,5 +1,5 @@
-import s from '../../lib/chatStyles.js'
-import { fmtDate } from '../../lib/chatUtils.js'
+import s, { RED, GRN, CYN, FG3, FG4, FG5, LINE, INSET, DISP, TERM } from '../../../lib/chatStyles.js'
+import { fmtDate } from '../../../lib/chatUtils.js'
 
 export default function InvitePanel({
   inviteOpen, setInviteOpen,
@@ -25,11 +25,11 @@ export default function InvitePanel({
         </button>
         {newToken && (
           <div style={s.tokenBox}>
-            <div style={{ fontSize:'0.7rem', color:'#64748b', marginBottom:'0.4rem' }}>New token (click to copy):</div>
+            <div style={{ fontSize:'14px', color:FG4, marginBottom:'0.4rem' }}>New token (click to copy):</div>
             <div style={s.tokenText} onClick={() => { navigator.clipboard.writeText(newToken).catch(() => {}); }}>
               {newToken}
             </div>
-            <div style={{ fontSize:'0.65rem', color:'#475569', marginTop:'0.3rem' }}>Valid 7 days · one-time use</div>
+            <div style={{ fontSize:'13px', color:FG4, marginTop:'0.3rem' }}>Valid 7 days · one-time use</div>
           </div>
         )}
         {inviteLoading && <p style={s.emptyMem}>Loading…</p>}
@@ -37,25 +37,25 @@ export default function InvitePanel({
         {!inviteLoading && inviteList.map(inv => (
           <div key={inv.id} style={s.inviteRow}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <span style={{ fontFamily:'monospace', color:'#818cf8', fontSize:'0.75rem' }}>{inv.token_prefix}</span>
-              <span style={{ ...s.statusBadge, ...(inv.used ? { background:'rgba(52,211,153,0.15)', color:'#34d399' } : { background:'rgba(100,116,139,0.15)', color:'#64748b' }) }}>
+              <span style={{ fontFamily:TERM, color:CYN, fontSize:'15px' }}>{inv.token_prefix}</span>
+              <span style={{ ...s.statusBadge, ...(inv.used ? { background:'rgba(61,255,110,0.15)', color:GRN } : { background:'rgba(90,90,90,0.15)', color:FG4 }) }}>
                 {inv.used ? 'used' : 'pending'}
               </span>
             </div>
-            {inv.email && <div style={{ color:'#64748b', fontSize:'0.7rem', marginTop:'2px' }}>{inv.email}</div>}
-            <div style={{ color:'#334155', fontSize:'0.68rem', marginTop:'2px' }}>
+            {inv.email && <div style={{ color:FG4, fontSize:'14px', marginTop:'2px' }}>{inv.email}</div>}
+            <div style={{ color:FG5, fontSize:'13px', marginTop:'2px' }}>
               {fmtDate(inv.created_at)}{inv.expires_at ? ` · expires ${fmtDate(inv.expires_at)}` : ''}
             </div>
           </div>
         ))}
-        <div style={{ borderTop:'1px solid #1e293b', marginTop:'1rem', paddingTop:'1rem' }}>
-          <div style={{ fontSize:'0.78rem', color:'#94a3b8', fontWeight:600, marginBottom:'0.5rem' }}>⚙ Embeddings</div>
+        <div style={{ borderTop:`1px solid ${LINE}`, marginTop:'1rem', paddingTop:'1rem' }}>
+          <div style={{ fontSize:'16px', color:FG3, marginBottom:'0.5rem', fontFamily:DISP, letterSpacing:'0.08em', textTransform:'uppercase' }}>⚙ Embeddings</div>
           <button onClick={triggerReEmbed} disabled={reEmbedding}
-            style={{ ...s.actionBtn, width:'100%', background: reEmbedding ? 'rgba(99,102,241,0.08)' : undefined }}>
+            style={{ ...s.actionBtn, width:'100%', background: reEmbedding ? `rgba(39,216,255,0.08)` : undefined }}>
             {reEmbedding ? 'Queuing…' : '↺ Re-embed All'}
           </button>
-          {reEmbedMsg && <div style={{ fontSize:'0.72rem', color: reEmbedMsg.startsWith('Error') ? '#f87171' : '#34d399', marginTop:'0.4rem' }}>{reEmbedMsg}</div>}
-          <div style={{ fontSize:'0.68rem', color:'#334155', marginTop:'0.3rem' }}>Re-embeds all file chunks and messages. Use after changing MODEL_EMBEDDING.</div>
+          {reEmbedMsg && <div style={{ fontSize:'14px', color: reEmbedMsg.startsWith('Error') ? RED : GRN, marginTop:'0.4rem' }}>{reEmbedMsg}</div>}
+          <div style={{ fontSize:'13px', color:FG5, marginTop:'0.3rem' }}>Re-embeds all file chunks and messages. Use after changing MODEL_EMBEDDING.</div>
         </div>
       </div>
     </div>

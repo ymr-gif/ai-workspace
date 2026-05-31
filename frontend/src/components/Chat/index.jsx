@@ -1,37 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import s from '../lib/chatStyles.js'
-import { MODEL_KEYS, MODEL_LABELS, MODEL_SUBLABELS } from '../lib/chatConstants.js'
-import { fmtDate, parseMemory, computeDiff } from '../lib/chatUtils.js'
+import s, { RED, REDDIM, GRN, CYN, AMB, FG1, FG4, FG5, DISP, TERM } from '../../lib/chatStyles.js'
+import { MODEL_KEYS, MODEL_LABELS, MODEL_SUBLABELS } from '../../lib/chatConstants.js'
+import { fmtDate, parseMemory, computeDiff } from '../../lib/chatUtils.js'
 
-import useConversations from '../hooks/useConversations.js'
-import useMemory from '../hooks/useMemory.js'
-import useWorkspace from '../hooks/useWorkspace.js'
-import useFiles from '../hooks/useFiles.js'
-import useModelParams from '../hooks/useModelParams.js'
-import useSettings from '../hooks/useSettings.js'
-import useToolLogs from '../hooks/useToolLogs.js'
-import useUsage from '../hooks/useUsage.js'
-import useAdmin from '../hooks/useAdmin.js'
-import useInsights from '../hooks/useInsights.js'
-import useSearch from '../hooks/useSearch.js'
-import useScheduledPrompts from '../hooks/useScheduledPrompts.js'
-import useGoals from '../hooks/useGoals.js'
+import useConversations from '../../hooks/useConversations.js'
+import useMemory from '../../hooks/useMemory.js'
+import useWorkspace from '../../hooks/useWorkspace.js'
+import useFiles from '../../hooks/useFiles.js'
+import useModelParams from '../../hooks/useModelParams.js'
+import useSettings from '../../hooks/useSettings.js'
+import useToolLogs from '../../hooks/useToolLogs.js'
+import useUsage from '../../hooks/useUsage.js'
+import useAdmin from '../../hooks/useAdmin.js'
+import useInsights from '../../hooks/useInsights.js'
+import useSearch from '../../hooks/useSearch.js'
+import useScheduledPrompts from '../../hooks/useScheduledPrompts.js'
+import useGoals from '../../hooks/useGoals.js'
 
-import Sidebar from './chat/Sidebar.jsx'
-import MessageList from './chat/MessageList.jsx'
-import ModelToolbar from './chat/ModelToolbar.jsx'
-import SettingsModal from './chat/SettingsModal.jsx'
-import WorkspaceModal from './chat/WorkspaceModal.jsx'
-import FilesPanel from './chat/FilesPanel.jsx'
-import FileViewer from './chat/FileViewer.jsx'
-import ToolLogPanel from './chat/ToolLogPanel.jsx'
-import UsagePanel from './chat/UsagePanel.jsx'
-import InsightsPanel from './chat/InsightsPanel.jsx'
-import InvitePanel from './chat/InvitePanel.jsx'
-import MemoryPanel from './chat/MemoryPanel.jsx'
-import SearchPanel from './chat/SearchPanel.jsx'
-import AutomationsPanel from './chat/AutomationsPanel.jsx'
-import GoalsPanel from './chat/GoalsPanel.jsx'
+import Sidebar from './Sidebar'
+import MessageList from './MessageList'
+import ModelToolbar from './ModelToolbar'
+import SettingsModal from './SettingsModal'
+import WorkspaceModal from './WorkspaceModal'
+import FilesPanel from './FilesPanel'
+import FileViewer from './FileViewer'
+import ToolLogPanel from './ToolLogPanel'
+import UsagePanel from './UsagePanel'
+import InsightsPanel from './InsightsPanel'
+import InvitePanel from './InvitePanel'
+import MemoryPanel from './MemoryPanel'
+import SearchPanel from './SearchPanel'
+import AutomationsPanel from './AutomationsPanel'
+import GoalsPanel from './GoalsPanel'
 
 export default function Chat({ token, onLogout }) {
   const ws = useWorkspace(token)
@@ -218,34 +218,7 @@ export default function Chat({ token, onLogout }) {
 
   return (
     <div style={s.root}>
-      <style>{`
-        @keyframes blink    { 0%,100%{opacity:1} 50%{opacity:0} }
-        @keyframes pulse    { 0%,100%{opacity:1} 50%{opacity:0.3} }
-        @keyframes memFlash { 0%{background:rgba(52,211,153,0.08)} 100%{background:transparent} }
-        ::-webkit-scrollbar       { width:4px }
-        ::-webkit-scrollbar-track { background:transparent }
-        ::-webkit-scrollbar-thumb { background:#1e293b; border-radius:2px }
-        textarea:focus { border-color:#6366f1 !important }
-        input[type=range] { height:4px }
-        .md-body { font-size:inherit; line-height:1.6; color:inherit; word-break:break-word }
-        .md-body p { margin:0 0 0.6em }
-        .md-body p:last-child { margin-bottom:0 }
-        .md-body h1,.md-body h2,.md-body h3,.md-body h4 { margin:0.8em 0 0.35em; font-weight:700; line-height:1.3 }
-        .md-body h1 { font-size:1.2em } .md-body h2 { font-size:1.1em } .md-body h3 { font-size:1em }
-        .md-body ul,.md-body ol { margin:0.4em 0 0.6em 1.4em; padding:0 }
-        .md-body li { margin-bottom:0.2em }
-        .md-body code { background:#0f172a; border:1px solid #1e293b; border-radius:4px; padding:0.1em 0.35em; font-family:monospace; font-size:0.85em; color:#93c5fd }
-        .md-body pre { background:#0f172a; border:1px solid #1e293b; border-radius:6px; padding:0.75em 1em; overflow-x:auto; margin:0.5em 0 }
-        .md-body pre code { background:none; border:none; padding:0; font-size:0.82em; color:#94a3b8 }
-        .md-body blockquote { border-left:3px solid #334155; margin:0.5em 0; padding:0.2em 0.75em; color:#94a3b8 }
-        .md-body table { border-collapse:collapse; width:100%; margin:0.5em 0; font-size:0.85em }
-        .md-body th,.md-body td { border:1px solid #1e293b; padding:0.3em 0.6em; text-align:left }
-        .md-body th { background:#1e293b; color:#cbd5e1; font-weight:600 }
-        .md-body a { color:#818cf8; text-decoration:underline }
-        .md-body strong { color:#e2e8f0; font-weight:700 }
-        .md-body em { color:#cbd5e1 }
-        .md-body hr { border:none; border-top:1px solid #1e293b; margin:0.75em 0 }
-      `}</style>
+      {/* CSS is now in index.html <style> block */}
 
       <Sidebar
         conversations={conv.conversations}
@@ -268,13 +241,13 @@ export default function Chat({ token, onLogout }) {
       <div style={s.chat}>
         <header style={s.header}>
           <span style={s.title}>
-            NIM AI Gateway
-            {lockedModelLabel && <span style={{ fontSize:'0.72rem', color:'#6366f1', marginLeft:'0.5rem', fontWeight:400 }}>🔒 {lockedModelLabel}</span>}
+            NIM // GATEWAY
+            {lockedModelLabel && <span style={{ fontSize:'14px', color:RED, marginLeft:'0.5rem', fontFamily:DISP }}>🔒 {lockedModelLabel}</span>}
           </span>
           <div style={s.headerRight}>
             {conv.activeConvId && (
               <button onClick={conv.toggleConvMemory} disabled={conv.memToggling} title={conv.convMemEnabled ? 'Context ON' : 'Context OFF'}
-                style={{ ...s.hdrBtn, color: conv.convMemEnabled ? '#34d399' : '#475569', borderColor: conv.convMemEnabled ? '#1e4e3a' : '#334155' }}>
+                style={{ ...s.hdrBtn, color: conv.convMemEnabled ? GRN : FG4, borderColor: conv.convMemEnabled ? GRN : LINE2 }}>
                 {conv.convMemEnabled ? '◉' : '○'} Ctx
               </button>
             )}
@@ -282,30 +255,30 @@ export default function Chat({ token, onLogout }) {
               <button onClick={() => settings.setSettingsOpen(true)} style={s.hdrBtn} title="Conversation settings">⚙</button>
             )}
             <button onClick={() => { usage.setUsageOpen(o => !o); toolLog.setToolLogOpen(false); mem.setMemOpen(false); files.setFilesOpen(false) }}
-              style={{ ...s.hdrBtn, ...(usage.usageOpen ? { color:'#34d399', borderColor:'#1e4e3a' } : {}) }}
+              style={{ ...s.hdrBtn, ...(usage.usageOpen ? { color:GRN, borderColor:GRN } : {}) }}
               title="Token usage & cost">
               $ Usage
             </button>
             <button onClick={() => { toolLog.setToolLogOpen(o => !o); mem.setMemOpen(false); files.setFilesOpen(false); usage.setUsageOpen(false) }}
-              style={{ ...s.hdrBtn, ...(toolLog.toolLogOpen ? { color:'#818cf8', borderColor:'#4338ca' } : {}) }}
+              style={{ ...s.hdrBtn, ...(toolLog.toolLogOpen ? { color:CYN, borderColor:CYN } : {}) }}
               title="AI tool call history">
               🔧 Log
             </button>
-            <button onClick={() => { files.setFilesOpen(true); mem.setMemOpen(false); toolLog.setToolLogOpen(false) }} style={{ ...s.hdrBtn, ...(files.attachedFiles.length > 0 ? { color:'#fbbf24', borderColor:'#78350f' } : {}) }}>
+            <button onClick={() => { files.setFilesOpen(true); mem.setMemOpen(false); toolLog.setToolLogOpen(false) }} style={{ ...s.hdrBtn, ...(files.attachedFiles.length > 0 ? { color:AMB, borderColor:AMB } : {}) }}>
               {files.attachedFiles.length > 0 ? `📎 ${files.attachedFiles.length}` : '📎'} Files
             </button>
             <button onClick={() => { search.setSearchOpen(o => !o); mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); insights.setInsightsOpen(false); admin.setInviteOpen(false); auto.setAutoOpen(false) }}
-              style={{ ...s.hdrBtn, ...(search.searchOpen ? { color:'#38bdf8', borderColor:'#0369a1' } : {}) }}
+              style={{ ...s.hdrBtn, ...(search.searchOpen ? { color:CYN, borderColor:CYN } : {}) }}
               title="Unified search">
               🔍
             </button>
             <button onClick={() => { auto.setAutoOpen(o => !o); mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); insights.setInsightsOpen(false); admin.setInviteOpen(false); search.setSearchOpen(false); goals.setGoalsOpen(false) }}
-              style={{ ...s.hdrBtn, ...(auto.autoOpen ? { color:'#818cf8', borderColor:'#4338ca' } : {}) }}
+              style={{ ...s.hdrBtn, ...(auto.autoOpen ? { color:CYN, borderColor:CYN } : {}) }}
               title="Scheduled automations">
               ⏱ Auto
             </button>
             <button onClick={() => { goals.setGoalsOpen(o => !o); mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); insights.setInsightsOpen(false); admin.setInviteOpen(false); search.setSearchOpen(false); auto.setAutoOpen(false) }}
-              style={{ ...s.hdrBtn, ...(goals.goalsOpen ? { color:'#34d399', borderColor:'#1e4e3a' } : {}) }}
+              style={{ ...s.hdrBtn, ...(goals.goalsOpen ? { color:GRN, borderColor:GRN } : {}) }}
               title="Goals & tasks">
               🎯 Goals
             </button>
@@ -314,13 +287,13 @@ export default function Chat({ token, onLogout }) {
               Memory
             </button>
             <button onClick={() => { insights.setInsightsOpen(o => !o); mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); admin.setInviteOpen(false) }}
-              style={{ ...s.hdrBtn, ...(insights.insightsOpen ? { color:'#818cf8', borderColor:'#4338ca' } : {}) }}
+              style={{ ...s.hdrBtn, ...(insights.insightsOpen ? { color:CYN, borderColor:CYN } : {}) }}
               title="AI insights about you">
               💡{insights.unreadCount > 0 && <span style={s.unreadBadge}>{insights.unreadCount}</span>}
             </button>
             {userRole === 'admin' && (
               <button onClick={() => { admin.setInviteOpen(o => !o); mem.setMemOpen(false); files.setFilesOpen(false); toolLog.setToolLogOpen(false); usage.setUsageOpen(false); insights.setInsightsOpen(false) }}
-                style={{ ...s.hdrBtn, ...(admin.inviteOpen ? { color:'#818cf8', borderColor:'#4338ca' } : {}) }}
+                style={{ ...s.hdrBtn, ...(admin.inviteOpen ? { color:CYN, borderColor:CYN } : {}) }}
                 title="Manage invite tokens">
                 ⚡ Invites
               </button>

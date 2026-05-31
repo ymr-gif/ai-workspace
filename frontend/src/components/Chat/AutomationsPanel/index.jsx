@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import s from '../../lib/chatStyles.js'
+import s, { GRN, RED, FG3, FG4, CYN, LINE, LINE2, TERM } from '../../../lib/chatStyles.js'
 
 const PRESETS = ['daily', 'weekly', 'monthly']
 
 function runStatus(run) {
-  if (run.status === 'success') return { color: '#34d399', label: '✓' }
-  if (run.status === 'error')   return { color: '#f87171', label: '✗' }
-  return { color: '#94a3b8', label: '…' }
+  if (run.status === 'success') return { color: GRN, label: '✓' }
+  if (run.status === 'error')   return { color: RED, label: '✗' }
+  return { color: FG3, label: '…' }
 }
 
 export default function AutomationsPanel({
@@ -43,14 +43,14 @@ export default function AutomationsPanel({
       <div style={s.toolLogHdr}>
         <span style={s.toolLogTitle}>⏱ Automations</span>
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-          <button onClick={openCreate} style={{ ...s.actionBtn, color: '#818cf8', borderColor: 'rgba(99,102,241,0.4)', padding: '0.2rem 0.6rem' }}>+ New</button>
+          <button onClick={openCreate} style={{ ...s.actionBtn, color: CYN, borderColor: `rgba(39,216,255,0.40)`, padding: '0.2rem 0.6rem' }}>+ New</button>
           <button onClick={loadSchedules} style={s.refreshBtn} disabled={schedulesLoading}>{schedulesLoading ? '…' : '↻'}</button>
           <button onClick={() => setAutoOpen(false)} style={s.closeBtn}>✕</button>
         </div>
       </div>
 
       {formOpen && (
-        <div style={{ position: 'absolute', inset: 0, background: '#0f172a', zIndex: 2, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ position: 'absolute', inset: 0, background: '#070707', zIndex: 2, display: 'flex', flexDirection: 'column' }}>
           <div style={s.toolLogHdr}>
             <span style={s.toolLogTitle}>{editTarget ? 'Edit Schedule' : 'New Schedule'}</span>
             <button onClick={() => setFormOpen(false)} style={s.closeBtn}>✕</button>
@@ -97,7 +97,7 @@ export default function AutomationsPanel({
               </div>
             )}
           </div>
-          <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid #1e293b', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexShrink: 0 }}>
+          <div style={{ padding: '0.75rem 1.25rem', borderTop: `1px solid ${LINE}`, display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexShrink: 0 }}>
             <button onClick={() => setFormOpen(false)} style={s.cancelBtn}>Cancel</button>
             <button onClick={saveSchedule} disabled={formSaving || !formName.trim() || !formPrompt.trim()} style={s.saveBtn}>
               {formSaving ? 'Saving…' : editTarget ? 'Update' : 'Create'}
@@ -114,10 +114,10 @@ export default function AutomationsPanel({
         {schedules.map(sc => (
           <div key={sc.id} style={{ ...s.toolLogRow, marginBottom: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ flex: 1, fontSize: '0.82rem', color: '#e2e8f0', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sc.name}</span>
-              <span style={{ fontSize: '0.65rem', fontFamily: 'monospace', color: '#818cf8', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '4px', padding: '1px 5px', flexShrink: 0 }}>{sc.schedule}</span>
+              <span style={{ flex: 1, fontSize: '17px', color: '#ffffff', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sc.name}</span>
+              <span style={{ fontSize: '13px', fontFamily: TERM, color: CYN, background: 'rgba(39,216,255,0.10)', border: `1px solid rgba(39,216,255,0.40)`, padding: '1px 5px', flexShrink: 0 }}>{sc.schedule}</span>
             </div>
-            <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: '14px', color: FG4, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {sc.prompt?.slice(0, 80)}{sc.prompt?.length > 80 ? '…' : ''}
             </div>
             <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -125,7 +125,7 @@ export default function AutomationsPanel({
                 {sc.is_active ? '● Active' : '○ Paused'}
               </button>
               <button onClick={() => triggerRun(sc.id)} disabled={triggeringId === sc.id}
-                style={{ ...s.attachBtn, fontSize: '0.68rem', color: '#34d399', borderColor: 'rgba(52,211,153,0.3)' }}>
+                style={{ ...s.attachBtn, fontSize: '0.68rem', color: GRN, borderColor: 'rgba(61,255,110,0.40)' }}>
                 {triggeringId === sc.id ? '…' : '▶ Run'}
               </button>
               <button onClick={() => toggleExpanded(sc.id)} style={{ ...s.attachBtn, fontSize: '0.68rem' }}>
@@ -136,20 +136,20 @@ export default function AutomationsPanel({
               <button onClick={() => deleteSchedule(sc.id)} style={{ ...s.delBtn, fontSize: '0.68rem' }}>🗑</button>
             </div>
             {expandedId === sc.id && (
-              <div style={{ marginTop: '0.5rem', borderTop: '1px solid #1e293b', paddingTop: '0.4rem' }}>
-                {runsLoading[sc.id] && <div style={{ fontSize: '0.7rem', color: '#475569', textAlign: 'center' }}>Loading…</div>}
+              <div style={{ marginTop: '0.5rem', borderTop: `1px solid ${LINE}`, paddingTop: '0.4rem' }}>
+                {runsLoading[sc.id] && <div style={{ fontSize: '14px', color: FG4, textAlign: 'center' }}>Loading…</div>}
                 {!runsLoading[sc.id] && (!runsMap[sc.id] || runsMap[sc.id].length === 0) && (
-                  <div style={{ fontSize: '0.7rem', color: '#475569', textAlign: 'center' }}>No runs yet</div>
+                  <div style={{ fontSize: '14px', color: FG4, textAlign: 'center' }}>No runs yet</div>
                 )}
                 {runsMap[sc.id]?.map(run => {
                   const st = runStatus(run)
                   return (
-                    <div key={run.id} style={{ display: 'flex', gap: '0.4rem', alignItems: 'flex-start', fontSize: '0.7rem', padding: '3px 0', borderBottom: '1px solid #0f172a' }}>
+                    <div key={run.id} style={{ display: 'flex', gap: '0.4rem', alignItems: 'flex-start', fontSize: '14px', padding: '3px 0', borderBottom: `1px solid ${LINE2}` }}>
                       <span style={{ color: st.color, fontWeight: 700, flexShrink: 0 }}>{st.label}</span>
-                      <span style={{ color: '#475569', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                      <span style={{ color: FG4, flexShrink: 0, whiteSpace: 'nowrap' }}>
                         {run.started_at ? new Date(run.started_at).toLocaleString() : '—'}
                       </span>
-                      {run.error && <span style={{ color: '#f87171', flex: 1, wordBreak: 'break-word' }}>{run.error}</span>}
+                      {run.error && <span style={{ color: RED, flex: 1, wordBreak: 'break-word' }}>{run.error}</span>}
                     </div>
                   )
                 })}

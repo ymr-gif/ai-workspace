@@ -1,4 +1,4 @@
-import s from '../../lib/chatStyles.js'
+import s from '../../../lib/chatStyles.js'
 
 export default function FilesPanel({
   filesOpen, setFilesOpen,
@@ -33,7 +33,7 @@ export default function FilesPanel({
 
       <div style={s.fileUploadRow}>
         <button onClick={() => fileInputRef.current?.click()} disabled={fileUploading}
-          style={{ ...s.ingestBtn, background:'#1e1b4b', color:'#818cf8', borderColor:'#312e81' }}>
+          style={{ ...s.ingestBtn, background:'rgba(39,216,255,0.08)', color:'#27d8ff', borderColor:'rgba(39,216,255,0.40)' }}>
           {fileUploading ? 'Uploading…' : '⬆ Upload'}
         </button>
         <input ref={fileInputRef} type="file" style={{ display:'none' }} onChange={uploadFile} />

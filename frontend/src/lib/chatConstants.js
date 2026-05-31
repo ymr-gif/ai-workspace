@@ -16,6 +16,6 @@ export const MODEL_SUBLABELS = {
 export const COMPARE_MODELS = Object.values(MODEL_KEYS)
 
 export const SECTION_COLORS = {
-  USER:'#818cf8', STACK:'#34d399', PROJECT:'#fbbf24', CORRECTIONS:'#f87171', PATTERNS:'#a78bfa',
-  GOALS:'#38bdf8', ARCH:'#fb923c', STATUS:'#4ade80', PENDING:'#f472b6',
+  USER:'#27d8ff', STACK:'#3dff6e', PROJECT:'#ffb000', CORRECTIONS:'#ff2222', PATTERNS:'#27d8ff',
+  GOALS:'#3dff6e', ARCH:'#ffb000', STATUS:'#3dff6e', PENDING:'#ffb000',
 }

@@ -3,15 +3,15 @@
 ## Stack
 - React + Vite; `vite.config.js` proxies `/api` → `localhost:8000`
 - `src/App.jsx` — login form, JWT in localStorage as `nim_token`
-- `src/components/Chat.jsx` — orchestrator; imports hooks + sub-components under `chat/`
+- `src/components/Chat/index.jsx` — orchestrator; imports hooks + sub-components
 - `src/hooks/` — 13 hooks: useConversations, useMemory, useWorkspace, useFiles, useModelParams, useSettings, useToolLogs, useUsage, useAdmin, useInsights, useSearch, useScheduledPrompts, useGoals
-- `src/components/chat/` — 15 sub-components: Sidebar, MessageList, ModelToolbar, SettingsModal, WorkspaceModal, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel, AutomationsPanel, GoalsPanel
+- `src/components/Chat/*/index.jsx` — 15 sub-components: Sidebar, MessageList, ModelToolbar, SettingsModal, WorkspaceModal, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel, AutomationsPanel, GoalsPanel
 - **All fetch calls must use `/api/` prefix** — bare paths bypass proxy and 404 silently
 - **JWT flow:** login → `POST /api/auth/token` → store token as `nim_token` in localStorage → `Authorization: Bearer` on all fetch calls
 
 ---
 
-## Chat.jsx — Key Features
+## Chat/index.jsx — Key Features
 - Streaming: raw `<p>` + blinking cursor → done → `<ReactMarkdown>` in `.md-body`
 - Per-bubble: `{totalTokens} tok · $x.xxxxx · [query_type] · N src`; live from SSE "done" (`query_type`, `src_count`, `provenance[]` fields); `[query_type]` = factual/relational/temporal/broad; `· N src` badge green ≥3, amber 1–2, hidden if 0
 - **Workspace filter pills** — loaded from `GET /api/workspaces` on mount; "All" + per-workspace; ⚙ edit/delete + create; `workspace_id` sent in every `/api/chat/stream` request; selected workspace persisted to `localStorage` key `nim_sidebar_ws_id` via `useWorkspace.js`; validated against loaded list on mount, cleared if ID no longer exists
@@ -69,12 +69,15 @@
 Scoped to `.md-body` via `<style>` tag. Covers: p · h1-h4 · code/pre · ul/ol/li · blockquote · table · a · strong · em · hr
 
 ## Conventions & Known Fixes
+
+### Component Structure
+- **All components use `ComponentName/index.jsx` pattern** — no flat `.jsx` files under `components/`. Imports must omit file extension (Vite resolves to `index.jsx` automatically).
 - **Message roles:** AI messages use `role: 'ai'` (not `'assistant'`) — `MessageList.jsx` conditions must match `'ai'`
 - **`queryType` / `srcCount` badges** render only on `role === 'ai'` + `!streaming`
 - **`deleteInsight`** captures `wasUnread` before the `await` to avoid stale closure
 - **`attachedIds`** in `useFiles.js` is a `useMemo` — do not revert to inline `new Set()`
-- **Derived memory values** in `Chat.jsx` (`sections`, `projectSections`, `hasMemory`, `wordCount`, `diffTarget`, `diffLines`) are all `useMemo` — keep them that way
-- **`parseMemory`** in `MemoryPanel.jsx` workspace view is called once via IIFE — do not split into two calls
+- **Derived memory values** in `Chat/index.jsx` (`sections`, `projectSections`, `hasMemory`, `wordCount`, `diffTarget`, `diffLines`) are all `useMemo` — keep them that way
+- **`parseMemory`** in `MemoryPanel/index.jsx` workspace view is called once via IIFE — do not split into two calls
 
 ---
 

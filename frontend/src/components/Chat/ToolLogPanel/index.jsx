@@ -1,5 +1,5 @@
-import s from '../../lib/chatStyles.js'
-import { fmtDate } from '../../lib/chatUtils.js'
+import s, { LINE } from '../../../lib/chatStyles.js'
+import { fmtDate } from '../../../lib/chatUtils.js'
 
 export default function ToolLogPanel({
   toolLogOpen, setToolLogOpen,
@@ -17,7 +17,7 @@ export default function ToolLogPanel({
           <button onClick={() => setToolLogOpen(false)} style={s.closeBtn}>✕</button>
         </div>
       </div>
-      <div style={{ padding:'0.5rem 1.25rem', borderBottom:'1px solid #1e293b', flexShrink:0, display:'flex', gap:'0.4rem' }}>
+      <div style={{ padding:'0.5rem 1.25rem', borderBottom:`1px solid ${LINE}`, flexShrink:0, display:'flex', gap:'0.4rem' }}>
         <button onClick={() => loadToolLogs(activeConvId)}
           style={{ ...s.wsPill, ...(activeConvId ? s.wsPillActive : {}) }}>
           This conversation
