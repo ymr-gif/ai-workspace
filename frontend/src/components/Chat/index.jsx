@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import s, { LAYERS, RED, GRN, CYN, AMB, FG4, DISP, TERM } from '../../lib/chatStyles.js'
+import s, { LAYERS, RED, GRN, CYN, AMB, FG4, LINE2, DISP, TERM } from '../../lib/chatStyles.js'
 import { MODEL_LABELS, MODEL_SUBLABELS } from '../../lib/chatConstants.js'
 import { fmtDate, parseMemory, computeDiff } from '../../lib/chatUtils.js'
 
