@@ -3,8 +3,10 @@
 ## Stack
 - React + Vite; `vite.config.js` proxies `/api` → `localhost:8000`
 - `src/App.jsx` — login form, JWT in localStorage as `nim_token`
-- `src/components/Chat/index.jsx` — orchestrator; imports hooks + sub-components
-- `src/hooks/` — 13 hooks: useConversations, useMemory, useWorkspace, useFiles, useModelParams, useSettings, useToolLogs, useUsage, useAdmin, useInsights, useSearch, useScheduledPrompts, useGoals
+- `src/components/Chat/index.jsx` — orchestrator; uses `useStreamChat` hook for SSE, `closeAllExcept` helper, wraps panels in `<PanelPropsCtx.Provider>` with all hook state as single object
+- `src/components/Chat/PanelPropsContext.js` — React context eliminating prop drilling; panels consume via `usePanelProps()`
+- `src/lib/chatStyles.js` — shared style objects; `LAYERS` constant for z-indices, `panelBase` for all slide-in panels
+- `src/hooks/` — 14 hooks: useConversations, useMemory, useWorkspace, useFiles, useModelParams, useSettings, useToolLogs, useUsage, useAdmin, useInsights, useSearch, useScheduledPrompts, useGoals, useStreamChat
 - `src/components/Chat/*/index.jsx` — 15 sub-components: Sidebar, MessageList, ModelToolbar, SettingsModal, WorkspaceModal, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel, AutomationsPanel, GoalsPanel
 - **All fetch calls must use `/api/` prefix** — bare paths bypass proxy and 404 silently
 - **JWT flow:** login → `POST /api/auth/token` → store token as `nim_token` in localStorage → `Authorization: Bearer` on all fetch calls
@@ -12,6 +14,7 @@
 ---
 
 ## Chat/index.jsx — Key Features
+- **SSE streaming extracted to `useStreamChat` hook** — `Chat/index.jsx` calls `const { send, buildBody } = useStreamChat({ token, conv, modelParams, ws, mem, insights, onLogout })`. The hook manages all streaming state internally.
 - Streaming: raw `<p>` + blinking cursor → done → `<ReactMarkdown>` in `.md-body`
 - Per-bubble: `{totalTokens} tok · $x.xxxxx · [query_type] · N src`; live from SSE "done" (`query_type`, `src_count`, `provenance[]` fields); `[query_type]` = factual/relational/temporal/broad; `· N src` badge green ≥3, amber 1–2, hidden if 0
 - **Workspace filter pills** — loaded from `GET /api/workspaces` on mount; "All" + per-workspace; ⚙ edit/delete + create; `workspace_id` sent in every `/api/chat/stream` request; selected workspace persisted to `localStorage` key `nim_sidebar_ws_id` via `useWorkspace.js`; validated against loaded list on mount, cleared if ID no longer exists
@@ -72,11 +75,16 @@ Scoped to `.md-body` via `<style>` tag. Covers: p · h1-h4 · code/pre · ul/ol/
 
 ### Component Structure
 - **All components use `ComponentName/index.jsx` pattern** — no flat `.jsx` files under `components/`. Imports must omit file extension (Vite resolves to `index.jsx` automatically).
+- **Panels consume `usePanelProps()` from `PanelPropsContext.js`** — no prop destructuring in panel function signatures. Each panel destructures its slice: `const { foo, bar } = p.mem`, `const { baz } = p.conv`, etc.
+- **New hook state belongs in context provider** — add to the ctx object in `Chat/index.jsx`, not as new props on every panel.
 - **Message roles:** AI messages use `role: 'ai'` (not `'assistant'`) — `MessageList.jsx` conditions must match `'ai'`
 - **`queryType` / `srcCount` badges** render only on `role === 'ai'` + `!streaming`
 - **`deleteInsight`** captures `wasUnread` before the `await` to avoid stale closure
 - **`attachedIds`** in `useFiles.js` is a `useMemo` — do not revert to inline `new Set()`
-- **Derived memory values** in `Chat/index.jsx` (`sections`, `projectSections`, `hasMemory`, `wordCount`, `diffTarget`, `diffLines`) are all `useMemo` — keep them that way
+- **`closeAllExcept(...keep)`** — single helper in `Chat/index.jsx` for panel close logic. Adding a panel requires zero handler edits.
+- **Derived memory values**, **derived search values**, **derived file values** and all hook return values are collected into a single `ctx` object in `Chat/index.jsx` and passed via `<PanelPropsCtx.Provider>`. Add any new derived value to the `ctx` object — never thread it as a separate prop.
+- **`LAYERS` constant** in `chatStyles.js` centralizes all z-indices. Use `LAYERS.panel`, `LAYERS.viewer`, `LAYERS.settingsModal`, `LAYERS.wsModal` — never raw z-index values.
+- **`panelBase`** in `chatStyles.js` provides shared slide-in panel styles. All 6 side panels use `{...panelBase, width, maxWidth}` with overrides only for dimension/color differences.
 - **`parseMemory`** in `MemoryPanel/index.jsx` workspace view is called once via IIFE — do not split into two calls
 
 ---
