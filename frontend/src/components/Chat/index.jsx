@@ -161,12 +161,6 @@ export default function Chat({ token, onLogout }) {
           </span>
           <div style={s.headerRight}>
             {conv.activeConvId && (
-              <button onClick={conv.toggleConvMemory} disabled={conv.memToggling} title={conv.convMemEnabled ? 'Context ON' : 'Context OFF'}
-                style={{ ...s.hdrBtn, color: conv.convMemEnabled ? GRN : FG4, borderColor: conv.convMemEnabled ? GRN : LINE2 }}>
-                {conv.convMemEnabled ? '◉' : '○'} Ctx
-              </button>
-            )}
-            {conv.activeConvId && (
               <button onClick={() => settings.setSettingsOpen(true)} style={s.hdrBtn} title="Conversation settings">⚙</button>
             )}
             <button onClick={() => { closeAllExcept(); usage.setUsageOpen(o => !o) }}

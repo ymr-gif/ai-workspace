@@ -111,11 +111,10 @@ async def _build_stream_context(
     rid:          str,
 ) -> dict:
     memory_row      = await db.get(UserMemory, current_user.id)
-    memory_enabled  = conv.memory_enabled
-    memory_sheet    = (memory_row.content         if memory_row and memory_row.content         else "") if memory_enabled else ""
-    project_summary = (memory_row.project_summary if memory_row and memory_row.project_summary else "") if memory_enabled else ""
+    memory_sheet    = (memory_row.content         if memory_row and memory_row.content         else "")
+    project_summary = (memory_row.project_summary if memory_row and memory_row.project_summary else "")
 
-    if memory_row and memory_enabled:
+    if memory_row:
         memory_row.salience   = compute_salience(memory_row.salience, access_count=1)
         memory_row.last_used_at = datetime.now(timezone.utc)
 
@@ -249,7 +248,7 @@ async def _build_stream_context(
                 workspace_memory = ws_mem.content
 
     conflicted_facts: frozenset[str] = frozenset()
-    if memory_enabled and memory_sheet:
+    if memory_sheet:
         now = datetime.now(timezone.utc)
         result = await db.execute(
             select(MemoryConflict)
@@ -292,17 +291,16 @@ async def _build_stream_context(
 
     graph_context = ""
     graph_facts   = ""
-    if memory_enabled:
-        try:
-            from llm.graph_memory import query_context as graph_query
-            graph_context = await graph_query(current_user.id, req.message, limit=50)
-        except Exception:
-            logger.exception("[graph] query_context failed")
-        try:
-            from llm.graph_memory import query_by_keywords
-            graph_facts = await query_by_keywords(current_user.id, req.message)
-        except Exception:
-            logger.exception("[graph] query_by_keywords failed")
+    try:
+        from llm.graph_memory import query_context as graph_query
+        graph_context = await graph_query(current_user.id, req.message, limit=50)
+    except Exception:
+        logger.exception("[graph] query_context failed")
+    try:
+        from llm.graph_memory import query_by_keywords
+        graph_facts = await query_by_keywords(current_user.id, req.message)
+    except Exception:
+        logger.exception("[graph] query_by_keywords failed")
 
     active_goals = ""
     try:
@@ -323,7 +321,6 @@ async def _build_stream_context(
                 policy["k_dense"], policy["k_sparse"], policy["top_k"])
 
     return {
-        "memory_enabled":      memory_enabled,
         "memory_sheet":        memory_sheet,
         "project_summary":     project_summary,
         "history_summary":     history_summary,
