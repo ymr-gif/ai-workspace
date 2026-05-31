@@ -21,6 +21,10 @@ from observability.prom_metrics import (
 from observability.token_metrics import record_tokens
 from rate_limiter import limit, check_model_rate
 
+from agent.boot import agent_boot, format_boot_log
+from agent.canvas_graph import update_scratchpad
+from agent.node import registry as node_registry
+
 from .helpers import (
     _build_stream_context, _check_cost_cap, _extract_model_params,
     _resolve_conversation, _resolve_model,
@@ -125,6 +129,31 @@ async def chat_stream(
                 )
 
     ctx = await _build_stream_context(req, conv, current_user, db, rid)
+
+    # Agent boot — health check, scratchpad restore, canvas state
+    boot_report = await agent_boot(current_user.id)
+    boot_log = format_boot_log(boot_report)
+    node_inventory_lines = [f"NODE INVENTORY ({len(node_registry)} types):"]
+    ni_width = max(len(n) for n in node_registry) + 2
+    for n_name, n_def in node_registry.items():
+        node_inventory_lines.append(f"{n_name.ljust(ni_width)}→ {n_def.label}")
+    node_inventory_lines.append("")
+    node_inventory_lines.append("Use create_canvas_node / wire_nodes to build your workspace.")
+    node_inventory_lines.append("Use delete_canvas_node / update_canvas_node / unwire_nodes to modify it.")
+    node_inventory_lines.append("Use get_canvas_graph / query_canvas to inspect your canvas.")
+    node_inventory_lines.append("Use update_scratchpad to persist context across sessions.")
+    node_inventory = "\n".join(node_inventory_lines)
+
+    canvas = boot_report.canvas
+    canvas_lines = []
+    if canvas.get("nodes"):
+        canvas_lines.append("[CANVAS STATE]")
+        for n in canvas["nodes"]:
+            conns = n.get("connections", [])
+            conn_str = f" → {len(conns)} connections" if conns else ""
+            canvas_lines.append(f"  {n.get('node_type', '?')} ({n.get('node_id', '?')[:8]}){conn_str}")
+    canvas_state = "\n".join(canvas_lines)
+
     # Workspace system_prompt takes precedence; merge with conv system_prompt if both set
     ws_sysprompt  = ctx.get("workspace_sysprompt")
     conv_sysprompt = conv.system_prompt or None
@@ -145,6 +174,7 @@ async def chat_stream(
             active_goals=ctx.get("active_goals", ""),
             conflicted_facts=ctx.get("conflicted_facts", frozenset()),
             last_session=ctx.get("last_session", ""),
+            boot_log=boot_log, node_inventory=node_inventory, canvas_state=canvas_state,
         )
         t_cmp = metrics.record_request_start()
 
@@ -198,6 +228,7 @@ async def chat_stream(
                 conflicted_facts=ctx.get("conflicted_facts", frozenset()),
                 fact_saliences=ctx.get("fact_saliences", {}),
                 last_session=ctx.get("last_session", ""),
+                boot_log=boot_log, node_inventory=node_inventory, canvas_state=canvas_state,
             ):
                 if event["type"] == "token":
                     accumulated.append(event["content"])
@@ -289,6 +320,18 @@ async def chat_stream(
                                 tools_in_turn,
                                 model_used,
                             )
+
+                        # Save agent scratchpad (append-only merge)
+                        from datetime import datetime, timezone
+                        try:
+                            await update_scratchpad(current_user.id, {
+                                "last_message": req.message[:200],
+                                "summary": req.message[:120],
+                                "last_action": "chat_response",
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                            })
+                        except Exception:
+                            logger.warning("[scratchpad] update failed rid=%s", rid)
 
                         event["prompt_tokens"]     = pt
                         event["completion_tokens"] = ct

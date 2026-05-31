@@ -1,6 +1,6 @@
 # NIM AI Gateway — Project Summary
 
-Generated: 2026-05-30
+Generated: 2026-05-31
 
 ---
 
@@ -27,6 +27,7 @@ ai-api/
 ├── HANDOFF_PROTOCOL.md     ← multi-agent delegation workflow
 ├── HANDOFF.md              ← current owner file (exactly one at all times)
 ├── HANDOFF_ARCHIVE.md      ← completed handoff records
+├── agent/                  ← [symlink to backend/agent/] canvas node registry + CRUD + boot
 ├── backend/                ← FastAPI app
 ├── docker/                 ← Compose, Dockerfiles, Grafana config
 └── frontend/               ← React/Vite UI
@@ -108,12 +109,16 @@ backend/
 │   ├── prompts_scheduled.py — PromptTemplate, ScheduledPrompt, ScheduledPromptRun
 │   ├── auth.py              — Invitation
 │   └── system.py            — SystemConfig
-├── alembic/versions/        — 033 migrations; latest: 033_user_behavior_profile.py
+├── agent/                   — autonomous canvas: Node registry, Neo4j canvas CRUD, boot diagnostics
+│   ├── node.py              — Node dataclass + 12-type registry (input/session/memory/files/…)
+│   ├── canvas_graph.py      — create/delete/update/wire/unwire/query/get canvas; scratchpad CRUD; Redis cache
+│   └── boot.py              — _check_health() diagnostics + BootReport + format_boot_log()
+├── alembic/versions/        — 036 migrations; latest: 036_agent_scratchpad.py
 ├── auth/                    — JWT, bcrypt (direct), API key fallback, invite validation
 ├── llm/
 │   ├── service/             — context build, context budget allocator, SSE stream + tool loop
 │   ├── nim.py               — NIM API call; accumulates tool_call deltas
-│   ├── tools/               — 10 tool schemas + execute_tool()
+│   ├── tools/               — 17 tool schemas (10 existing + 7 canvas) + execute_tool()
 │   ├── graph_memory.py      — Neo4j extraction (70B) + query_by_keywords
 │   ├── router.py            — keyword classify(), model route(), get_context_limit()
 │   ├── circuit_breaker.py   — threshold=5, cooldown=90s, Redis-persisted
@@ -147,7 +152,7 @@ backend/
 ## Key Models
 
 - **User** — `cost_limit_usd`/`cost_window_days` cap, `api_key` auth, `is_active` gate
-- **UserMemory** — `content` text, `salience` float (1.0 default), `confidence` float, `fact_saliences` JSONB (per-line scores), `version` int
+- **UserMemory** — `content` text, `salience` float (1.0 default), `confidence` float, `fact_saliences` JSONB (per-line scores), `version` int, `agent_scratchpad` JSONB (agent notes, cross-session context)
 - **UserMemoryVersion** — snapshot on every compaction; History tab source
 - **UserBehaviorProfile** — one row per user, `profile` JSONB: `query_types / topic_keywords / tools_used / models_used / total_messages`; migration 033
 - **Conversation** — `title`, `locked_model`, `workspace_id`, `updated_at` (timezone-aware)
@@ -213,7 +218,7 @@ backend/
 ## AI Agent Tool Loop
 
 - **Trigger:** any message when `file_ids` non-empty → forces reasoning model (70B)
-- **Tools (10):** `list_files` · `read_file` (100k cap, 12000 char context limit) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory`
+- **Tools (17 total — 10 existing + 7 canvas):** `list_files` · `read_file` · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph`
 - **Guards:** same tool >3× → abort; `MAX_TOOL_ITERATIONS=10`; tool result capped 12000 chars in context
 - **`ask_user`:** yields `{type:"ask_user"}` SSE + done → pauses loop; amber card in UI
 - **`write_memory`:** offered only when reasoning model selected AND `_needs_memory_tool()` returns true; yields `{type:"confirm_write_memory", fact}` SSE; green card in UI; user confirms → `POST /api/memory/write`
@@ -331,6 +336,7 @@ frontend/src/
 - Sync file I/O + CPU parsing wrapped in `asyncio.to_thread()`
 - Auth uses `bcrypt` directly (no passlib) — `$2b$` hashes compatible
 - Neo4j: MERGE SET preserves specific type over OTHER; 500-entity cap per user (evicts oldest); graph cache in Redis 60s TTL; busted on every entity write
+- Neo4j canvas: `CanvasNode` label (separate from `Entity`); `WIRED_TO` relationship with typed ports; `canvas_user_id` index; Redis `canvas:{uid}` cache 60s TTL busted on every graph mutation
 - `/admin/env` PUT writes `.env` + updates running config live; POST `/admin/env/reload` does `importlib.reload(config)`
 - `nginx.frontend.conf`: `resolver 127.0.0.11 valid=10s` + `set $upstream api` forces Docker DNS re-resolution after rebuilds; `rewrite ^/api/(.*) /$1 break` strips prefix (variable proxy_pass does NOT auto-strip)
 - Prometheus: multiprocess mode via `PROMETHEUS_MULTIPROC_DIR=/tmp/prom_multiproc` + `tmpfs`; in-process counters reset on container restart but TSDB volume persists rates
@@ -347,9 +353,9 @@ frontend/src/
 
 ---
 
-## Roadmap Status (as of 2026-05-30)
+## Roadmap Status (as of 2026-05-31)
 
-**P0 + P1 complete. P2 in progress (#12 done).** Overall vision alignment: ~78%.
+**P0 + P1 complete. P2 in progress (#12, #14 done).** Overall vision alignment: ~82%.
 
 ### P0 — Core Cognition (all ✅)
 1. ✅ Autonomous Memory Writing — `write_memory` tool; user-confirm green card
@@ -370,8 +376,9 @@ frontend/src/
 12. ✅ User-Defined Scheduled Agents — `AutomationsPanel.jsx`; `useScheduledPrompts.js`; full CRUD + run history; workspace + cron alias support; migration 034
 13. ✅ Goal / Task Tracker — `UserGoal` model; `[ACTIVE GOALS]` context block (tier 3); `GoalsPanel.jsx` + `useGoals.js`; migration 035
 14. ✅ Pattern Detection + Proactive Triggers — `detect_recurring_patterns()`; 7-day dedup guard; ARQ enqueue with hint; `agency.py` merged + hint kwarg
-15. Web Search Tool — `WEB_SEARCH_ENABLED` + `WEB_SEARCH_BACKEND` env vars
-16. Daily/Weekly Digest
+15. ✅ Global Autonomous Agent Canvas (NEW-2026-05-31) — Neo4j-backed node graph; 12 typed node types with input/output ports; `WIRED_TO` relationships with port validation; `agent_scratchpad` JSONB for cross-session context; boot diagnostics on agent init; 7 new canvas tools; zero collisions with existing Entity labels/tools/endpoints
+16. Web Search Tool — `WEB_SEARCH_ENABLED` + `WEB_SEARCH_BACKEND` env vars
+17. Daily/Weekly Digest
 
 ### P3 — Future
 Live webpage ingestion · External integrations (Drive, Notion, GitHub) · Image storage + indexing · Voice input · Horizontal scaling (Redis distributed locks replacing pg advisory) · Multi-modal memory
@@ -383,9 +390,9 @@ Live webpage ingestion · External integrations (Drive, Notion, GitHub) · Image
 | 1. Persistent Memory | 97% |
 | 2. Unified Interface | 90% |
 | 3. Reasoning Loop | 65% |
-| 4. Autonomous Agency | 45% |
+| 4. Autonomous Agency | 60% |
 | 5. Real-Time Perception | 10% |
-| **Overall** | **~78%** |
+| **Overall** | **~82%** |
 
 ---
 
@@ -400,182 +407,16 @@ Live webpage ingestion · External integrations (Drive, Notion, GitHub) · Image
 
 ---
 
----
-
-# Verification Session — Cross-Session Continuity Summary (ROADMAP #4)
-
-**Date:** 2026-05-30  
-**Triggered by:** `/verify`  
-**Feature verified:** Cross-Session Continuity Summary — the last completed ROADMAP item before this session.
-
----
-
-## What the Feature Does
-
-When a user starts a **new** conversation (not replying to an existing one), the backend:
-1. Looks up the most recently updated conversation that is NOT the current one
-2. Formats a string: `Last session: "<title>" — X minutes/hours/days ago`
-3. Injects it as a `[LAST SESSION]` block (tier 8 in context priority — first to drop under budget pressure)
-4. Emits it in the SSE `done` event as `last_session`
-
-The frontend:
-1. Reads `event.last_session` from the SSE `done` event
-2. Stores it in `lastSession` state (in `useConversations.js`)
-3. Renders `✦ Last session: "…" — X ago` as a muted dim line above the first AI bubble
-4. Auto-dismisses after 8 seconds via `useEffect` + `setTimeout`
-5. Clears immediately on next message send via `conv.setLastSession('')`
-
-**Files touched by the feature:**
-- `backend/api/chat/helpers.py` — query for last conversation, build `last_session` string
-- `backend/api/chat/stream.py` — pass `last_session` to `generate_stream`; add to `done` event
-- `backend/llm/service/context.py` — accept `last_session` param; inject as `[LAST SESSION]` block; tier-8 budget priority
-- `backend/llm/service/stream.py` — thread `last_session` through `generate_stream` signature
-- `frontend/src/hooks/useConversations.js` — `lastSession` + `setLastSession` state
-- `frontend/src/components/Chat.jsx` — read `event.last_session` from SSE; 8s auto-dismiss `useEffect`; pass `lastSession` to `MessageList`; clear on send
-- `frontend/src/components/chat/MessageList.jsx` — render banner above first AI bubble using `Fragment` wrapper; find first AI message index
-
----
-
-## Verification Process
-
-### Step 1 — Identify the scope
-
-```bash
-git log --oneline @{u}..
-```
-
-Found 3 feature commits:
-- `c807b76` — complete Cross-Session Continuity Summary frontend + close P0
-- `0d8f25a` — add Cross-Session Continuity Summary backend
-- `eacc5fc` — plan Cross-Session Continuity Summary
-
-Full diff stat: 21 files changed, 504 insertions, 127 deletions (includes prior P0 work).
-
-### Step 2 — Check for verifier skills
-
-```bash
-ls .claude/skills/
-```
-
-No `.claude/skills/` directory — cold start from scratch.
-
-### Step 3 — Confirm app is running
-
-```bash
-docker compose -f docker/docker-compose.yml ps
-```
-
-All services up. `docker-api-1` and `docker-frontend-1` both running on ports 8000 and 3000.
-
-### Step 4 — Initial Playwright test (inline `python3 -c`)
-
-Confirmed frontend loads (HTTP 200, title "NIM AI Gateway"). Identified that the chat input uses `input[placeholder="Ask anything…"]` (not a `textarea`). Identified `button:has-text("+ New Chat")` for starting fresh conversations.
-
-**Note:** Playwright scripts written to `/tmp/` files failed with `ERR_CONNECTION_REFUSED` — the file-based execution runs in a sandboxed environment without localhost network access. All Playwright execution had to use inline `python3 -c "..."` via the Bash tool.
-
-### Step 5 — Direct SSE test (first attempt — stale container)
-
-```bash
-TOKEN=$(curl -s -X POST http://localhost:8000/auth/token ...)
-curl -s -N --max-time 30 -X POST http://localhost:8000/chat/stream \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"message":"say hi","conversation_id":null}' | grep '"type":"done"'
-```
-
-**Finding:** The `done` event did NOT contain a `last_session` field at all:
-```json
-{"type":"done","model":"meta/llama-3.1-8b-instruct","cache_hit":false,...,"src_count":0,"conversation_id":"bceaa6e3-..."}
-```
-
-`query_type`, `src_count`, and `provenance` were present (added just above `last_session` in `stream.py`), but `last_session` was completely absent. This meant either the code wasn't executing line 327, or the container wasn't running the new code at all.
-
-### Step 6 — Diagnose: stale container
-
-Compared image build time against commit timestamps:
-
-```bash
-git log --format="%h %ai %s" -5
-docker images docker-api --format='{{.CreatedAt}}'
-```
-
-**Result:**
-- Docker image built: `2026-05-29 20:22:18 +0800` (12:22 UTC)
-- Feature commits: `01:40–02:07 +0800` (17:40–18:07 UTC next day)
-- **The image was ~6 hours behind the commits.** The entire Cross-Session feature was undeployed.
-
-### Step 7 — Rebuild and restart
-
-```bash
-docker compose -f docker/docker-compose.yml build api frontend
-docker compose -f docker/docker-compose.yml up -d api frontend
-```
-
-Both images rebuilt and containers restarted. Both services returned HTTP 200 after restart.
-
-### Step 8 — Re-test SSE stream (after rebuild)
-
-Same curl command as Step 5. **Result:**
-```json
-{"type":"done",...,"last_session":"Last session: \"User says hi, AI responds.\" — 1 minutes ago","conversation_id":"33fcc196-..."}
-```
-
-Backend correctly generates and emits `last_session`. The `—` is the em dash (`—`) from the format string.
-
-### Step 9 — UI verification via Playwright
-
-Logged in as `user`, clicked `+ New Chat`, typed `Say hi`, pressed Enter. Watched for `✦` character in page content.
-
-**Result:** Banner appeared at 0.5s (first poll after message arrived). Banner text extracted from DOM:
-
-```
-✦ Last session: "User says hi, AI responds." — 1 minutes ago
-```
-
-Screenshot saved: `/tmp/02_banner.png`
-
-### Step 10 — Auto-dismiss test
-
-After banner appeared, polled every 500ms for absence of `✦`.
-
-**Result:** Banner disappeared at exactly ~8.0s after appearing.
-
-Screenshot saved: `/tmp/03_dismissed.png`
-
-### Step 11 — Probes
-
-**Probe 1: Banner should NOT appear when replying to an existing conversation.**
-
-Clicked an existing conversation in the sidebar, sent a message, waited 10s.
-
-Result: No banner appeared. ✅ (`last_session` is only populated when `req.conversation_id` is null in the backend; existing conversations send their ID.)
-
-**Probe 2: Second message in same new conversation should not re-show banner.**
-
-Started new conversation, sent first message, waited for banner, then sent second message.
-
-Result: Banner cleared immediately on second send. ✅ (`conv.setLastSession('')` is called at the start of every send handler regardless of whether it's the first or a subsequent message.)
-
-**Probe 3: Zero prior conversations (code path, not live).**
-
-All seeded users had existing conversations by the time probes ran, so a live zero-conv test was not possible. Code path verified: `helpers.py` line `if ls_row and ls_row.title:` correctly guards the case — no `ls_row` means `last_session` stays `""`.
-
----
-
-## Verdict
-
-**PASS**
-
-The feature works correctly end-to-end after container rebuild. The stale image deployment gap would have left the feature completely invisible in a production environment.
-
----
-
-## Findings
-
-**⚠️ Plural grammar bug:** `helpers.py` always uses `"minutes"` (plural) even for 1-minute gaps: `"1 minutes ago"`. Should branch on `int(elapsed.total_seconds() / 60) == 1` to emit `"1 minute ago"`. Minor cosmetic issue.
-
-**⚠️ Deploy gap detected and fixed:** Docker images were ~6 hours stale at time of verification. The `docker-api` image build timestamp (`20:22 +0800`) predated all three Cross-Session commits (`01:40–02:07 +0800` the following morning). A production deploy without rebuild would have shipped the feature invisible. Rebuilt as part of verification.
-
-**🔍 Playwright file-based scripts do not have localhost access:** `python3 /tmp/script.py` runs in a sandboxed env without network access to `localhost`. All Playwright execution must use inline `python3 -c "..."` via Bash. This is a session-environment constraint, not a project issue.
-
-**🔍 Zero-conv path not exercised live:** All users accumulated conversations before the no-prior-conversations scenario could be tested. Code is provably correct from inspection but not observable at runtime in this session.
+## Autonomous Agent Canvas
+
+The AI maintains a **Neo4j-backed canvas** — a structured self-model of its workspace with typed nodes and wired connections:
+
+- **12 node types:** input, session, memory, files, logs, usage, workspace, config, insights, goals, automations, mech
+- **Typed ports:** each node defines input/output ports (e.g., `session.input: [message]`, `session.output: [response, metadata]`)
+- **WIRED_TO relationships:** `(src)-[:WIRED_TO {src_port, dst_port, relation}]->(dst)` with port type validation
+- **Agent scratchpad:** `UserMemory.agent_scratchpad` JSONB — agent persists context, goals, and decisions across sessions
+- **Boot diagnostics:** on session init, agent checks model health + Neo4j/Redis/Postgres connectivity + restores canvas state
+- **7 new tools:** `create_canvas_node`, `delete_canvas_node`, `update_canvas_node`, `wire_nodes`, `unwire_nodes`, `query_canvas`, `get_canvas_graph`
+- **Zero collisions:** separate Neo4j label (`CanvasNode` vs `Entity`), prefixed tool names (`canvas_*`), separate Redis cache key
+
+**Key files:** `backend/agent/node.py` · `backend/agent/canvas_graph.py` · `backend/agent/boot.py` · `backend/core/neo4j_client.py` (+1 index) · `backend/models/user.py` (+agent_scratchpad) · `backend/alembic/versions/036_agent_scratchpad.py` · `backend/llm/tools/schemas.py` (+7 schemas) · `backend/llm/tools/executor.py` (+7 branches)

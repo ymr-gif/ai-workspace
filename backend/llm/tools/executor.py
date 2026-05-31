@@ -10,6 +10,10 @@ from .file_ops import (
     _append_to_file, _patch_file,
 )
 from .search import _search_in_file, _search_across_files
+from agent.canvas_graph import (
+    create_node, delete_node, update_node,
+    wire_nodes, unwire_nodes, query_canvas, get_canvas_graph,
+)
 
 logger = logging.getLogger("tools")
 
@@ -50,6 +54,20 @@ async def execute_tool(
             from llm.graph_memory import query_by_term
             term   = args.get("query", "")
             result = (await query_by_term(user_id, term)) or "No entities found for that query."
+        elif name == "create_canvas_node":
+            result = await create_node(user_id, args["node_type"], args.get("config"))
+        elif name == "delete_canvas_node":
+            result = await delete_node(user_id, args["node_id"])
+        elif name == "update_canvas_node":
+            result = await update_node(user_id, args["node_id"], args.get("config"), args.get("status"))
+        elif name == "wire_nodes":
+            result = await wire_nodes(user_id, args["src_id"], args["dst_id"], args["src_port"], args["dst_port"], args["relation"])
+        elif name == "unwire_nodes":
+            result = await unwire_nodes(user_id, args["src_id"], args["dst_id"])
+        elif name == "query_canvas":
+            result = await query_canvas(user_id, args["cypher"])
+        elif name == "get_canvas_graph":
+            result = await get_canvas_graph(user_id)
     except Exception as e:
         logger.warning("[tools] execute_tool failed name=%s err=%s", name, e)
         result = f"Error: {e}"

@@ -4,46 +4,25 @@
 ```
 ├── main.py                 — lifespan, middleware, router includes
 ├── config.py               — env vars loaded from ../.env via find_dotenv()
-├── models/                 — ORM (21 classes across 8 sub-modules)
-│   ├── __init__.py         — re-exports all models
-│   ├── workspace.py        — Workspace, WorkspaceMemory
-│   ├── auth.py             — Invitation
-│   ├── user.py             — User, UserInsight, AdminAuditLog, UserMemory, UserMemoryVersion, UserGoal
-│   ├── file.py             — File, FileChunk, FileVersion
-│   ├── chat.py             — Conversation, Message, MessageEmbedding, ConversationFile
-│   ├── tools.py            — ToolCallLog
-│   ├── prompts_scheduled.py — PromptTemplate, ScheduledPrompt, ScheduledPromptRun
-│   └── system.py           — SystemConfig
-├── alembic/versions/       — 035 migrations; latest: 035_user_goals.py
+├── agent/                  — canvas architecture (node registry, Neo4j CRUD, boot diagnostics)
+│   ├── __init__.py
+│   ├── node.py             — Node dataclass + 12-type registry
+│   ├── canvas_graph.py     — Neo4j CanvasNode CRUD, canvas cache, scratchpad read/write
+│   └── boot.py             — agent_boot() health checks, BootReport, format_boot_log()
+├── models/                 — ORM (21 classes: Workspace, WorkspaceMemory, Invitation, User, UserInsight, AdminAuditLog, UserMemory, UserMemoryVersion, UserGoal, File, FileChunk, FileVersion, Conversation, Message, MessageEmbedding, ConversationFile, ToolCallLog, PromptTemplate, ScheduledPrompt, ScheduledPromptRun, SystemConfig)
+├── alembic/versions/       — 036 migrations; latest: 036_agent_scratchpad.py
 ├── auth/                   — JWT, bcrypt (direct, no passlib), API key fallback, invite validation
 ├── tests/
-│   ├── test.py             — 21 unit tests (standalone, no docker)
-│   └── retrieval/
-│       ├── conftest.py     — shared fixtures, dataset, mock helpers, metric utils
-│       └── test_hybrid_eval.py — 26 tests (mock DB, no NIM)
+│   └── test.py + retrieval/conftest.py + test_hybrid_eval.py — 47 tests, mock DB, no NIM
 ├── llm/
 │   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=10)
 │   ├── nim.py              — NIM API call, accumulates tool_call deltas
-│   ├── tools/              — 10 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
-│   │   ├── schemas.py      — tool definitions
-│   │   ├── executor.py     — execute_tool() dispatch
-│   │   ├── file_ops.py     — read/write/append/patch/create file ops
-│   │   └── search.py       — search_in_file + search_across_files
+│   ├── tools/              — 17 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
+│   │   └── schemas.py, executor.py, file_ops.py, search.py
 │   ├── graph_memory.py     — Neo4j extraction (70B model) + query_by_keywords; entity caps: _MAX_ENTITY_NAME_LEN=200, _MAX_ENTITIES_PER_CALL=30, _MAX_RELS_PER_CALL=60, _MAX_USER_ENTITIES=500 (evicts oldest by updated_at); cache key SHA256[:32]; _cache_del_user() busts on write; skips if compact:running:{user_id} Redis lock held; MERGE SET preserves specific type over OTHER
-│   ├── router.py           — keyword classify(), model route(), get_context_limit()
-│   ├── circuit_breaker.py  — _THRESHOLD=5, _COOLDOWN=90s; Redis persistence (cb:open:{model} EX 90, USE_REDIS gated); restore_circuit_state() on startup
-│   ├── embeddings.py       — embed(text, input_type) → list[float]; timeout=15s
-│   ├── retriever/          — hybrid vector+BM25 fusion (rrf|weighted); debug param
-│   │   ├── fusion.py       — rrf + weighted fusion, score normalization
-│   │   ├── queries.py      — SQL query builders for vector + BM25
-│   │   ├── main.py         — retrieve() entry point, provenance tracking
-│   │   └── attachments.py  — retrieve_from_files() for conversation attachments
-│   ├── summarizer/         — memory compression, compaction, workspace memory updates
-│   │   ├── prompts.py      — summarization prompt templates
-│   │   ├── memory.py       — workspace memory read/write
-│   │   ├── history.py      — history summarization
-│   │   ├── project.py      — project summary updates
-│   │   └── compact.py      — compact_memory() LLM-driven dedup; sets Redis lock compact:running:{user_id} (EX 300s) for graph write coordination
+│   ├── router.py / circuit_breaker.py / embeddings.py — classify, circuit, embed
+│   ├── retriever/          — hybrid vector+BM25 fusion (rrf|weighted); debug param; fusion.py, queries.py, main.py, attachments.py
+│   ├── summarizer/         — memory compression, compaction; prompts.py, memory.py, history.py, project.py, compact.py
 │   └── agency.py           — proactive suggestions + insight generation (ARQ)
 ├── cache/                  — Redis primary + LRU fallback; cache-bypass on file/image/model-param
 ├── core/                   — db (pgbouncer: prepared_statement_cache_size=0), redis, arq, neo4j (get_health; pool size=20, timeout=5s)
@@ -71,7 +50,7 @@
 │   │   ├── env.py          — GET/PUT env vars, reload
 │   │   └── system.py       — POST /re-embed
 │   ├── graph.py            — /graph/stats, /health, /sample (?limit=1-200, ?entity_type=); DELETE /graph/entities/{name}; POST /graph/prune (removes long names + stale OTHER-type entities >7 days)
-│   ├── system.py           — /health, /metrics; probe_models_on_startup() pings all MODELS, pre-trips circuit on failure
+│   ├── system.py           — /health, /metrics, /hardware (CPU/RAM/GPU/disk/uptime — psutil + pynvml); probe_models_on_startup() pings all MODELS, pre-trips circuit on failure
 │   ├── memory.py           — GET /memory returns active_conflicts count; scan_conflicts sets expires_at=+7d; conflicts auto-resolved keep_a after expiry
 │   ├── export.py            — GET /export/full; builds ZIP in memory with conversations/files/memory/graph data
 │   ├── search.py            — GET /api/search unified search; fans out to files/conversations/memory/graph via asyncio.gather
@@ -85,6 +64,7 @@
 │   ├── file_service.py     — fuzzy-patch, save-version-before-mutate; sync I/O in asyncio.to_thread()
 │   └── scheduler_worker.py — APScheduler cron runner; daily memory compaction at 3 AM UTC; backup via BACKUP_SCHEDULE env (default 2 AM UTC)
 ├── storage/                — SHA256 streaming write
+├── requirements.txt        — added psutil + nvidia-ml-py for /hardware endpoint
 └── HANDOFF_PROTOCOL.md     — worker handoff protocol (shared from root)
 ```
 
@@ -97,6 +77,7 @@
 - **SystemConfig**: key/value store — tracks MODEL_EMBEDDING for re-embed triggers
 - Others: 15 more in `models/` (chat, file, workspace, memory, tools, scheduled, auth); ScheduledPrompt now has `workspace_id` (UUID, FK to workspaces, nullable)
 - **UserBehaviorProfile**: one row per user, JSONB `profile` with `query_types / topic_keywords / tools_used / models_used / total_messages`; updated via ARQ `update_behavior_profile_job` post-reply; feeds `generate_user_insight()`; migration 033
+- **UserMemory**: added `agent_scratchpad` JSONB (nullable) in migration 036 — append-only merge canvas writes
 
 ---
 
@@ -110,42 +91,50 @@
 ## AI Agent Tool Loop
 - Trigger: any message when `file_ids` non-empty → always forces reasoning model (70B); 8B cannot reliably use tool results
 - File tools always available when files attached (not keyword-gated); `_needs_file_tools()` no longer gates tool availability
-- Tools: `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory`
+- Tools: `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph`
 - Guards: same tool >3× → abort · MAX_TOOL_ITERATIONS=10 · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
-- `ask_user` yields `{type:"ask_user"}` SSE + done → pauses loop; amber card in UI
-- `write_memory`: offered ONLY when reasoning model selected AND `_needs_memory_tool(message)` returns True (user explicitly says "remember", "memorize", or verb+memory target) — tool is not in the schema at all for other messages, so 70B cannot spontaneously save; yields `{type:"confirm_write_memory", fact}` SSE + done → pauses loop; green card in UI; user confirms → `POST /api/memory/write`
-- `append_to_file`: NEVER used to answer questions; only for explicit "add/append/write to file" requests
-- File tool rules in system prompt: write tools banned for informational responses; `search_in_file` preferred over `read_file` for specific section lookups in large files
-- `POST /api/memory/write` — body `{fact: str}`, reads existing `UserMemory`, appends fact as new line (trim to 500 chars), snapshots version, bumps version +1, boosts salience +0.1
+- `ask_user` / `write_memory` emit SSE + done → pauses loop; amber/green card in UI; `POST /api/memory/write` on user confirm
+- `append_to_file` for explicit write requests only; `search_in_file` preferred over `read_file` for sections
+
+---
+
+## Agent Canvas Architecture
+
+### Node Registry (`agent/node.py`)
+- `Node` dataclass: `name`, `label`, `ports` (input/output), `tools`, `default_config`
+- 12 node types: `input`, `session`, `memory`, `files`, `logs`, `usage`, `workspace`, `config`, `insights`, `goals`, `automations`, `mech`
+- `registry: dict[str, Node]` and `get_node_type()` lookup
+
+### Canvas Graph CRUD (`agent/canvas_graph.py`)
+- create/delete/update `CanvasNode` (label separate from `Entity`); wire/unwire with port validation; get_node with incident wires
+- get_canvas_graph (Redis `canvas:{uid}` TTL 60s); read-only `query_canvas` (write keyword guard); scratchpad R/W via SQLAlchemy `UserMemory.agent_scratchpad` (append-only merge)
+- All ops scoped to `CanvasNode` / `agent_scratchpad` / `canvas:` prefix — never touch `Entity`, `UserMemory.content`, or `graph:*` keys
+
+### Boot Sequence (`agent/boot.py`)
+- `agent_boot(user_id)` → `BootReport` with health, scratchpad, canvas graph, node_summary
+- `_check_health()`: pings all models + embedding + Neo4j + Redis + Postgres in parallel
+- `format_boot_log(report)`: formatted for system prompt injection
+
+### System Prompt Injection (Step 7)
+- Boot log, node inventory (12 types), and canvas state prepended to system message on every request
+- Tier 0 (never dropped by context budget allocator)
+- Combined size ~500 tokens
 
 ---
 
 ## Memory System
-Injection order (build_context_messages):
-1. system message — workspace_sysprompt + conv_sysprompt + file list/rules
-2. [GRAPH CONTEXT] — Neo4j entity/relation context (when memory_enabled + Neo4j up); limit=50, min_score=0.5; cached in Redis 60s per (user_id, query_text)
-3. [GRAPH FACTS] — keyword-triggered neighborhood expansion via query_by_keywords; cached in Redis 60s
-4. [USER STATE] — memory_sheet (top 20 facts by salience; conflicted facts suppressed)
-4.5 [ACTIVE GOALS] — active UserGoal entries formatted as numbered list; queried in helpers.py; drops with WORKSPACE STATE (tier 3)
-5. [WORKSPACE STATE] · [PROJECT STATE]
-6. [RELEVANT CONTEXT FROM EARLIER] — cosine top-K retrieved chunks
-7. [EARLIER IN THIS CONVERSATION] — history_summary
-8. [LAST SESSION] — tier 8 (drops first); new-conversation only; content = last conv title + elapsed time; emitted in `done` SSE event as `last_session`
-9. last 10 importance-weighted messages (history)
-10. [FILE CONTEXT] — policy["top_k"] chunks (varies: factual=weighted, relational=RRF etc.); fallback top_k=10 sequential; appended last for recency bias
-10. current user message
+Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACTIVE GOALS → WORKSPACE/PROJECT → RELEVANT CONTEXT → EARLIER IN THIS CONVERSATION → LAST SESSION → history → FILE CONTEXT → user message
 
 - Triggers: memory update >3000 tok OR every 10 asst msgs; history compression + project summary update >4000 tok OR every 15 total msgs (all_count > 10); auto-title after 2nd msg via `asyncio.create_task`
 - Lock: `pg_advisory_xact_lock(user_id)` prevents version races
 - Compaction: LLM-driven dedup via `compact_memory()`; creates `UserMemoryVersion` snapshot; queued via ARQ or daily cron at 3 AM UTC; sets Redis lock `compact:running:{user_id}` (EX 300s) — graph extraction skips while held
-- Preference extraction: `extract_preferences_job` — triggered every 50 assistant messages per user; writes `[PREFERENCES]` section to `UserMemory.content`; Redis lock `pref_extract:running:{user_id}` EX 300s
-- Behavior tracking: `update_behavior_profile_job` — triggered every reply; increments counters for query type, topic keywords, tools used, models used in `UserBehaviorProfile.profile` JSONB; no LLM, pure counter increments; feeds `generate_user_insight()`
-- Context budget: drops lowest-tier sources when estimated tokens exceed `context_window - max_output_tokens - 10%`; re-applied after each tool iteration
-- Salience: `UserMemory` has `salience` (float, default 1.0) and `confidence` (float, default 1.0); bumped on every context load via `compute_salience()`, decayed 0.95/cycle during compaction; memory cleared when salience <0.3
-- `POST /memory/decay`: manual decay pass; GET /memory returns per-fact `facts` array with per-line scores + `active_conflicts` count
-- Conflict resolver: `MemoryConflict` stores `fact_a/fact_b/conflict_type/resolution/expires_at`; expires_at set to +7 days on scan; expired unresolved conflicts auto-resolved `keep_a` during context load (helpers.py); active (not expired) unresolved facts suppressed; resolve via `POST /memory/conflicts/{id}/resolve` strategy `keep_a|keep_b|merge|discard_both`
-- Per-fact salience: `UserMemory.fact_saliences` JSONB maps fact text → score; ranking applies time-based decay `0.95^(hours_since_last_compaction/24)` in-memory (not persisted) before top-20 selection; bumped per-access via `bump_fact_saliences()`; decayed per compaction cycle; entries below 0.05 pruned from JSONB; low-salience facts dropped first by context budget allocator (tier 1 partial drop before full drop)
-- Retrieval re-ranking: retrieved chunks re-scored by `final_score * (1 + memory_salience * 0.05)` after retrieval
+- Preference extraction: `extract_preferences_job` every 50 asst msgs; writes `[PREFERENCES]` to `UserMemory.content`; Redis lock `pref_extract:running:{user_id}` EX 300s
+- Behavior tracking: `update_behavior_profile_job` per reply; increments query_type/topic/tools/models counters in `UserBehaviorProfile.profile` JSONB; no LLM; feeds `generate_user_insight()`
+- Context budget: drops lowest-tier sources when tokens exceed `context_window - max_output_tokens - 10%`; re-applied per tool iteration
+- Salience: bumped on context load via `compute_salience()`, decayed 0.95/cycle during compaction; cleared when <0.3
+- Conflict resolver: `MemoryConflict` stores fact_a/b/type/resolution/expires_at; +7d on scan; expired unresolved auto-resolved `keep_a`; resolve via `POST /memory/conflicts/{id}/resolve`
+- Per-fact salience: `fact_saliences` JSONB maps fact→score; time-based decay `0.95^(hours/24)` before top-20; bumped per-access; <0.05 pruned; low-salience dropped first by budget allocator
+- Retrieval re-ranking: `final_score * (1 + memory_salience * 0.05)` after retrieval
 
 ---
 
@@ -182,9 +171,9 @@ Injection order (build_context_messages):
 - `.env` merge script in root CLAUDE.md — adds missing keys from `.env.example` as commented-out
 - Debug mode: `retriever.retrieve()` / `retrieve_from_files(debug=True)` returns `(chunks, debug_info)` tuple; `/search?debug=true` returns `{"results": [...], "debug": [...]}`
 - Eval harness: `tests/retrieval/test_hybrid_eval.py` — 26 tests, mock DB (AsyncMock), no NIM deps; run with `pytest tests/retrieval/ -v`
-- Neo4j indexes created on startup: unique constraint `(user_id, name)`, fulltext `entity_name_ft` on `e.name`, range index `entity_user_id` on `e.user_id`; writes use UNWIND batch (2 round-trips regardless of entity/rel count); graph query results cached in Redis (key `graph:{user_id}:{sha256[:32]}`, TTL 60s, USE_REDIS gated); cache busted on every entity write (`_cache_del_user`)
-- NIM retry: `MAX_RETRIES=3` (4 total attempts); exponential backoff with jitter `min(30, 2**attempt) * (0.75 + 0.5*random)` — attempt 0≈1s, 1≈2s, 2≈4s, 3≈8s
-- Circuit breaker: _THRESHOLD=5, _COOLDOWN=90s; state persisted in Redis `cb:open:{model}` EX 90; restored on startup via `restore_circuit_state()`; pre-tripped at startup by `probe_models_on_startup()` for any model returning non-200
+- Neo4j indexes created on startup: unique constraint `(user_id, name)`, fulltext `entity_name_ft` on `e.name`, range index `entity_user_id` on `e.user_id`, range index `canvas_user_id` on `CanvasNode.user_id`; writes use UNWIND batch (2 round-trips regardless of entity/rel count); graph query results cached in Redis (key `graph:{user_id}:{sha256[:32]}`, TTL 60s, USE_REDIS gated); cache busted on every entity write (`_cache_del_user`)
+- NIM retry: `MAX_RETRIES=3` (4 total); exponential backoff with jitter `min(30, 2**attempt) * (0.75 + 0.5*random)` — attempt 0≈1s, 1≈2s, 2≈4s, 3≈8s
+- Circuit breaker: _THRESHOLD=5, _COOLDOWN=90s; Redis-persisted `cb:open:{model}` EX 90; restored on startup via `restore_circuit_state()`; pre-tripped at startup by `probe_models_on_startup()` for any model returning non-200
 - Prometheus: multiprocess mode active when `PROMETHEUS_MULTIPROC_DIR` set — `export_metrics()` uses `MultiProcessCollector(CollectorRegistry())`; new counters: `stream_interruptions_total`, `all_models_failed_total`, `arq_job_failed_total{job_type}`
 
 ---
