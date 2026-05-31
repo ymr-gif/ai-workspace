@@ -3,14 +3,63 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NIM AI Gateway</title>
+    <title>NIM // SYSTEM TERMINAL</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=VT323&display=swap" rel="stylesheet" />
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f1f5f9; }
+      body {
+        font-family: 'VT323', monospace;
+        background: #000;
+        color: #fff;
+        font-size: 18px;
+        line-height: 1.35;
+        -webkit-font-smoothing: none;
+        font-smooth: never;
+      }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: #000; }
+      ::-webkit-scrollbar-thumb { background: #4a4a4a; }
+      ::-webkit-scrollbar-thumb:hover { background: #ff2222; }
+      ::selection { background: #ff2222; color: #000; }
+      input:focus { border-color: #ff2222 !important; outline: none; }
+      input[type=range] { height: 4px; }
+      .cpu-bg {
+        position: fixed; inset: 0; z-index: 0;
+        background: url('/cpu-schematic.svg') center/cover no-repeat;
+        opacity: 0.04; pointer-events: none;
+      }
+      @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+      @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+      @keyframes memFlash { 0%{background:rgba(255,34,34,0.08)} 100%{background:transparent} }
+      .md-body { font-size:inherit; line-height:1.6; color:inherit; word-break:break-word }
+      .md-body p { margin:0 0 0.6em }
+      .md-body p:last-child { margin-bottom:0 }
+      .md-body h1,.md-body h2,.md-body h3,.md-body h4 { margin:0.8em 0 0.35em; font-weight:700; line-height:1.3 }
+      .md-body h1 { font-size:1.2em } .md-body h2 { font-size:1.1em } .md-body h3 { font-size:1em }
+      .md-body ul,.md-body ol { margin:0.4em 0 0.6em 1.4em; padding:0 }
+      .md-body li { margin-bottom:0.2em }
+      .md-body code { background:#050505; border:1px solid #262626; padding:0.1em 0.35em; font-family:'VT323',monospace; font-size:0.85em; color:#27d8ff }
+      .md-body pre { background:#050505; border:1px solid #262626; padding:0.75em 1em; overflow-x:auto; margin:0.5em 0 }
+      .md-body pre code { background:none; border:none; padding:0; font-size:0.82em; color:#8f8f8f }
+      .md-body blockquote { border-left:3px solid #4a4a4a; margin:0.5em 0; padding:0.2em 0.75em; color:#8f8f8f }
+      .md-body table { border-collapse:collapse; width:100%; margin:0.5em 0; font-size:0.85em }
+      .md-body th,.md-body td { border:1px solid #262626; padding:0.3em 0.6em; text-align:left }
+      .md-body th { background:#0a0a0a; color:#c8c8c8; font-weight:600 }
+      .md-body a { color:#27d8ff; text-decoration:underline }
+      .md-body strong { color:#c8c8c8; font-weight:700 }
+      .md-body em { color:#c8c8c8 }
+      .md-body hr { border:none; border-top:1px solid #262626; margin:0.75em 0 }
     </style>
   </head>
   <body>
+    <div class="cpu-bg"></div>
     <div id="root"></div>
+    <div class="crt-scanlines"></div>
+    <div class="crt-grille"></div>
+    <div class="crt-beam"></div>
+    <div class="crt-vignette"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

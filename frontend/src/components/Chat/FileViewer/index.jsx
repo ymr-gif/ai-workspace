@@ -1,4 +1,4 @@
-import s from '../../lib/chatStyles.js'
+import s from '../../../lib/chatStyles.js'
 
 export default function FileViewer({
   fileViewer, setFileViewer,

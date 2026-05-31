@@ -1,8 +1,8 @@
 import { Fragment } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import s from '../../lib/chatStyles.js'
-import { MODEL_LABELS, MODEL_SUBLABELS, COMPARE_MODELS } from '../../lib/chatConstants.js'
+import s, { GRN, AMB, FG4, FG5, RED, LINE } from '../../../lib/chatStyles.js'
+import { MODEL_LABELS, MODEL_SUBLABELS, COMPARE_MODELS } from '../../../lib/chatConstants.js'
 
 export default function MessageList({
   messages, activeConvId, bottomRef,
@@ -20,7 +20,7 @@ export default function MessageList({
         if (m.role === 'compare') {
           return (
             <Fragment key={m.id}>
-              {isFirstAi && <div style={{ fontSize:'0.72rem', color:'#475569', marginBottom:'0.4rem' }}>✦ {lastSession}</div>}
+              {isFirstAi && <div style={{ fontSize:'14px', color:FG4, marginBottom:'0.4rem' }}>✦ {lastSession}</div>}
               <div style={s.compareRow}>
                 {COMPARE_MODELS.map(model => {
                   const resp = m.responses[model] || { text: '', streaming: false }
@@ -28,7 +28,7 @@ export default function MessageList({
                     <div key={model} style={s.compareCard}>
                       <div style={s.cardHeader}>{MODEL_LABELS[model]}</div>
                       {(resp.streaming || !resp.text)
-                        ? <p style={s.text}>{resp.text || <span style={{ color:'#334155' }}>…</span>}{resp.streaming && <span style={s.cursor} />}</p>
+                        ? <p style={s.text}>{resp.text || <span style={{ color:FG5 }}>…</span>}{resp.streaming && <span style={s.cursor} />}</p>
                         : <div className="md-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{resp.text}</ReactMarkdown></div>
                       }
                       <span style={s.cardModel}>{MODEL_SUBLABELS[model]}</span>
@@ -41,7 +41,7 @@ export default function MessageList({
         }
         return (
           <Fragment key={m.id}>
-            {isFirstAi && <div style={{ fontSize:'0.72rem', color:'#475569', marginBottom:'0.4rem' }}>✦ {lastSession}</div>}
+            {isFirstAi && <div style={{ fontSize:'14px', color:FG4, marginBottom:'0.4rem' }}>✦ {lastSession}</div>}
             <div style={{ ...s.bubble, ...(m.role === 'user' ? s.userBubble : m.role === 'err' ? s.errBubble : s.aiBubble) }}>
             {m.toolCalls && m.toolCalls.map((tc, i) => (
               <div key={i}>
@@ -69,10 +69,10 @@ export default function MessageList({
             {m.model && !m.streaming && <span style={s.tag}>{MODEL_LABELS[m.model] || m.model} · {MODEL_SUBLABELS[m.model] || ''}</span>}
             {m.totalTokens && !m.streaming && <span style={s.tokMeta}>{m.totalTokens.toLocaleString()} tok · ${(m.costUsd || 0).toFixed(5)}</span>}
             {!m.streaming && m.role === 'ai' && m.queryType && (
-              <span style={{ fontSize:'0.65rem', color:'#334155', marginLeft:'0.15rem', textTransform:'uppercase', letterSpacing:'0.04em' }}>[{m.queryType}]</span>
+              <span style={{ fontSize:'14px', color:FG4, marginLeft:'0.15rem' }}>[{m.queryType}]</span>
             )}
             {!m.streaming && m.role === 'ai' && m.srcCount > 0 && (
-              <span style={{ fontSize:'0.68rem', marginLeft:'0.25rem', color: m.srcCount >= 3 ? '#34d399' : '#fbbf24' }}>· {m.srcCount} src</span>
+              <span style={{ fontSize:'14px', marginLeft:'0.25rem', color: m.srcCount >= 3 ? GRN : AMB }}>· {m.srcCount} src</span>
             )}
           </div>
         </Fragment>
@@ -80,14 +80,14 @@ export default function MessageList({
       })}
       <div ref={bottomRef} />
       {pendingWriteFact && (
-        <div style={{ display:'flex', gap:'0.6rem', alignItems:'flex-start', background:'rgba(52,211,153,0.08)', border:'1px solid rgba(52,211,153,0.25)', borderRadius:'8px', padding:'0.65rem 0.85rem', margin:'0 1.5rem 0.5rem' }}>
-          <span style={{ fontSize:'1rem', flexShrink:0, marginTop:'1px', color:'#34d399' }}>✓</span>
+        <div style={{ display:'flex', gap:'0.6rem', alignItems:'flex-start', background:'rgba(61,255,110,0.08)', border:`1px solid rgba(61,255,110,0.40)`, padding:'0.65rem 0.85rem', margin:'0 1.25rem 0.5rem' }}>
+          <span style={{ fontSize:'1rem', flexShrink:0, marginTop:'1px', color:GRN }}>✓</span>
           <div style={{ flex:1 }}>
-            <div style={{ fontSize:'0.7rem', color:'#34d399', fontWeight:600, marginBottom:'0.2rem', letterSpacing:'0.04em' }}>MEMORY SUGGESTION</div>
-            <div style={{ fontSize:'0.85rem', color:'#6ee7b7', lineHeight:1.5 }}>{pendingWriteFact}</div>
+            <div style={{ fontFamily:"'Silkscreen',monospace", fontSize:'9px', color:GRN, marginBottom:'0.25rem', letterSpacing:'0.1em', textTransform:'uppercase' }}>MEMORY SUGGESTION</div>
+            <div style={{ fontSize:'17px', color:'#8f8f8f', lineHeight:1.35 }}>{pendingWriteFact}</div>
             <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.5rem' }}>
-              <button onClick={() => onAcceptWrite(pendingWriteFact)} style={{ padding:'0.25rem 0.75rem', borderRadius:'6px', background:'#34d399', color:'#0f172a', border:'none', cursor:'pointer', fontSize:'0.78rem', fontWeight:600 }}>Accept</button>
-              <button onClick={onDismissWrite} style={{ padding:'0.25rem 0.75rem', borderRadius:'6px', background:'none', color:'#94a3b8', border:'1px solid #334155', cursor:'pointer', fontSize:'0.78rem' }}>Dismiss</button>
+              <button onClick={() => onAcceptWrite(pendingWriteFact)} style={{ padding:'0.4rem 1rem', background:RED, color:'#000', border:'none', cursor:'pointer', fontFamily:"'Silkscreen',monospace", fontSize:'10px', letterSpacing:'0.08em', textTransform:'uppercase', fontWeight:700 }}>Accept</button>
+              <button onClick={onDismissWrite} style={{ padding:'0.4rem 0.75rem', background:'none', color:'#8f8f8f', border:'1px solid #4a4a4a', cursor:'pointer', fontFamily:"'Silkscreen',monospace", fontSize:'10px', letterSpacing:'0.08em', textTransform:'uppercase' }}>Dismiss</button>
             </div>
           </div>
         </div>

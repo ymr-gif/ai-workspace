@@ -1,4 +1,4 @@
-import s from '../../lib/chatStyles.js'
+import s, { RED, FG5 } from '../../../lib/chatStyles.js'
 
 export default function WorkspaceModal({
   wsModalOpen, setWsModalOpen,
@@ -29,9 +29,9 @@ export default function WorkspaceModal({
           rows={4} style={s.editArea} placeholder="You are an expert in…" />
       </div>
       <div style={{ ...s.settingsFooter, justifyContent: wsModalTarget ? 'space-between' : 'flex-end' }}>
-        {wsModalTarget && (
-          <button onClick={deleteWs} style={{ ...s.cancelBtn, color:'#ef4444', borderColor:'#7f1d1d' }}>Delete</button>
-        )}
+{wsModalTarget && (
+            <button onClick={deleteWs} style={{ ...s.cancelBtn, color:RED, borderColor:FG5 }}>Delete</button>
+          )}
         <div style={{ display:'flex', gap:'0.5rem' }}>
           <button onClick={() => setWsModalOpen(false)} style={s.cancelBtn}>Cancel</button>
           <button onClick={saveWsModal} disabled={wsSaving || !wsFieldName.trim()} style={s.saveBtn}>

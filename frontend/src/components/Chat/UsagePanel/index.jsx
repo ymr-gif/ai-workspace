@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import s from '../../lib/chatStyles.js'
+import s, { LINE, FG5, FG3 } from '../../../lib/chatStyles.js'
 
 export default function UsagePanel({
   usageOpen, setUsageOpen,
@@ -48,11 +48,11 @@ export default function UsagePanel({
             ))}
           </>
         )}
-        <div style={{ marginTop:'1.25rem', borderTop:'1px solid #1e293b', paddingTop:'1rem' }}>
+        <div style={{ marginTop:'1.25rem', borderTop:`1px solid ${LINE}`, paddingTop:'1rem' }}>
           <button onClick={exportAll} disabled={exporting} style={{ ...s.actionBtn, width:'100%', justifyContent:'center', padding:'0.45rem' }}>
             {exporting ? 'Exporting…' : '⬇ Export All Data'}
           </button>
-          <div style={{ fontSize:'0.65rem', color:'#334155', marginTop:'0.4rem', textAlign:'center' }}>
+          <div style={{ fontSize:'13px', color:FG5, marginTop:'0.4rem', textAlign:'center' }}>
             ZIP: conversations · files · memory · graph
           </div>
         </div>

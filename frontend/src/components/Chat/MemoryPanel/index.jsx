@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import s from '../../lib/chatStyles.js'
-import { SECTION_COLORS } from '../../lib/chatConstants.js'
-import { fmtDate, parseMemory, computeDiff } from '../../lib/chatUtils.js'
+import s, { RED, GRN, AMB, CYN, FG1, FG2, FG3, FG4, FG5, LINE, LINE2, INSET, DISP, TERM } from '../../../lib/chatStyles.js'
+import { SECTION_COLORS } from '../../../lib/chatConstants.js'
+import { fmtDate, parseMemory, computeDiff } from '../../../lib/chatUtils.js'
 
 function timeAgo(iso) {
   const diff = (Date.now() - new Date(iso)) / 1000
@@ -29,7 +29,7 @@ export default function MemoryPanel({
   graphSample, graphSampleLoading, loadGraphSample,
   conflicts, conflictsLoading, loadConflicts, resolveConflict,
 }) {
-  const CONFLICT_BADGE = { contradiction: '#f87171', duplicate: '#fbbf24', ambiguous: '#64748b' }
+  const CONFLICT_BADGE = { contradiction: RED, duplicate: AMB, ambiguous: FG4 }
   const [selectedNode, setSelectedNode] = useState(null)
   const [graphLimit, setGraphLimit] = useState(50)
   const [graphEntityType, setGraphEntityType] = useState('')
@@ -39,7 +39,7 @@ export default function MemoryPanel({
         <div style={s.memTitleRow}>
           <div style={s.memTitle}>
             <span>⬡</span> Memory Sheet
-            {memData?.version > 0 && <span style={{ fontSize:'0.7rem', color:'#475569', fontWeight:400 }}>v{memData.version}</span>}
+            {memData?.version > 0 && <span style={{ fontSize:'14px', color:FG4 }}>v{memData.version}</span>}
           </div>
           <div style={s.memHdrBtns}>
             <button onClick={() => pollMemory(true)} style={s.refreshBtn} disabled={memLoading}>{memLoading ? '…' : '↻'}</button>
@@ -47,7 +47,7 @@ export default function MemoryPanel({
           </div>
         </div>
         <div style={s.memMeta}>
-          {memPending ? <span style={{ color:'#34d399' }}>updating…</span>
+          {memPending ? <span style={{ color:GRN }}>updating…</span>
             : memData?.updated_at ? `Updated ${fmtDate(memData.updated_at)}` : 'No memory yet'}
         </div>
       </div>
@@ -79,26 +79,26 @@ export default function MemoryPanel({
                   : (memData.content || '').split('\n').filter(Boolean).map(line => ({ content: line }))
                 ).map((f, i) => {
                   const sal = f.salience != null ? Math.min(Math.round(f.salience * 100), 100) : null
-                  const salColor = f.salience >= 0.7 ? '#34d399' : f.salience >= 0.4 ? '#fbbf24' : '#475569'
+                  const salColor = f.salience >= 0.7 ? GRN : f.salience >= 0.4 ? AMB : FG4
                   return (
                     <div key={i} style={{
-                      background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px',
-                      padding:'0.5rem 0.75rem', fontSize:'0.78rem', color:'#cbd5e1', lineHeight:1.5,
+                      background:INSET, border:`1px solid ${LINE}`,
+                      padding:'0.5rem 0.75rem', fontSize:'16px', color:FG2, lineHeight:1.5,
                       display:'flex', flexDirection:'column', gap:'0.3rem',
                     }}>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'0.5rem' }}>
                         <span style={{ flex:1 }}>{f.content}</span>
                         {sal != null && (
                           <div style={{ display:'flex', alignItems:'center', gap:'0.35rem', flexShrink:0, marginTop:'3px' }}>
-                            <div style={{ width:'48px', height:'4px', borderRadius:'2px', background:'#1e293b', overflow:'hidden' }}>
-                              <div style={{ height:'100%', width:`${sal}%`, background: salColor, borderRadius:'2px' }} />
+                            <div style={{ width:'48px', height:'4px', background:LINE, overflow:'hidden' }}>
+                              <div style={{ height:'100%', width:`${sal}%`, background: salColor }} />
                             </div>
                             <span style={{ fontSize:'0.65rem', color: salColor, minWidth:'26px' }}>{sal}%</span>
                           </div>
                         )}
                       </div>
                       {'last_used_at' in f && (
-                        <div style={{ fontSize:'0.65rem', color:'#475569' }}>
+                        <div style={{ fontSize:'13px', color:FG4 }}>
                           {f.last_used_at ? `Last accessed: ${timeAgo(f.last_used_at)}` : 'Never accessed'}
                         </div>
                       )}
@@ -109,7 +109,7 @@ export default function MemoryPanel({
             )}
             {sections.map(sec => (
               <div key={sec.name} style={s.section}>
-                <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||'#94a3b8', background: (SECTION_COLORS[sec.name]||'#94a3b8')+'18' }}>{sec.name}</span>
+                <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||FG3, background: (SECTION_COLORS[sec.name]||FG3)+'18' }}>{sec.name}</span>
                 {sec.pairs.map((p, i) => (
                   <div key={i} style={s.kv}><span style={s.kvKey}>{p.key}</span><span style={s.kvVal}>{p.val}</span></div>
                 ))}
@@ -117,10 +117,10 @@ export default function MemoryPanel({
             ))}
             {projectSections.length > 0 && (
               <>
-                <div style={s.divider}><span style={s.divLabel}>PROJECT STATE</span><div style={{ flex:1, borderTop:'1px solid #1e293b' }} /></div>
+                <div style={s.divider}><span style={s.divLabel}>PROJECT STATE</span><div style={{ flex:1, borderTop:`1px solid ${LINE}` }} /></div>
                 {projectSections.map(sec => (
                   <div key={sec.name} style={s.section}>
-                    <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||'#94a3b8', background: (SECTION_COLORS[sec.name]||'#94a3b8')+'18' }}>{sec.name}</span>
+                        <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||FG3, background: (SECTION_COLORS[sec.name]||FG3)+'18' }}>{sec.name}</span>
                     {sec.pairs.map((p, i) => (
                       <div key={i} style={s.kv}><span style={s.kvKey}>{p.key}</span><span style={s.kvVal}>{p.val}</span></div>
                     ))}
@@ -130,7 +130,7 @@ export default function MemoryPanel({
             )}
             {sidebarWsId && (
               <>
-                <div style={s.divider}><span style={s.divLabel}>WORKSPACE</span><div style={{ flex:1, borderTop:'1px solid #1e293b' }} /></div>
+                <div style={s.divider}><span style={s.divLabel}>WORKSPACE</span><div style={{ flex:1, borderTop:`1px solid ${LINE}` }} /></div>
                 {wsMemLoading && <p style={s.emptyMem}>Loading…</p>}
                 {!wsMemLoading && !wsMemData?.content && <p style={s.emptyMem}>No workspace memory yet.</p>}
                 {!wsMemLoading && wsMemData?.content && (() => {
@@ -138,14 +138,14 @@ export default function MemoryPanel({
                   return parsed.length > 0
                     ? parsed.map(sec => (
                         <div key={sec.name} style={s.section}>
-                          <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||'#818cf8', background: (SECTION_COLORS[sec.name]||'#818cf8')+'18' }}>{sec.name}</span>
+                          <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||CYN, background: (SECTION_COLORS[sec.name]||CYN)+'18' }}>{sec.name}</span>
                           {sec.pairs.map((p, i) => (
                             <div key={i} style={s.kv}><span style={s.kvKey}>{p.key}</span><span style={s.kvVal}>{p.val}</span></div>
                           ))}
                         </div>
                       ))
                     : wsMemData.content.split('\n').filter(Boolean).map((line, i) => (
-                        <div key={i} style={{ background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px', padding:'0.5rem 0.75rem', fontSize:'0.78rem', color:'#cbd5e1', lineHeight:1.5 }}>{line}</div>
+                        <div key={i} style={{ background:INSET, border:`1px solid ${LINE}`, padding:'0.5rem 0.75rem', fontSize:'16px', color:FG2, lineHeight:1.5 }}>{line}</div>
                       ))
                 })()}
               </>
@@ -161,7 +161,7 @@ export default function MemoryPanel({
                   ? <p style={s.emptyMem}>No workspace memory yet.<br /><span style={{ fontSize:'0.75rem' }}>Updates after exchanges in this workspace.</span></p>
                   : parseMemory(wsMemData.content).map(sec => (
                       <div key={sec.name} style={s.section}>
-                        <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||'#94a3b8', background: (SECTION_COLORS[sec.name]||'#94a3b8')+'18' }}>{sec.name}</span>
+                <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||FG3, background: (SECTION_COLORS[sec.name]||FG3)+'18' }}>{sec.name}</span>
                         {sec.pairs.map((p, i) => (
                           <div key={i} style={s.kv}><span style={s.kvKey}>{p.key}</span><span style={s.kvVal}>{p.val}</span></div>
                         ))}
@@ -183,7 +183,7 @@ export default function MemoryPanel({
               </div>
             )}
             {wsMemData?.updated_at && !wsMemEditing && (
-              <div style={{ fontSize:'0.68rem', color:'#334155', marginTop:'0.5rem' }}>Updated {fmtDate(wsMemData.updated_at)}</div>
+              <div style={{ fontSize:'13px', color:FG5, marginTop:'0.5rem' }}>Updated {fmtDate(wsMemData.updated_at)}</div>
             )}
           </div>
         )}
@@ -206,12 +206,12 @@ export default function MemoryPanel({
             {!histLoading && memHistory.length === 0 && <p style={s.emptyMem}>No history yet.</p>}
             {!histLoading && memHistory.length > 0 && (
               <>
-                <div style={{ fontSize:'0.7rem', color:'#475569', marginBottom:'0.75rem' }}>Select a version to diff against current</div>
+                <div style={{ fontSize:'14px', color:FG4, marginBottom:'0.75rem' }}>Select a version to diff against current</div>
                 <div style={s.historyList}>
                   {memHistory.map((v, i) => (
                     <div key={i} onClick={() => setDiffIdx(diffIdx === i ? null : i)}
-                      style={{ ...s.historyItem, borderColor: diffIdx === i ? '#6366f1' : '#1e293b' }}>
-                      <span style={{ color:'#cbd5e1' }}>v{v.version}</span>
+                      style={{ ...s.historyItem, borderColor: diffIdx === i ? RED : LINE }}>
+                      <span style={{ color:FG2 }}>v{v.version}</span>
                       <div style={s.historyMeta}>{fmtDate(v.created_at)}</div>
                     </div>
                   ))}
@@ -256,13 +256,13 @@ export default function MemoryPanel({
               {graphStats?.available && (
                 <>
                   <div style={{ display:'flex', gap:'0.75rem', marginBottom:'0.75rem' }}>
-                    <div style={{ flex:1, background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px', padding:'0.5rem', textAlign:'center' }}>
-                      <div style={{ fontSize:'1.2rem', fontWeight:700, color:'#818cf8' }}>{graphStats.entities}</div>
-                      <div style={{ fontSize:'0.65rem', color:'#475569' }}>Entities</div>
+                    <div style={{ flex:1, background:INSET, border:`1px solid ${LINE}`, padding:'0.5rem', textAlign:'center' }}>
+                      <div style={{ fontSize:'1.2rem', fontWeight:700, color:CYN }}>{graphStats.entities}</div>
+                      <div style={{ fontSize:'13px', color:FG4 }}>Entities</div>
                     </div>
-                    <div style={{ flex:1, background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px', padding:'0.5rem', textAlign:'center' }}>
-                      <div style={{ fontSize:'1.2rem', fontWeight:700, color:'#34d399' }}>{graphStats.relations}</div>
-                      <div style={{ fontSize:'0.65rem', color:'#475569' }}>Relations</div>
+                    <div style={{ flex:1, background:INSET, border:`1px solid ${LINE}`, padding:'0.5rem', textAlign:'center' }}>
+                      <div style={{ fontSize:'1.2rem', fontWeight:700, color:GRN }}>{graphStats.relations}</div>
+                      <div style={{ fontSize:'13px', color:FG4 }}>Relations</div>
                     </div>
                   </div>
 
@@ -287,7 +287,7 @@ export default function MemoryPanel({
                   )}
                   {!graphSampleLoading && graphSample?.available && N > 0 && (
                     <>
-                      <div style={{ background:'#0a1220', border:'1px solid #1e293b', borderRadius:'8px', overflow:'hidden', marginBottom:'0.6rem' }}>
+                      <div style={{ background:INSET, border:`1px solid ${LINE}`, overflow:'hidden', marginBottom:'0.6rem' }}>
                         <svg viewBox={`0 0 ${SW} ${SH}`} style={{ width:'100%', display:'block' }}>
                           {triples.map((t, i) => {
                             const a = posMap[t.source], b = posMap[t.target]
@@ -295,22 +295,22 @@ export default function MemoryPanel({
                             const isSelEdge = selEdges.includes(t)
                             return (
                               <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                                stroke={isSelEdge ? '#6366f1' : '#1e293b'}
+                                stroke={isSelEdge ? CYN : LINE}
                                 strokeWidth={isSelEdge ? 1.5 : 1} />
                             )
                           })}
                           {nodes.map(n => {
                             const isSel = n.id === selectedNode
                             const isNeighbor = selNeighbors.has(n.id) && !isSel
-                            const fill = isSel ? '#818cf8' : isNeighbor ? '#6366f1' : selectedNode ? '#1e293b' : '#334155'
-                            const stroke = isSel ? '#c7d2fe' : isNeighbor ? '#818cf8' : '#475569'
+                            const fill = isSel ? RED : isNeighbor ? CYN : selectedNode ? LINE : FG5
+                            const stroke = isSel ? FG2 : isNeighbor ? CYN : FG4
                             return (
                               <g key={n.id} style={{ cursor:'pointer' }} onClick={() => setSelectedNode(n.id === selectedNode ? null : n.id)}>
                                 <circle cx={n.x} cy={n.y} r={nr + 4} fill="transparent" />
                                 <circle cx={n.x} cy={n.y} r={nr} fill={fill} stroke={stroke} strokeWidth={1.5} />
                                 {(isSel || isNeighbor || N <= 12) && (
                                   <text x={n.x} y={n.y - nr - 3} textAnchor="middle"
-                                    style={{ fontSize:'7px', fill: isSel ? '#c7d2fe' : '#64748b', pointerEvents:'none', userSelect:'none' }}>
+                                    style={{ fontSize:'7px', fill: isSel ? FG2 : FG4, pointerEvents:'none', userSelect:'none' }}>
                                     {n.id.length > 14 ? n.id.slice(0, 13) + '…' : n.id}
                                   </text>
                                 )}
@@ -321,22 +321,22 @@ export default function MemoryPanel({
                       </div>
 
                       {selectedNode ? (
-                        <div style={{ background:'#0a1220', border:'1px solid #1e293b', borderRadius:'6px', padding:'0.6rem 0.75rem', marginBottom:'0.5rem' }}>
-                          <div style={{ fontSize:'0.78rem', fontWeight:600, color:'#818cf8', marginBottom:'0.4rem' }}>{selectedNode}</div>
+                        <div style={{ background:INSET, border:`1px solid ${LINE}`, padding:'0.6rem 0.75rem', marginBottom:'0.5rem' }}>
+                          <div style={{ fontSize:'16px', fontWeight:700, color:CYN, marginBottom:'0.4rem' }}>{selectedNode}</div>
                           {selEdges.length === 0
-                            ? <div style={{ fontSize:'0.72rem', color:'#475569' }}>No relations.</div>
+                            ? <div style={{ fontSize:'14px', color:FG4 }}>No relations.</div>
                             : selEdges.map((t, i) => (
-                                <div key={i} style={{ fontSize:'0.72rem', color:'#64748b', padding:'0.15rem 0', borderBottom:'1px solid #0f172a', lineHeight:1.45 }}>
+                                <div key={i} style={{ fontSize:'14px', color:FG4, padding:'0.15rem 0', borderBottom:`1px solid ${LINE2}`, lineHeight:1.45 }}>
                                   {t.source === selectedNode
-                                    ? <><span style={{ color:'#cbd5e1' }}>{t.source}</span> <span style={{ color:'#475569' }}>—[{t.relation}]→</span> <span style={{ color:'#94a3b8' }}>{t.target}</span></>
-                                    : <><span style={{ color:'#94a3b8' }}>{t.source}</span> <span style={{ color:'#475569' }}>—[{t.relation}]→</span> <span style={{ color:'#cbd5e1' }}>{t.target}</span></>
+                                    ? <><span style={{ color:FG2 }}>{t.source}</span> <span style={{ color:FG4 }}>—[{t.relation}]→</span> <span style={{ color:FG3 }}>{t.target}</span></>
+                                    : <><span style={{ color:FG3 }}>{t.source}</span> <span style={{ color:FG4 }}>—[{t.relation}]→</span> <span style={{ color:FG2 }}>{t.target}</span></>
                                   }
                                 </div>
                               ))
                           }
                         </div>
                       ) : (
-                        <p style={{ fontSize:'0.68rem', color:'#334155', textAlign:'center' }}>Click a node to explore its relations.</p>
+                        <p style={{ fontSize:'13px', color:FG5, textAlign:'center' }}>Click a node to explore its relations.</p>
                       )}
                     </>
                   )}
@@ -357,22 +357,22 @@ export default function MemoryPanel({
             {!conflictsLoading && conflicts.map(c => {
               const badgeColor = CONFLICT_BADGE[c.conflict_type] || '#64748b'
               return (
-                <div key={c.id} style={{ background:'#0a1220', border:'1px solid #1e293b', borderRadius:'8px', padding:'0.75rem', marginBottom:'0.6rem' }}>
-                  <span style={{ fontSize:'0.65rem', fontWeight:600, color: badgeColor, background: badgeColor + '18', borderRadius:'4px', padding:'0.1em 0.45em', letterSpacing:'0.04em', textTransform:'uppercase', marginBottom:'0.5rem', display:'inline-block' }}>{c.conflict_type}</span>
+                <div key={c.id} style={{ background:INSET, border:`1px solid ${LINE}`, padding:'0.75rem', marginBottom:'0.6rem' }}>
+                  <span style={{ fontSize:'14px', fontWeight:700, color: badgeColor, background: badgeColor + '18', padding:'0.1em 0.45em', letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:'0.5rem', display:'inline-block' }}>{c.conflict_type}</span>
                   <div style={{ display:'flex', gap:'0.5rem', marginBottom:'0.5rem' }}>
-                    <div style={{ flex:1, background:'#0f172a', border:'1px solid #1e293b', borderRadius:'6px', padding:'0.5rem 0.65rem', fontSize:'0.78rem', color:'#cbd5e1', lineHeight:1.5 }}>
-                      <div style={{ fontSize:'0.62rem', color:'#475569', marginBottom:'0.2rem', fontWeight:600 }}>A</div>
+                    <div style={{ flex:1, background:LINE, border:`1px solid ${LINE2}`, padding:'0.5rem 0.65rem', fontSize:'16px', color:FG2, lineHeight:1.5 }}>
+                      <div style={{ fontSize:'13px', color:FG4, marginBottom:'0.2rem' }}>A</div>
                       {c.fact_a}
                     </div>
-                    <div style={{ flex:1, background:'#0f172a', border:'1px solid #1e293b', borderRadius:'6px', padding:'0.5rem 0.65rem', fontSize:'0.78rem', color:'#cbd5e1', lineHeight:1.5 }}>
-                      <div style={{ fontSize:'0.62rem', color:'#475569', marginBottom:'0.2rem', fontWeight:600 }}>B</div>
+                    <div style={{ flex:1, background:LINE, border:`1px solid ${LINE2}`, padding:'0.5rem 0.65rem', fontSize:'16px', color:FG2, lineHeight:1.5 }}>
+                      <div style={{ fontSize:'13px', color:FG4, marginBottom:'0.2rem' }}>B</div>
                       {c.fact_b}
                     </div>
                   </div>
                   <div style={{ display:'flex', gap:'0.4rem', flexWrap:'wrap' }}>
-                    {[['Keep A','keep_a','#818cf8'],['Keep B','keep_b','#34d399'],['Merge','merge','#fbbf24'],['Discard Both','discard_both','#f87171']].map(([label, strategy, color]) => (
+                    {[['Keep A','keep_a',CYN],['Keep B','keep_b',GRN],['Merge','merge',AMB],['Discard Both','discard_both',RED]].map(([label, strategy, color]) => (
                       <button key={strategy} onClick={() => resolveConflict(c.id, strategy)}
-                        style={{ padding:'0.2rem 0.6rem', borderRadius:'5px', border:`1px solid ${color}40`, background:`${color}12`, color, cursor:'pointer', fontSize:'0.75rem', fontWeight:600 }}>
+                        style={{ padding:'0.2rem 0.6rem', border:`1px solid ${color}40`, background:`${color}12`, color, cursor:'pointer', fontSize:'14px', fontWeight:700 }}>
                         {label}
                       </button>
                     ))}
@@ -398,8 +398,8 @@ export default function MemoryPanel({
           <div style={s.memToggleRow}>
             <span style={s.memToggleLabel}>Memory in this conversation</span>
             <button onClick={toggleConvMemory} disabled={memToggling}
-              style={{ ...s.togglePill, color: convMemEnabled ? '#34d399' : '#475569', borderColor: convMemEnabled ? '#1e4e3a' : '#334155' }}>
-              <span style={{ width:'7px', height:'7px', borderRadius:'50%', background: convMemEnabled ? '#34d399' : '#475569' }} />
+              style={{ ...s.togglePill, color: convMemEnabled ? GRN : FG4, borderColor: convMemEnabled ? GRN : LINE2 }}>
+              <span style={{ width:'7px', height:'7px', background: convMemEnabled ? GRN : FG4 }} />
               {convMemEnabled ? 'Enabled' : 'Disabled'}
             </button>
           </div>

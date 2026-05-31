@@ -1,5 +1,5 @@
-import s from '../../lib/chatStyles.js'
-import { MODEL_KEYS, MODEL_LABELS } from '../../lib/chatConstants.js'
+import s, { FG4 } from '../../../lib/chatStyles.js'
+import { MODEL_KEYS, MODEL_LABELS } from '../../../lib/chatConstants.js'
 
 export default function SettingsModal({
   settingsOpen, setSettingsOpen,
@@ -29,7 +29,7 @@ export default function SettingsModal({
             </button>
           ))}
         </div>
-        {editLockModel && <div style={{ fontSize:'0.7rem', color:'#475569', marginTop:'0.4rem' }}>All messages in this conversation will use {MODEL_LABELS[MODEL_KEYS[editLockModel]] || editLockModel}.</div>}
+        {editLockModel && <div style={{ fontSize:'14px', color:FG4, marginTop:'0.4rem' }}>All messages in this conversation will use {MODEL_LABELS[MODEL_KEYS[editLockModel]] || editLockModel}.</div>}
         {sidebarWsList.length > 0 && (
           <>
             <div style={{ ...s.editLabel, marginTop:'1rem' }}>Workspace</div>
