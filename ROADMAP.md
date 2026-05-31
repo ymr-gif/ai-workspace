@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-05-30 (P0 + P1 complete; P2 in progress — #12 done)
+Last updated: 2026-05-31 (P0 + P1 complete; P2 in progress — #12, #14 done)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -53,6 +53,7 @@ Last updated: 2026-05-30 (P0 + P1 complete; P2 in progress — #12 done)
 | File formats — PDF, DOCX, XLSX, text/code/markdown | ✅ |
 | Full data export (`GET /api/export/full` ZIP stream) | ✅ |
 | AI agent tool loop (10 tools, ask_user, query_graph, write_memory) | ✅ |
+| Global autonomous agent canvas — Neo4j-backed node system (12 node types, typed ports, WIRED_TO relationships, agent scratchpad, boot diagnostics) | ✅ |
 | Autonomous memory writing (write_memory tool, user-confirm green card) | ✅ |
 | User preference extraction (ARQ job every 50 msgs; `[PREFERENCES]` in UserMemory) | ✅ |
 | Behavioral pattern tracker (`UserBehaviorProfile` JSONB; ARQ job every reply; feeds insight generation) | ✅ |
@@ -208,6 +209,11 @@ Post-reply: compare current query pattern against `UserBehaviorProfile`. If user
 ~~- Backend: new model + `api/goals.py`~~
 ~~- Frontend: Goals panel sidebar tab~~
 
+#### ~~Global Autonomous Agent Canvas~~ ✅ (NEW-2026-05-31)
+~~Neo4j-backed canvas graph giving the AI a structured self-model of its workspace. 12 typed node types with input/output ports. `WIRED_TO` relationships with port validation. Agent scratchpad (`UserMemory.agent_scratchpad` JSONB) for cross-session context. Boot diagnostics on agent init (model health + canvas restore). 7 new tools: `create_canvas_node`, `delete_canvas_node`, `update_canvas_node`, `wire_nodes`, `unwire_nodes`, `query_canvas`, `get_canvas_graph`.~~
+~~- Backend: `backend/agent/` (node.py, canvas_graph.py, boot.py) · `backend/core/neo4j_client.py` (+1 index) · `backend/models/user.py` (+agent_scratchpad) · `backend/alembic/versions/036_agent_scratchpad.py` · `backend/llm/tools/schemas.py` (+7 schemas) · `backend/llm/tools/executor.py` (+7 dispatch branches) · `backend/llm/service/context.py` (boot + registry injection) · `backend/api/chat/helpers.py` (boot call + scratchpad save)~~
+~~- Zero conflicts: distinct Neo4j label (`CanvasNode` vs `Entity`), prefixes on all tool names (`canvas_*`), separate Redis cache key (`canvas:{uid}`), append-only to UserMemory~~
+
 #### Web Search Tool
 `web_search(query)` tool in agent loop. Calls configurable backend (SearXNG self-hosted or Tavily API). Returns top 5 results as grounded context. Gated by `WEB_SEARCH_ENABLED` + `WEB_SEARCH_BACKEND` env vars.
 - Backend: new tool in `llm/tools/`; optional SearXNG service in docker-compose
@@ -271,9 +277,10 @@ P1 — next sprint
 
 P2 — following sprint
   ~~12. User-Defined Scheduled Agents   ScheduledPrompt already exists, low lift~~ ✅
-  ~~13. Goal / Task Tracker             new model + UI, medium effort~~ ✅
-  ~~14. Pattern Detection + Triggers    builds on Behavioral Profile (needs #3 first)~~ ✅
-  15. Web Search Tool                 gated by env var, isolated
+   ~~13. Goal / Task Tracker             new model + UI, medium effort~~ ✅
+   ~~14. Global Autonomous Agent Canvas  Neo4j-based node system; 12 node types; typed ports; agent scratchpad; boot diagnostics; 7 new canvas tools~~ ✅ (NEW-2026-05-31)
+   15. Pattern Detection + Triggers    builds on Behavioral Profile (needs #3 first)
+   16. Web Search Tool                 gated by env var, isolated
   16. Daily/Weekly Digest             scheduler already wired
 
 P3 — future
@@ -294,6 +301,6 @@ P3 — future
 | 1. Persistent Memory | 97% | P0 complete |
 | 2. Unified Interface | 90% | Cross-conversation knowledge propagation remaining |
 | 3. Reasoning Loop | 65% | No grounding confidence, no intent classification |
-| 4. Autonomous Agency | 45% | No patterns, no goals, no digest |
+| 4. Autonomous Agency | 60% | No webhook events, no digest |
 | 5. Real-Time Perception | 10% | No web search, no external integrations |
-| **Overall** | **~78%** | P1 complete; P2 in progress (#12 done) |
+| **Overall** | **~82%** | P1 complete; P2 in progress (#12, #14 done) |

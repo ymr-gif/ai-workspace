@@ -1,6 +1,11 @@
 import asyncio
 import logging
+import platform
+import socket
 import time
+from functools import lru_cache
+
+import psutil
 
 from fastapi import APIRouter
 from fastapi.responses import Response
@@ -140,3 +145,73 @@ def metrics_endpoint():
     except Exception:
         logger.exception("[metrics] export failed")
         return Response(content="# metrics export failed\n", media_type="text/plain", status_code=200)
+
+
+# ── /hardware ──────────────────────────────────────────────────────────────────
+
+def _gb(b: int) -> float:
+    return round(b / (1024**3), 2)
+
+
+
+
+
+@lru_cache(maxsize=1)
+def _gpu_init():
+    import pynvml
+    pynvml.nvmlInit()
+    return pynvml
+
+
+def _get_gpu_info() -> dict | None:
+    try:
+        pynvml = _gpu_init()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        return {
+            "name": pynvml.nvmlDeviceGetName(handle).decode(),
+            "vram_total_gb": _gb(mem.total),
+            "vram_used_gb": _gb(mem.used),
+            "temp_c": int(pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)),
+            "load_pct": float(pynvml.nvmlDeviceGetUtilizationRates(handle).gpu),
+        }
+    except Exception:
+        return None
+
+
+def _get_uptime() -> str:
+    delta = time.time() - psutil.boot_time()
+    days, rem = divmod(int(delta), 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes = rem // 60
+    return f"{days}d {hours}h {minutes}m"
+
+
+@router.get("/hardware")
+async def hardware():
+    freq = psutil.cpu_freq()
+    mem = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
+    cpu_pct = await asyncio.to_thread(psutil.cpu_percent, interval=0.1)
+
+    return {
+        "cpu": {
+            "name": platform.processor() or "Unknown",
+            "freq_ghz": round(freq.current / 1000, 2) if freq else 0.0,
+            "cores": psutil.cpu_count(logical=False),
+            "threads": psutil.cpu_count(logical=True),
+            "usage_pct": cpu_pct,
+        },
+        "ram": {
+            "total_gb": _gb(mem.total),
+            "used_gb": _gb(mem.used),
+            "available_gb": _gb(mem.available),
+        },
+        "gpu": _get_gpu_info(),
+        "disk": {
+            "total_gb": _gb(disk.total),
+            "free_gb": _gb(disk.free),
+        },
+        "uptime": _get_uptime(),
+        "hostname": socket.gethostname(),
+    }
