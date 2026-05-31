@@ -1,4 +1,4 @@
-import s, { GRN, AMB, CYN, FG1, FG4, LINE } from '../../../lib/chatStyles.js'
+import s, { GRN, AMB, CYN, FG1, FG4, LINE, LINE2 } from '../../../lib/chatStyles.js'
 import { usePanelProps } from '../PanelPropsContext.js'
 
 const STATUS_FILTERS = ['all', 'active', 'paused', 'completed']
