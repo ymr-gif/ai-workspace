@@ -6,6 +6,10 @@ export const VOID = '#000', PANEL = '#0a0a0a', INSET = '#050505'
 export const FG1 = '#ffffff', FG2 = '#c8c8c8', FG3 = '#8f8f8f', FG4 = '#5a5a5a', FG5 = '#383838'
 export const LINE = '#262626', LINE2 = '#4a4a4a'
 
+export const LAYERS = { overlay: 10, panel: 11, settingsModal: 20, wsModal: 22, viewer: 50 }
+
+const panelBase = { position:'absolute', top:0, right:0, bottom:0, background:'#070707', borderLeft:`2px solid ${RED}`, zIndex:LAYERS.panel, display:'flex', flexDirection:'column', transition:'transform 0.18s cubic-bezier(.2,.9,.1,1)' }
+
 const s = {
   root:        { display:'flex', height:'100vh', background:'transparent', color:FG1, fontFamily:TERM, fontSize:'18px', position:'relative', overflow:'hidden' },
 
@@ -36,7 +40,7 @@ const s = {
   userBubble:  { alignSelf:'flex-end', background:RED, color:'#000', boxShadow:`3px 3px 0 ${REDDIM}` },
   aiBubble:    { alignSelf:'flex-start', background:PANEL, border:`1px solid ${LINE}`, color:FG2, borderLeft:`2px solid ${LINE2}` },
   errBubble:   { alignSelf:'flex-start', background:PANEL, border:`1px solid ${RED}`, color:'#ff7a7a' },
-  viewerOverlay: { position:'fixed', inset:0, background:'rgba(0,0,0,0.78)', zIndex:50, display:'flex', alignItems:'center', justifyContent:'center' },
+  viewerOverlay: { position:'fixed', inset:0, background:'rgba(0,0,0,0.78)', zIndex:LAYERS.viewer, display:'flex', alignItems:'center', justifyContent:'center' },
   viewerModal:   { background:'#070707', border:`1px solid ${LINE}`, width:'700px', maxWidth:'95vw', maxHeight:'80vh', display:'flex', flexDirection:'column', boxShadow:`6px 6px 0 rgba(0,0,0,0.6)` },
   viewerHeader:  { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'1rem 1.25rem', borderBottom:`1px solid ${LINE}`, flexShrink:0 },
   viewerTitle:   { fontFamily:TERM, fontSize:'18px', color:FG1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, marginRight:'0.5rem' },
@@ -85,8 +89,8 @@ const s = {
   send:        { padding:'0.6rem 1.1rem', borderRadius:0, background:RED, color:'#000', border:'none', cursor:'pointer', fontFamily:DISP, fontWeight:700, fontSize:'11px', letterSpacing:'0.1em', textTransform:'uppercase' },
 
   // overlay + panels
-  overlay:     { position:'absolute', inset:0, background:'rgba(0,0,0,0.78)', zIndex:10 },
-  memPanel:    { position:'absolute', top:0, right:0, bottom:0, width:'390px', maxWidth:'92vw', background:'#070707', borderLeft:`2px solid ${RED}`, zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.18s cubic-bezier(.2,.9,.1,1)' },
+  overlay:     { position:'absolute', inset:0, background:'rgba(0,0,0,0.78)', zIndex:LAYERS.overlay },
+  memPanel:    { ...panelBase, width:'390px', maxWidth:'92vw' },
   memHeader:   { padding:'0.9rem 1.1rem 0.7rem', borderBottom:`1px solid ${LINE}`, flexShrink:0 },
   memTitleRow: { display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.3rem' },
   memTitle:    { fontFamily:DISP, fontSize:'13px', color:FG1, letterSpacing:'0.1em', textTransform:'uppercase', display:'flex', alignItems:'center', gap:'0.5rem' },
@@ -132,7 +136,7 @@ const s = {
   flashBody:   { animation:'memFlash 1.5s ease-out' },
 
   // settings modal
-  settingsModal:  { position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:'440px', maxWidth:'92vw', background:'#070707', border:`1px solid ${LINE}`, zIndex:20, display:'flex', flexDirection:'column' },
+  settingsModal:  { position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:'440px', maxWidth:'92vw', background:'#070707', border:`1px solid ${LINE}`, zIndex:LAYERS.settingsModal, display:'flex', flexDirection:'column' },
   settingsHeader: { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.9rem 1.1rem', borderBottom:`1px solid ${LINE}` },
   settingsTitle:  { fontFamily:DISP, fontSize:'13px', color:FG1, letterSpacing:'0.1em', textTransform:'uppercase' },
   settingsBody:   { padding:'1.25rem', overflowY:'auto' },
@@ -145,7 +149,7 @@ const s = {
   askQuestion:   { fontFamily:TERM, fontSize:'17px', color:'#ffd98a', lineHeight:1.35 },
 
   // tool log panel
-  toolLogPanel:  { position:'absolute', top:0, right:0, bottom:0, width:'480px', maxWidth:'95vw', background:'#070707', borderLeft:`2px solid ${RED}`, zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.18s cubic-bezier(.2,.9,.1,1)' },
+  toolLogPanel:  { ...panelBase, width:'480px', maxWidth:'95vw' },
   toolLogHdr:    { padding:'0.9rem 1.1rem 0.7rem', borderBottom:`1px solid ${LINE}`, flexShrink:0, display:'flex', justifyContent:'space-between', alignItems:'center' },
   toolLogTitle:  { fontFamily:DISP, fontSize:'13px', color:FG1, letterSpacing:'0.1em', textTransform:'uppercase' },
   toolLogBody:   { flex:1, overflowY:'auto', padding:'0.75rem 1.1rem' },
@@ -157,7 +161,7 @@ const s = {
   toolLogResult: { color:FG3, fontFamily:TERM, fontSize:'15px', whiteSpace:'pre-wrap', wordBreak:'break-word' },
 
   // files panel
-  filePanel:     { position:'absolute', top:0, right:0, bottom:0, width:'410px', maxWidth:'92vw', background:'#070707', borderLeft:`2px solid ${RED}`, zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.18s cubic-bezier(.2,.9,.1,1)' },
+  filePanel:     { ...panelBase, width:'410px', maxWidth:'92vw' },
   filePanelHdr:  { padding:'0.9rem 1.1rem 0.7rem', borderBottom:`1px solid ${LINE}`, flexShrink:0 },
   fileTitleRow:  { display:'flex', justifyContent:'space-between', alignItems:'center' },
   fileTitle:     { fontFamily:DISP, fontSize:'13px', color:FG1, letterSpacing:'0.1em', textTransform:'uppercase' },
@@ -184,14 +188,14 @@ const s = {
   // workspace modal / gear
   wsGearBtn:    { background:'none', border:'none', color:FG4, cursor:'pointer', fontSize:'0.6rem', padding:'0 1px', lineHeight:1, marginLeft:'1px' },
   wsPlusBtn:    { padding:'0.18rem 0.45rem', borderRadius:0, border:`1px dashed ${LINE2}`, background:'none', color:FG4, cursor:'pointer', fontFamily:DISP, fontSize:'9px', lineHeight:1.2 },
-  wsModal:      { position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:'420px', maxWidth:'92vw', background:'#070707', border:`1px solid ${LINE}`, zIndex:22, display:'flex', flexDirection:'column' },
+  wsModal:      { position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:'420px', maxWidth:'92vw', background:'#070707', border:`1px solid ${LINE}`, zIndex:LAYERS.wsModal, display:'flex', flexDirection:'column' },
 
   // sidebar search
   sideSearchWrap:  { padding:'0.4rem 0.5rem', borderBottom:`1px solid ${LINE}`, flexShrink:0 },
   sideSearchInput: { width:'100%', padding:'0.35rem 0.55rem', borderRadius:0, border:`1px solid ${LINE2}`, background:'#000', color:FG1, fontFamily:TERM, fontSize:'16px', outline:'none', boxSizing:'border-box' },
 
   // invite panel
-  invitePanel:  { position:'absolute', top:0, right:0, bottom:0, width:'420px', maxWidth:'95vw', background:'#070707', borderLeft:`2px solid ${RED}`, zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.18s cubic-bezier(.2,.9,.1,1)' },
+  invitePanel:  { ...panelBase, width:'420px', maxWidth:'95vw' },
   inviteHdr:    { padding:'0.9rem 1.1rem 0.7rem', borderBottom:`1px solid ${LINE}`, flexShrink:0, display:'flex', justifyContent:'space-between', alignItems:'center' },
   inviteTitle:  { fontFamily:DISP, fontSize:'13px', color:FG1, letterSpacing:'0.1em', textTransform:'uppercase' },
   inviteBody:   { flex:1, overflowY:'auto', padding:'1rem 1.1rem' },
@@ -206,7 +210,7 @@ const s = {
   proactiveDismiss: { background:'none', border:'none', color:FG4, cursor:'pointer', fontSize:'0.95rem', padding:'0 2px', lineHeight:1, flexShrink:0 },
 
   // insights panel
-  insightsPanel: { position:'absolute', top:0, right:0, bottom:0, width:'410px', maxWidth:'92vw', background:'#070707', borderLeft:`2px solid ${RED}`, zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.18s cubic-bezier(.2,.9,.1,1)' },
+  insightsPanel: { ...panelBase, width:'410px', maxWidth:'92vw' },
   insightsHdr:   { padding:'0.9rem 1.1rem 0.7rem', borderBottom:`1px solid ${LINE}`, flexShrink:0, display:'flex', justifyContent:'space-between', alignItems:'center' },
   insightsTitle: { fontFamily:DISP, fontSize:'13px', color:FG1, letterSpacing:'0.1em', textTransform:'uppercase' },
   insightsBody:  { flex:1, overflowY:'auto', padding:'0.9rem 1.1rem' },
@@ -219,7 +223,7 @@ const s = {
 
   // token meta + usage panel
   tokMeta:       { display:'block', marginTop:'0.25rem', fontFamily:TERM, fontSize:'14px', color:FG4 },
-  usagePanel:    { position:'absolute', top:0, right:0, bottom:0, width:'360px', maxWidth:'92vw', background:'#070707', borderLeft:`2px solid ${RED}`, zIndex:11, display:'flex', flexDirection:'column', transition:'transform 0.18s cubic-bezier(.2,.9,.1,1)' },
+  usagePanel:    { ...panelBase, width:'360px', maxWidth:'92vw' },
   usageHdr:      { padding:'0.9rem 1.1rem 0.7rem', borderBottom:`1px solid ${LINE}`, flexShrink:0, display:'flex', justifyContent:'space-between', alignItems:'center' },
   usageTitle:    { fontFamily:DISP, fontSize:'13px', color:FG1, letterSpacing:'0.1em', textTransform:'uppercase' },
   usageBody:     { flex:1, overflowY:'auto', padding:'0.9rem 1.1rem' },

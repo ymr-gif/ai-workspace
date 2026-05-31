@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import s, { GRN, RED, FG3, FG4, CYN, LINE, LINE2, TERM } from '../../../lib/chatStyles.js'
+import { usePanelProps } from '../PanelPropsContext.js'
 
 const PRESETS = ['daily', 'weekly', 'monthly']
 
@@ -9,22 +10,10 @@ function runStatus(run) {
   return { color: FG3, label: '…' }
 }
 
-export default function AutomationsPanel({
-  autoOpen, setAutoOpen,
-  schedules, schedulesLoading,
-  formOpen, setFormOpen,
-  editTarget,
-  formName, setFormName,
-  formPrompt, setFormPrompt,
-  formSchedule, setFormSchedule,
-  formModel, setFormModel,
-  formWsId, setFormWsId,
-  formSaving,
-  runsMap, runsLoading,
-  expandedId, triggeringId,
-  loadSchedules, saveSchedule, deleteSchedule, toggleActive, triggerRun, openCreate, openEdit, toggleExpanded,
-  sidebarWsList,
-}) {
+export default function AutomationsPanel() {
+  const p = usePanelProps()
+  const { autoOpen, setAutoOpen, schedules, schedulesLoading, formOpen, setFormOpen, editTarget, formName, setFormName, formPrompt, setFormPrompt, formSchedule, setFormSchedule, formModel, setFormModel, formWsId, setFormWsId, formSaving, runsMap, runsLoading, expandedId, triggeringId, loadSchedules, saveSchedule, deleteSchedule, toggleActive, triggerRun, openCreate, openEdit, toggleExpanded } = p.auto
+  const { sidebarWsList } = p.ws
   const [customCron, setCustomCron] = useState('')
   const selectedPreset = PRESETS.includes(formSchedule) ? formSchedule : 'custom'
 

@@ -1,13 +1,10 @@
 import s from '../../../lib/chatStyles.js'
+import { usePanelProps } from '../PanelPropsContext.js'
 
-export default function FileViewer({
-  fileViewer, setFileViewer,
-  viewerTab, setViewerTab,
-  viewerEdit, setViewerEdit,
-  viewerSaving, viewerVersions, viewerVerLoading,
-  downloadFile, saveFileEdit, loadFileVersions, restoreFileVersion,
-  fmtDate,
-}) {
+export default function FileViewer() {
+  const p = usePanelProps()
+  const { fileViewer, setFileViewer, viewerTab, setViewerTab, viewerEdit, setViewerEdit, viewerSaving, viewerVersions, viewerVerLoading, downloadFile, saveFileEdit, loadFileVersions, restoreFileVersion } = p.files
+  const { fmtDate } = p
   if (!fileViewer) return null
   return (
     <div style={s.viewerOverlay} onClick={() => setFileViewer(null)}>

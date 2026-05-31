@@ -1,18 +1,10 @@
 import s from '../../../lib/chatStyles.js'
+import { usePanelProps } from '../PanelPropsContext.js'
 
-export default function FilesPanel({
-  filesOpen, setFilesOpen,
-  filesTab, setFilesTab,
-  libFiles, attachedFiles,
-  workspaces, wsFilter, setWsFilter,
-  fileUploading, urlIngest, setUrlIngest, urlIngesting,
-  renameId, setRenameId, renameVal, setRenameVal,
-  fileInputRef,
-  attachedIds,
-  uploadFile, ingestUrl, attachFile, detachFile,
-  viewFile, downloadFile, deleteFile, commitRename,
-  statusColor, activeConvId,
-}) {
+export default function FilesPanel() {
+  const p = usePanelProps()
+  const { filesOpen, setFilesOpen, filesTab, setFilesTab, libFiles, attachedFiles, workspaces, wsFilter, setWsFilter, fileUploading, urlIngest, setUrlIngest, urlIngesting, renameId, setRenameId, renameVal, setRenameVal, fileInputRef, attachedIds, uploadFile, ingestUrl, attachFile, detachFile, viewFile, downloadFile, deleteFile, commitRename, statusColor } = p.files
+  const { activeConvId } = p.conv
   return (
     <div style={{ ...s.filePanel, transform: filesOpen ? 'translateX(0)' : 'translateX(100%)' }}>
       <div style={s.filePanelHdr}>

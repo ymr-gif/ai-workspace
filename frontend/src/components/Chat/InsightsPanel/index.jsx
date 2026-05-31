@@ -1,11 +1,10 @@
 import s, { LINE, CYN } from '../../../lib/chatStyles.js'
 import { fmtDate } from '../../../lib/chatUtils.js'
+import { usePanelProps } from '../PanelPropsContext.js'
 
-export default function InsightsPanel({
-  insightsOpen, setInsightsOpen,
-  insights, insightsLoading,
-  loadInsights, markInsightRead, deleteInsight,
-}) {
+export default function InsightsPanel() {
+  const p = usePanelProps()
+  const { insightsOpen, setInsightsOpen, insights, insightsLoading, loadInsights, markInsightRead, deleteInsight } = p.insights
   return (
     <div style={{ ...s.insightsPanel, transform: insightsOpen ? 'translateX(0)' : 'translateX(100%)' }}>
       <div style={s.insightsHdr}>

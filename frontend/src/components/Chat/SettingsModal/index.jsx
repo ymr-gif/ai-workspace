@@ -1,14 +1,11 @@
 import s, { FG4 } from '../../../lib/chatStyles.js'
 import { MODEL_KEYS, MODEL_LABELS } from '../../../lib/chatConstants.js'
+import { usePanelProps } from '../PanelPropsContext.js'
 
-export default function SettingsModal({
-  settingsOpen, setSettingsOpen,
-  editSysPrompt, setEditSysPrompt,
-  editLockModel, setEditLockModel,
-  editWsId, setEditWsId,
-  sidebarWsList,
-  saveSettings, settingsSaving,
-}) {
+export default function SettingsModal() {
+  const p = usePanelProps()
+  const { settingsOpen, setSettingsOpen, editSysPrompt, setEditSysPrompt, editLockModel, setEditLockModel, editWsId, setEditWsId, saveSettings, settingsSaving } = p.settings
+  const { sidebarWsList } = p.ws
   if (!settingsOpen) return null
   return (
     <div style={s.settingsModal} onClick={e => e.stopPropagation()}>

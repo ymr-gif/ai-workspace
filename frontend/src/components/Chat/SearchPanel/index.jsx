@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import s, { RED, GRN, AMB, CYN, INSET, LINE, FG2, FG4, TERM } from '../../../lib/chatStyles.js'
+import { usePanelProps } from '../PanelPropsContext.js'
 
 const SCOPES = ['all', 'files', 'conversations', 'memory', 'graph']
 
@@ -10,13 +11,10 @@ const SOURCE_COLOR = {
   graph:         CYN,
 }
 
-export default function SearchPanel({
-  searchOpen, setSearchOpen,
-  searchQuery, setSearchQuery,
-  searchScope, setSearchScope,
-  searchResults, searchLoading,
-  clearSearch, selectConv,
-}) {
+export default function SearchPanel() {
+  const p = usePanelProps()
+  const { searchOpen, setSearchOpen, searchQuery, setSearchQuery, searchScope, setSearchScope, searchResults, searchLoading, clearSearch } = p.search
+  const { selectConv } = p
   const inputRef = useRef(null)
 
   useEffect(() => {

@@ -1,14 +1,10 @@
 import s, { RED, GRN, CYN, FG3, FG4, FG5, LINE, INSET, DISP, TERM } from '../../../lib/chatStyles.js'
 import { fmtDate } from '../../../lib/chatUtils.js'
+import { usePanelProps } from '../PanelPropsContext.js'
 
-export default function InvitePanel({
-  inviteOpen, setInviteOpen,
-  inviteList, inviteLoading,
-  newToken, tokenGenerating,
-  loadInvites, generateInvite,
-  reEmbedding, reEmbedMsg,
-  triggerReEmbed,
-}) {
+export default function InvitePanel() {
+  const p = usePanelProps()
+  const { inviteOpen, setInviteOpen, inviteList, inviteLoading, newToken, tokenGenerating, loadInvites, generateInvite, reEmbedding, reEmbedMsg, triggerReEmbed } = p.admin
   return (
     <div style={{ ...s.invitePanel, transform: inviteOpen ? 'translateX(0)' : 'translateX(100%)' }}>
       <div style={s.inviteHdr}>
