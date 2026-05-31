@@ -1,4 +1,5 @@
 import s, { GRN, AMB, CYN, FG1, FG4, LINE } from '../../../lib/chatStyles.js'
+import { usePanelProps } from '../PanelPropsContext.js'
 
 const STATUS_FILTERS = ['all', 'active', 'paused', 'completed']
 
@@ -17,25 +18,10 @@ function StatusBadge({ status }) {
   )
 }
 
-export default function GoalsPanel({
-  goalsOpen, setGoalsOpen,
-  goals, goalsLoading,
-  statusFilter, changeFilter,
-  formOpen, setFormOpen,
-  editTarget,
-  formTitle, setFormTitle,
-  formDesc, setFormDesc,
-  formStatus, setFormStatus,
-  formSaving,
-  loadGoals,
-  saveGoal,
-  deleteGoal,
-  toggleStatus,
-  linkConversation,
-  openCreate,
-  openEdit,
-  activeConvId,
-}) {
+export default function GoalsPanel() {
+  const p = usePanelProps()
+  const { goalsOpen, setGoalsOpen, goals, goalsLoading, statusFilter, changeFilter, formOpen, setFormOpen, editTarget, formTitle, setFormTitle, formDesc, setFormDesc, formStatus, setFormStatus, formSaving, loadGoals, saveGoal, deleteGoal, toggleStatus, linkConversation, openCreate, openEdit } = p.goals
+  const { activeConvId } = p.conv
   const inputStyle = { ...s.sideSearchInput, width: '100%', padding: '0.4rem 0.6rem', fontSize: '0.82rem', boxSizing: 'border-box' }
 
   return (

@@ -1,13 +1,9 @@
 import s, { RED, FG5 } from '../../../lib/chatStyles.js'
+import { usePanelProps } from '../PanelPropsContext.js'
 
-export default function WorkspaceModal({
-  wsModalOpen, setWsModalOpen,
-  wsModalTarget,
-  wsFieldName, setWsFieldName,
-  wsFieldDesc, setWsFieldDesc,
-  wsFieldSys, setWsFieldSys,
-  saveWsModal, deleteWs, wsSaving,
-}) {
+export default function WorkspaceModal() {
+  const p = usePanelProps()
+  const { wsModalOpen, setWsModalOpen, wsModalTarget, wsFieldName, setWsFieldName, wsFieldDesc, setWsFieldDesc, wsFieldSys, setWsFieldSys, saveWsModal, deleteWs, wsSaving } = p.ws
   if (!wsModalOpen) return null
   return (
     <div style={s.wsModal} onClick={e => e.stopPropagation()}>

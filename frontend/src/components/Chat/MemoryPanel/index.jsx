@@ -2,6 +2,7 @@ import { useState } from 'react'
 import s, { RED, GRN, AMB, CYN, FG1, FG2, FG3, FG4, FG5, LINE, LINE2, INSET, DISP, TERM } from '../../../lib/chatStyles.js'
 import { SECTION_COLORS } from '../../../lib/chatConstants.js'
 import { fmtDate, parseMemory, computeDiff } from '../../../lib/chatUtils.js'
+import { usePanelProps } from '../PanelPropsContext.js'
 
 function timeAgo(iso) {
   const diff = (Date.now() - new Date(iso)) / 1000
@@ -11,24 +12,13 @@ function timeAgo(iso) {
   return `${Math.floor(diff / 86400)}d ago`
 }
 
-export default function MemoryPanel({
-  memOpen, setMemOpen,
-  memData, memTab, setMemTab, memLoading, memFlashed,
-  memPending, memHistory, histLoading, diffIdx, setDiffIdx,
-  editContent, setEditContent, editProj, setEditProj,
-  memSaving, hasMemory, sections, projectSections,
-  wordCount, panelSlide, diffTarget, diffLines,
-  wsMemData, wsMemLoading, wsMemEditing, setWsMemEditing,
-  wsMemContent, setWsMemContent, wsMemSaving,
-  sidebarWsId,
-  pollMemory, loadWsMemory, saveWsMemory,
-  openEdit, cancelEdit, saveEdit,
-  exportMemory, handleImport,
-  activeConvId, convMemEnabled, toggleConvMemory, memToggling,
-  importRef, loadGraphStats, graphLoading, graphStats,
-  graphSample, graphSampleLoading, loadGraphSample,
-  conflicts, conflictsLoading, loadConflicts, resolveConflict,
-}) {
+export default function MemoryPanel() {
+  const p = usePanelProps()
+  const { memOpen, setMemOpen, memData, memTab, setMemTab, memLoading, memFlashed, memPending, memHistory, histLoading, diffIdx, setDiffIdx, editContent, setEditContent, editProj, setEditProj, memSaving, wsMemData, wsMemLoading, wsMemEditing, setWsMemEditing, wsMemContent, setWsMemContent, wsMemSaving, pollMemory, loadWsMemory, saveWsMemory, openEdit, cancelEdit, saveEdit, exportMemory, handleImport, conflicts, conflictsLoading, loadConflicts, resolveConflict } = p.mem
+  const { activeConvId, convMemEnabled, toggleConvMemory, memToggling } = p.conv
+  const { sidebarWsId } = p.ws
+  const { loadGraphStats, graphLoading, graphStats, graphSample, graphSampleLoading, loadGraphSample } = p.insights
+  const { hasMemory, sections, projectSections, wordCount, panelSlide, diffTarget, diffLines, importRef } = p
   const CONFLICT_BADGE = { contradiction: RED, duplicate: AMB, ambiguous: FG4 }
   const [selectedNode, setSelectedNode] = useState(null)
   const [graphLimit, setGraphLimit] = useState(50)

@@ -1,11 +1,11 @@
 import s, { LINE } from '../../../lib/chatStyles.js'
 import { fmtDate } from '../../../lib/chatUtils.js'
+import { usePanelProps } from '../PanelPropsContext.js'
 
-export default function ToolLogPanel({
-  toolLogOpen, setToolLogOpen,
-  toolLogs, toolLogsLoading,
-  loadToolLogs, activeConvId,
-}) {
+export default function ToolLogPanel() {
+  const p = usePanelProps()
+  const { toolLogOpen, setToolLogOpen, toolLogs, toolLogsLoading, loadToolLogs } = p.toolLog
+  const { activeConvId } = p.conv
   return (
     <div style={{ ...s.toolLogPanel, transform: toolLogOpen ? 'translateX(0)' : 'translateX(100%)' }}>
       <div style={s.toolLogHdr}>

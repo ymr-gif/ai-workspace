@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import s, { LINE, FG5, FG3 } from '../../../lib/chatStyles.js'
+import { usePanelProps } from '../PanelPropsContext.js'
 
-export default function UsagePanel({
-  usageOpen, setUsageOpen,
-  usageData, usageLoading,
-  loadUsage, token,
-}) {
+export default function UsagePanel() {
+  const p = usePanelProps()
+  const { usageOpen, setUsageOpen, usageData, usageLoading, loadUsage } = p.usage
+  const { token } = p
   const [exporting, setExporting] = useState(false)
 
   async function exportAll() {
