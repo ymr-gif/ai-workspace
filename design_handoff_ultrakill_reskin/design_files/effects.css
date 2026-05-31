@@ -1,0 +1,112 @@
+/* ============================================================
+   NIM // SYSTEM TERMINAL  —  CRT EFFECTS
+   Drop these overlay nodes as the LAST children of <body>:
+
+     <div class="crt-grille"></div>
+     <div class="crt-scanlines"></div>
+     <div class="crt-beam"></div>
+     <div class="crt-vignette"></div>
+
+   All are position:fixed, pointer-events:none, and sit above
+   content. Add class "crt" to <html> or <body> to enable the
+   global flicker + faint channel split.
+   ============================================================ */
+
+/* ---- 1. Static scanlines (dark horizontal lines) ------------ */
+.crt-scanlines {
+  position: fixed; inset: 0; z-index: 9996; pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0,0,0,0)    0px,
+    rgba(0,0,0,0)    2px,
+    rgba(0,0,0,0.34) 3px,
+    rgba(0,0,0,0.34) 4px
+  );
+  mix-blend-mode: multiply;
+  animation: crt-flicker 90ms steps(2,end) infinite;
+}
+
+/* ---- 2. Vertical RGB phosphor grille (very faint) ----------- */
+.crt-grille {
+  position: fixed; inset: 0; z-index: 9995; pointer-events: none;
+  background: repeating-linear-gradient(
+    to right,
+    rgba(255,0,0,0.05)  0px,
+    rgba(0,255,0,0.03)  1px,
+    rgba(0,0,255,0.05)  2px,
+    rgba(0,0,0,0)       3px
+  );
+  mix-blend-mode: screen;
+  opacity: 0.5;
+}
+
+/* ---- 3. Scrolling refresh beam (bright band sweeping down) --- */
+.crt-beam {
+  position: fixed; left: 0; right: 0; top: 0; height: 28vh; z-index: 9997;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,0.03) 45%,
+    rgba(255,255,255,0.07) 50%,
+    rgba(255,255,255,0.03) 55%,
+    rgba(255,255,255,0) 100%
+  );
+  animation: crt-sweep 7s linear infinite;
+}
+
+/* ---- 4. Vignette + screen curvature shade ------------------- */
+.crt-vignette {
+  position: fixed; inset: 0; z-index: 9998; pointer-events: none;
+  background:
+    radial-gradient(130% 130% at 50% 50%, rgba(0,0,0,0) 68%, rgba(0,0,0,0.42) 100%);
+  box-shadow: inset 0 0 120px 8px rgba(0,0,0,0.7);
+}
+
+/* ---- Keyframes ---------------------------------------------- */
+@keyframes crt-flicker {
+  0%   { opacity: 0.92; }
+  100% { opacity: 1; }
+}
+@keyframes crt-sweep {
+  0%   { transform: translateY(-30vh); }
+  100% { transform: translateY(130vh); }
+}
+
+/* Global screen flicker is intentionally OFF by default — the scanline
+   flicker + beam already sell the CRT without dimming content.
+   Add the animation back on .crt body if you want a stronger effect. */
+.crt-screenflicker body, body.crt-screenflicker {
+  animation: crt-screen-flicker 4.5s infinite;
+}
+@keyframes crt-screen-flicker {
+  0%, 100% { opacity: 1; }
+  92%      { opacity: 1; }
+  93%      { opacity: 0.94; }
+  94%      { opacity: 1; }
+  97%      { opacity: 0.97; }
+  98%      { opacity: 1; }
+}
+
+/* ---- Chromatic aberration helper ---------------------------
+   Apply .crt-aberrate to large text (wordmark, titles) for the
+   RGB channel-split fringe. Keep off small body text. */
+.crt-aberrate {
+  text-shadow:
+    -1.5px 0 rgba(255,0,40,0.6),
+     1.5px 0 rgba(0,200,255,0.5);
+}
+
+/* Animated jitter variant (use sparingly on a hero title) */
+.crt-glitch { animation: crt-jitter 3.2s steps(1,end) infinite; }
+@keyframes crt-jitter {
+  0%, 96%, 100% { transform: translate(0,0); filter: none; }
+  97% { transform: translate(-2px, 0); }
+  98% { transform: translate(2px, 0); }
+  99% { transform: translate(-1px, 0); }
+}
+
+/* Reduced-motion: kill beam + flicker, keep static scanlines */
+@media (prefers-reduced-motion: reduce) {
+  .crt-beam, .crt-scanlines, body.crt, .crt-glitch { animation: none !important; }
+}
