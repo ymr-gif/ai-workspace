@@ -39,7 +39,7 @@
     return (
       <div style={{ ...S.nodeCard, width:180, cursor:'pointer',
         ...(window.getAnimStyle||((s)=>({})))(animState),
-        ...(hovered ? { borderColor:`${dotColor}66` } : {}) }}
+        ...(hovered ? { borderLeftColor:`${dotColor}` } : {}) }}
         onClick={onClick} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
         <div style={S.nodeHeader}>
           <span style={{ width:8, height:8, background:dotColor, flexShrink:0, boxShadow:`0 0 5px ${dotColor}` }} />

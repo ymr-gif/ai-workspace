@@ -21,6 +21,7 @@ from api.scheduled_prompts import router as scheduled_prompts_router
 from api.system import router as system_router
 from api.templates import router as templates_router
 from api.tool_logs import router as tool_logs_router
+from api.canvas import router as canvas_router
 from api.export import router as export_router
 from api.goals import router as goals_router
 from api.search import router as search_router
@@ -126,6 +127,7 @@ app.include_router(workspaces_router)
 app.include_router(export_router)
 app.include_router(goals_router)
 app.include_router(search_router)
+app.include_router(canvas_router)
 app.include_router(graph_router)
 app.include_router(invite_router)
 

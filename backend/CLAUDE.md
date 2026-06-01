@@ -33,7 +33,7 @@
 │   │   ├── __init__.py     — combines router + stream_router
 │   │   ├── schemas.py      — ChatRequest model
 │   │   ├── router.py       — POST /chat (non-streaming)
-│   │   ├── stream.py       — POST /chat/stream SSE endpoint + event_generator; status="partial" for mid-stream breaks (STREAM_INTERRUPTIONS counter); ALL_MODELS_FAILED counter
+│   │   ├── stream.py       — POST /chat/stream SSE endpoint + event_generator; status="partial" for mid-stream breaks (STREAM_INTERRUPTIONS counter); ALL_MODELS_FAILED counter; emits `canvas_update` event after any `canvas_*` tool result (frontend re-fetches GET /canvas/graph)
 │   │   ├── helpers.py      — context build, model resolve, cost cap; auto-resolves expired MemoryConflicts (keep_a); time-based fact salience decay in ranking (not persisted)
 │   │   └── background.py   — auto-title, embed, proactive, token/cost calc; _auto_title uses atomic UPDATE...WHERE title=:default (no TOCTOU race)
 │   ├── workspaces.py       — /workspaces CRUD + memory routes
@@ -49,6 +49,7 @@
 │   │   ├── audit.py        — GET /audit-log
 │   │   ├── env.py          — GET/PUT env vars, reload
 │   │   └── system.py       — POST /re-embed
+│   ├── canvas.py           — REST bridge for AI canvas graph: GET /canvas/graph · POST /canvas/nodes · PATCH /canvas/nodes/{id} · DELETE /canvas/nodes/{id} · POST /canvas/wire · DELETE /canvas/wire; all auth-gated; calls agent/canvas_graph.py; 400 on ValueError (bad type/port), 404 on missing node
 │   ├── graph.py            — /graph/stats, /health, /sample (?limit=1-200, ?entity_type=); DELETE /graph/entities/{name}; POST /graph/prune (removes long names + stale OTHER-type entities >7 days)
 │   ├── system.py           — /health, /metrics, /hardware + /system/hardware alias (both serve CPU/RAM/GPU/disk/uptime — psutil + pynvml); probe_models_on_startup() pings all MODELS, pre-trips circuit on failure
 │   ├── memory.py           — GET /memory returns active_conflicts count; scan_conflicts sets expires_at=+7d; conflicts auto-resolved keep_a after expiry

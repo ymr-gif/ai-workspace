@@ -210,6 +210,7 @@ async def chat_stream(
         fallback_used = False
         accumulated   = []
         tools_in_turn = []
+        last_tool_name: str | None = None
 
         try:
             async for event in service.generate_stream(
@@ -237,7 +238,10 @@ async def chat_stream(
                 elif event["type"] in ("tool_call", "tool_result", "ask_user", "confirm_write_memory"):
                     if event["type"] == "tool_call":
                         tools_in_turn.append(event.get("name", ""))
+                        last_tool_name = event.get("name", "")
                     yield f"data: {_json.dumps(event)}\n\n"
+                    if event["type"] == "tool_result" and last_tool_name and last_tool_name.startswith("canvas_"):
+                        yield f"data: {_json.dumps({'type': 'canvas_update'})}\n\n"
 
                 elif event["type"] == "done":
                     model_used    = event.get("model", "unknown")

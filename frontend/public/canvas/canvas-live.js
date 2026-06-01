@@ -115,7 +115,28 @@
     }));
   }
 
-  /* ── 4. Patch INITIAL_NODES with live data ──────────── */
+  /* ── 4a. Convert Neo4j CanvasNode → React Flow node ─── */
+  const _NEO_TYPE_MAP = {
+    input:'inputNode', session:'sessionNode', memory:'memoryNode',
+    files:'filesNode', logs:'logsNode', usage:'usageNode',
+    workspace:'workspaceNode', config:'configNode',
+  };
+  function neoToRF(n, idx) {
+    return {
+      id:       'ai-' + n.node_id,
+      type:     _NEO_TYPE_MAP[n.node_type] || 'placeholder',
+      data: {
+        label:     n.node_type.toUpperCase(),
+        animState: n.status === 'active' ? 'done' : 'idle',
+        icon:      'Terminal',
+        ...(n.config || {}),
+      },
+      position: (n.config || {}).position || { x: 1100 + idx * 200, y: 100 + idx * 70 },
+    };
+  }
+  window.NIM_NEO_TO_RF = neoToRF;
+
+  /* ── 4b. Patch INITIAL_NODES with live data ─────────── */
   function patchNodes(D, mem, files, ws, sessions) {
     D.INITIAL_NODES = D.INITIAL_NODES.map(n => {
       switch (n.id) {
@@ -151,7 +172,8 @@
     apiGet('/api/usage'),
     apiGet('/api/tool-calls?limit=50'),
     apiGet('/api/conversations'),
-  ]).then(([memR, filesR, wsR, usageR, logsR, convsR]) => {
+    apiGet('/api/canvas/graph'),
+  ]).then(([memR, filesR, wsR, usageR, logsR, convsR, canvasR]) => {
 
     // Wait for data.js to finish defining NIM_CANVAS_DATA
     const ready = () => {
@@ -170,8 +192,24 @@
       if (usage) D.MOCK_USAGE_CANVAS = usage;
       if (logs)  D.MOCK_LOGS_CANVAS  = logs;
 
+      /* overlay AI canvas nodes from Neo4j */
+      const aiGraph = canvasR.status === 'fulfilled' ? canvasR.value : null;
+      if (aiGraph && aiGraph.nodes && aiGraph.nodes.length) {
+        const rfNodes = aiGraph.nodes.map(neoToRF);
+        D.INITIAL_NODES = D.INITIAL_NODES.concat(rfNodes);
+        const rfEdges = (aiGraph.wires || []).map(w => ({
+          id:     'ai-wire-' + w.src_id + '__' + w.dst_id,
+          source: 'ai-' + w.src_id,
+          target: 'ai-' + w.dst_id,
+          style:  { stroke: 'rgba(61,255,110,0.6)', strokeWidth: 1.5 },
+        }));
+        if (rfEdges.length) D.INITIAL_EDGES = D.INITIAL_EDGES.concat(rfEdges);
+      }
+
       console.info('[NIM LIVE] data patched in', Date.now() - startTime, 'ms', {
-        mem: !!mem, files: !!files, ws: !!ws, sessions: !!sessions, usage: !!usage, logs: !!logs,
+        mem: !!mem, files: !!files, ws: !!ws, sessions: !!sessions,
+        usage: !!usage, logs: !!logs,
+        aiNodes: aiGraph?.nodes?.length || 0,
       });
     };
 
