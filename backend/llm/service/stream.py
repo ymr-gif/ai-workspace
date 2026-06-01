@@ -8,7 +8,7 @@ from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route, get_context_limit
 from llm.nim import call, call_stream
-from llm.tools import TOOL_SCHEMAS, WRITE_MEMORY_SCHEMA, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX
+from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, CANVAS_TOOL_SCHEMAS, WRITE_MEMORY_SCHEMA, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX
 
 from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, apply_context_budget
 
@@ -139,11 +139,19 @@ async def generate_stream(
         model, _ = await route(message, request_id)
         fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
 
-    file_tools = TOOL_SCHEMAS if (file_ids and db is not None) else []
+    file_tools   = FILE_TOOL_SCHEMAS   if (file_ids and db is not None) else []
+    canvas_tools = CANVAS_TOOL_SCHEMAS if (db is not None and node_inventory) else []
     # write_memory: reasoning model only + user must explicitly request save (prevents 70B saving on its own initiative)
     _is_reasoning = fallback_chain[0] == MODELS["reasoning"]
     mem_tools = [WRITE_MEMORY_SCHEMA] if (db is not None and _is_reasoning and _needs_memory_tool(message)) else []
-    tools = file_tools + mem_tools or None
+    # deduplicate by tool name (file_tools already contains canvas tools when both active)
+    _seen, tools_list = set(), []
+    for t in (file_tools + canvas_tools + mem_tools):
+        n = t["function"]["name"]
+        if n not in _seen:
+            _seen.add(n)
+            tools_list.append(t)
+    tools = tools_list or None
 
     if image_b64 and image_mime_type:
         user_content = [
