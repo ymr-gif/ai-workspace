@@ -13,12 +13,37 @@
     return {};
   }
 
-  function NodeHeader({ dot, label, extra }) {
+  /* ── Node action buttons (pin + close) — top-right of every node ── */
+  function NodeControls({ nodeId, pinned }) {
+    const b = {
+      background:'none', border:'none', cursor:'pointer',
+      fontFamily:C.DISP, fontSize:10, padding:'0 2px', lineHeight:1,
+      transition:'color 0.1s', color: C.FG5,
+    };
+    return (
+      <div style={{ display:'flex', gap:1, alignItems:'center', marginLeft:'auto', flexShrink:0 }}>
+        <button title="Close"
+          style={b}
+          onClick={e => { e.stopPropagation(); window.NIM_CANVAS_CB?._closeNode?.(nodeId); }}
+          onMouseEnter={e => e.currentTarget.style.color = C.RED}
+          onMouseLeave={e => e.currentTarget.style.color = C.FG5}>✕</button>
+        <button title={pinned ? 'Unpin' : 'Pin'}
+          style={{ ...b, color: pinned ? C.AMB : C.FG5 }}
+          onClick={e => { e.stopPropagation(); window.NIM_CANVAS_CB?._pinNode?.(nodeId, !pinned); }}
+          onMouseEnter={e => e.currentTarget.style.color = C.AMB}
+          onMouseLeave={e => e.currentTarget.style.color = pinned ? C.AMB : C.FG5}>◉</button>
+      </div>
+    );
+  }
+
+  function NodeHeader({ dot, label, name, extra, nodeId, pinned }) {
     return (
       <div style={S.nodeHeader}>
         <span style={{ width:8, height:8, background:dot, flexShrink:0, boxShadow:`0 0 5px ${dot}` }} />
         <span style={S.nodeLabel}>{label}</span>
-        {extra && <span style={{ marginLeft:'auto' }}>{extra}</span>}
+        {name && <span style={{ fontFamily:C.DISP, fontSize:9, color:C.FG5, letterSpacing:'0.06em', paddingLeft:5 }}>| {name}</span>}
+        {extra && <span>{extra}</span>}
+        <NodeControls nodeId={nodeId} pinned={pinned} />
       </div>
     );
   }
@@ -259,7 +284,7 @@
   }
 
   /* ─────────────── INPUT NODE ─────────────── */
-  function InputNode({ data }) {
+  function InputNode({ data, id }) {
     const [text,      setText]      = React.useState('');
     const [insight,   setInsight]   = React.useState(null);
     const [countdown, setCountdown] = React.useState(10);
@@ -310,7 +335,7 @@
         )}
         <div style={ns.card}>
           <AllHandles />
-          <NodeHeader dot={C.RED} label="INPUT" />
+          <NodeHeader dot={C.RED} label="INPUT" nodeId={id} pinned={data.pinned} />
           <CompatLabel compat={compat} />
           {/* global mode indicator */}
           <div style={ns.global}>
@@ -334,7 +359,7 @@
   }
 
   /* ─────────────── SESSION NODE ─────────────── */
-  function SessionNode({ data }) {
+  function SessionNode({ data, id }) {
     const compatS = useCompatState('sessionNode');
     const { streamText='', isStreaming=false } = data;
 
@@ -361,6 +386,7 @@
                 : 'JARVIS // PERSISTENT'}
             </div>
           </div>
+          <NodeControls nodeId={id} pinned={data.pinned} />
         </div>
 
         <SessionOutputPanel
@@ -411,7 +437,7 @@
   /* ─────────────── CONFIG NODE ─────────────── */
   const UNIT_ASCII = `   ▄███▄\n  █ ◆ ◆ █\n  █ ▀▀▀ █\n   ▀███▀\n  ▄█████▄\n ██  ▲  ██\n  ▀▀▀▀▀▀▀`;
 
-  function ConfigNode({ data }) {
+  function ConfigNode({ data, id }) {
     const models = data.models || [];
     const [model,  setModel]  = React.useState('auto');
     const [pOpen,  setPOpen]  = React.useState(false);
@@ -437,7 +463,7 @@
     return (
       <div style={{ ...ns.card, ...compatStyle(useCompatState('configNode')) }}>
         <AllHandles />
-        <NodeHeader dot={C.RED} label="CONFIG" />
+        <NodeHeader dot={C.RED} label="CONFIG" nodeId={id} pinned={data.pinned} />
         <div style={ns.sec}>
           <div style={ns.sLbl}>Model</div>
           <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
@@ -511,7 +537,7 @@
   }
 
   /* ─────────────── MEMORY NODE ─────────────── */
-  function MemoryNode({ data }) {
+  function MemoryNode({ data, id }) {
     const mem       = data.mem || { factCount:0, sections:[], topFact:null };
     const isExp     = data.isExpanded || false;
     const topSec    = mem.sections.find(s => s.name === mem.topFact?.section);
@@ -535,7 +561,7 @@
     return (
       <div style={{ ...ns.card, ...compatStyle(useCompatState('memoryNode')) }}>
         <AllHandles />
-        <NodeHeader dot={C.GRN} label="MEMORY"
+        <NodeHeader dot={C.GRN} label="MEMORY" nodeId={id} pinned={data.pinned}
           extra={
             <span style={{ width:7, height:7, background:C.GRN,
               boxShadow:`0 0 5px ${C.GRN}`,

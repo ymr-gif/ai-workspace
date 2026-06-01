@@ -33,8 +33,30 @@
     );
   }
 
+  /* shared NodeControls (mirrors nodes.jsx) */
+  function NodeControls({ nodeId, pinned }) {
+    const b = {
+      background:'none', border:'none', cursor:'pointer',
+      fontFamily:C.DISP, fontSize:10, padding:'0 2px', lineHeight:1,
+      transition:'color 0.1s', color:C.FG5,
+    };
+    return (
+      <div style={{ display:'flex', gap:1, alignItems:'center', marginLeft:'auto', flexShrink:0 }}>
+        <button title="Close" style={b}
+          onClick={e => { e.stopPropagation(); window.NIM_CANVAS_CB?._closeNode?.(nodeId); }}
+          onMouseEnter={e => e.currentTarget.style.color = C.RED}
+          onMouseLeave={e => e.currentTarget.style.color = C.FG5}>✕</button>
+        <button title={pinned ? 'Unpin' : 'Pin'}
+          style={{ ...b, color: pinned ? C.AMB : C.FG5 }}
+          onClick={e => { e.stopPropagation(); window.NIM_CANVAS_CB?._pinNode?.(nodeId, !pinned); }}
+          onMouseEnter={e => e.currentTarget.style.color = C.AMB}
+          onMouseLeave={e => e.currentTarget.style.color = pinned ? C.AMB : C.FG5}>◉</button>
+      </div>
+    );
+  }
+
   /* small compact node card (for logs/usage before popup opens) */
-  function CompactCard({ dot, dotColor, label, hint, onClick, animState }) {
+  function CompactCard({ dot, dotColor, label, hint, onClick, animState, nodeId, pinned }) {
     const [hovered, setHovered] = React.useState(false);
     return (
       <div style={{ ...S.nodeCard, width:180, cursor:'pointer',
@@ -44,6 +66,7 @@
         <div style={S.nodeHeader}>
           <span style={{ width:8, height:8, background:dotColor, flexShrink:0, boxShadow:`0 0 5px ${dotColor}` }} />
           <span style={S.nodeLabel}>{label}</span>
+          <NodeControls nodeId={nodeId} pinned={pinned} />
         </div>
         <div style={{ padding:'6px 10px', fontFamily:C.DISP, fontSize:7, color:C.FG5, letterSpacing:'0.1em', textTransform:'uppercase' }}>
           {hint}
@@ -53,7 +76,7 @@
   }
 
   /* ─────────────── LOGS NODE ─────────────── */
-  function LogsNode({ data }) {
+  function LogsNode({ data, id }) {
     const [open,    setOpen]    = React.useState(false);
     const [expArgs, setExpArgs] = React.useState({});
     const logs = D.MOCK_LOGS_CANVAS;
@@ -63,6 +86,7 @@
         <Handle type="target" position={Position.Left} style={{ ...S.handle, left:-5 }} />
         <CompactCard dot="[L]" dotColor={C.CYN} label="LOGS"
           hint={`${logs.length} TOOL CALLS · CLICK TO VIEW`} animState={data.animState}
+          nodeId={id} pinned={data.pinned}
           onClick={() => setOpen(o=>!o)} />
         <Handle type="source" position={Position.Right} style={{ ...S.handle, right:-5 }} />
 
@@ -102,7 +126,7 @@
   }
 
   /* ─────────────── USAGE NODE ─────────────── */
-  function UsageNode({ data }) {
+  function UsageNode({ data, id }) {
     const [open, setOpen] = React.useState(false);
     const u = D.MOCK_USAGE_CANVAS;
 
@@ -111,6 +135,7 @@
         <Handle type="target" position={Position.Left} style={{ ...S.handle, left:-5 }} />
         <CompactCard dot="[$]" dotColor={C.GRN} label="USAGE"
           hint={`$${u.total_cost.toFixed(4)} · ${u.requests} REQS`} animState={data.animState}
+          nodeId={id} pinned={data.pinned}
           onClick={() => setOpen(o=>!o)} />
         <Handle type="source" position={Position.Right} style={{ ...S.handle, right:-5 }} />
 

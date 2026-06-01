@@ -10,8 +10,30 @@
     failed:     { bg:'rgba(255,34,34,0.12)',   color:'#ff2222' },
   }[st] || { bg:'rgba(100,100,100,0.12)', color:'#5a5a5a' });
 
+  /* ── shared pin/close controls (same as nodes.jsx NodeControls) ── */
+  function NodeControls({ nodeId, pinned }) {
+    const b = {
+      background:'none', border:'none', cursor:'pointer',
+      fontFamily:C.DISP, fontSize:10, padding:'0 2px', lineHeight:1,
+      transition:'color 0.1s', color:C.FG5,
+    };
+    return (
+      <div style={{ display:'flex', gap:1, alignItems:'center', marginLeft:'auto', flexShrink:0 }}>
+        <button title="Close" style={b}
+          onClick={e => { e.stopPropagation(); window.NIM_CANVAS_CB?._closeNode?.(nodeId); }}
+          onMouseEnter={e => e.currentTarget.style.color = C.RED}
+          onMouseLeave={e => e.currentTarget.style.color = C.FG5}>✕</button>
+        <button title={pinned ? 'Unpin' : 'Pin'}
+          style={{ ...b, color: pinned ? C.AMB : C.FG5 }}
+          onClick={e => { e.stopPropagation(); window.NIM_CANVAS_CB?._pinNode?.(nodeId, !pinned); }}
+          onMouseEnter={e => e.currentTarget.style.color = C.AMB}
+          onMouseLeave={e => e.currentTarget.style.color = pinned ? C.AMB : C.FG5}>◉</button>
+      </div>
+    );
+  }
+
   /* ─────────────── FILES NODE ─────────────── */
-  function FilesNode({ data }) {
+  function FilesNode({ data, id }) {
     const [files, setFiles]     = React.useState(data.files || []);
     const [wsFilter, setWsF]    = React.useState('ALL');
     const [url, setUrl]         = React.useState('');
@@ -67,6 +89,7 @@
             <span style={S.nodeLabel}>FILES</span>
           </div>
           {attachedCount > 0 && <span style={ns.badge(attachedCount)}>{attachedCount} ATT</span>}
+          <NodeControls nodeId={id} pinned={data.pinned} />
         </div>
 
         {/* Workspace filter */}
@@ -114,16 +137,18 @@
   }
 
   /* ─────────────── WORKSPACE NODE ─────────────── */
-  function WorkspaceNode({ data }) {
+  function WorkspaceNode({ data, id }) {
     const { workspace, workspaces=[] } = data;
-    const [expanded, setExpanded]   = React.useState(false);
-    const [wsIdx,    setWsIdx]      = React.useState(0);
+    const [expanded, setExpanded] = React.useState(false);
+    const [wsIdx,    setWsIdx]    = React.useState(0);
     const ws = workspaces[wsIdx] || workspace || {};
+    /* config.name set by AI when creating via create_canvas_node */
+    const wsName = ws.name || data.config?.name || data.label || null;
 
     const ns = {
-      card:  { ...S.nodeCard, width:260, borderLeft:`2px solid ${C.CYN}`, ...((window.getAnimStyle||((s)=>({})))(data.animState)) },
+      card:  { ...S.nodeCard, minWidth:240, width:'max-content', maxWidth:520,
+               borderLeft:`2px solid ${C.CYN}`, ...((window.getAnimStyle||((s)=>({})))(data.animState)) },
       dot:   { width:8, height:8, background:C.CYN, flexShrink:0, boxShadow:`0 0 5px ${C.CYN}` },
-      name:  { fontFamily:C.DISP, fontSize:12, fontWeight:700, color:C.FG2, letterSpacing:'0.04em' },
       desc:  { fontFamily:C.TERM, fontSize:11, color:C.FG4, lineHeight:1.4, padding:'6px 10px',
                borderBottom:`1px solid ${C.LINE}` },
       spWrap:{ padding:'6px 10px', borderBottom:`1px solid ${C.LINE}` },
@@ -133,7 +158,7 @@
       sWrap: { padding:'6px 10px', borderBottom:`1px solid ${C.LINE}` },
       scope: { fontFamily:C.DISP, fontSize:8, color:C.CYN, letterSpacing:'0.1em', textTransform:'uppercase' },
       pills: { display:'flex', gap:4, padding:'6px 10px', flexWrap:'wrap' },
-      pill:  (a,i) => ({ padding:'2px 8px', border:`1px solid ${a?C.CYN:C.LINE2}`,
+      pill:  (a) => ({ padding:'2px 8px', border:`1px solid ${a?C.CYN:C.LINE2}`,
                background:a?'rgba(39,216,255,0.1)':'none', color:a?C.CYN:C.FG5,
                fontFamily:C.DISP, fontSize:8, cursor:'pointer', letterSpacing:'0.06em' }),
     };
@@ -141,21 +166,29 @@
     return (
       <div style={ns.card}>
         <Handle type="target" position={Position.Left}  style={{ ...S.handle, left:-5 }} />
-        <div style={{ ...S.nodeHeader, borderLeft:'none' }}>
+
+        {/* header: WORKSPACE | name  ✕  ◉ */}
+        <div style={{ ...S.nodeHeader, borderLeft:'none', flexWrap:'nowrap' }}>
           <span style={ns.dot} />
-          <span style={{ ...ns.name }}>{ws.name || 'WORKSPACE'}</span>
+          <span style={{ fontFamily:C.DISP, fontSize:9, color:C.FG5, letterSpacing:'0.12em',
+            textTransform:'uppercase', flexShrink:0 }}>WORKSPACE</span>
+          {wsName && (
+            <span style={{ fontFamily:C.DISP, fontSize:11, color:C.CYN, letterSpacing:'0.06em',
+              paddingLeft:6, whiteSpace:'nowrap' }}>| {wsName}</span>
+          )}
+          <NodeControls nodeId={id} pinned={data.pinned} />
         </div>
 
-        {/* workspace switcher */}
+        {/* workspace switcher (static list only) */}
         {workspaces.length > 1 && (
           <div style={ns.pills}>
             {workspaces.map((w,i) => (
-              <button key={w.id} style={ns.pill(wsIdx===i, i)} onClick={() => setWsIdx(i)}>{w.name}</button>
+              <button key={w.id} style={ns.pill(wsIdx===i)} onClick={() => setWsIdx(i)}>{w.name}</button>
             ))}
           </div>
         )}
 
-        <div style={ns.desc}>{ws.description || '—'}</div>
+        {ws.description && <div style={ns.desc}>{ws.description}</div>}
 
         {/* system prompt */}
         <div style={ns.spWrap}>
@@ -168,10 +201,13 @@
 
         {/* scope */}
         <div style={ns.sWrap}>
-          <div style={{ fontFamily:C.DISP, fontSize:7, color:C.FG5, letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:4 }}>
-            Scope
+          <div style={{ fontFamily:C.DISP, fontSize:7, color:C.FG5, letterSpacing:'0.12em',
+            textTransform:'uppercase', marginBottom:4 }}>Scope</div>
+          <div style={ns.scope}>
+            {data.scopedSessions?.length > 0
+              ? `${data.scopedSessions.length} SESSION(S) WIRED`
+              : 'NO SESSIONS WIRED'}
           </div>
-          <div style={ns.scope}>{data.scopedSessions?.length > 0 ? `${data.scopedSessions.length} SESSION(S) WIRED` : 'NO SESSIONS WIRED'}</div>
         </div>
 
         <Handle type="source" position={Position.Right} style={{ ...S.handle, right:-5 }} />
