@@ -37,6 +37,11 @@ from .schemas import ChatRequest
 router = APIRouter()
 logger = logging.getLogger("chat")
 
+_CANVAS_WRITE_TOOLS = frozenset({
+    "create_canvas_node", "delete_canvas_node", "update_canvas_node",
+    "wire_nodes", "unwire_nodes",
+})
+
 
 @router.post("/chat/stream")
 async def chat_stream(
@@ -240,7 +245,7 @@ async def chat_stream(
                         tools_in_turn.append(event.get("name", ""))
                         last_tool_name = event.get("name", "")
                     yield f"data: {_json.dumps(event)}\n\n"
-                    if event["type"] == "tool_result" and last_tool_name and last_tool_name.startswith("canvas_"):
+                    if event["type"] == "tool_result" and last_tool_name in _CANVAS_WRITE_TOOLS:
                         yield f"data: {_json.dumps({'type': 'canvas_update'})}\n\n"
 
                 elif event["type"] == "done":

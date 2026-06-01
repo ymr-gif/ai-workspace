@@ -213,6 +213,16 @@
         window.NIM_CANVAS_GLOBAL_CONV_ID = globalConv.conversation_id;
       }
 
+      /* restore saved node positions from localStorage */
+      try {
+        const saved = JSON.parse(localStorage.getItem('nim_canvas_positions') || '{}');
+        if (Object.keys(saved).length) {
+          D.INITIAL_NODES = D.INITIAL_NODES.map(n =>
+            saved[n.id] ? { ...n, position: saved[n.id] } : n
+          );
+        }
+      } catch {}
+
       console.info('[NIM LIVE] data patched in', Date.now() - startTime, 'ms', {
         mem: !!mem, files: !!files, ws: !!ws, sessions: !!sessions,
         usage: !!usage, logs: !!logs,
