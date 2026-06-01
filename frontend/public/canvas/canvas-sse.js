@@ -30,7 +30,9 @@
   /* ── Build ChatRequest body from canvas state ────────── */
   function buildBody() {
     const text     = window.NIM_CANVAS_LAST_INPUT      || '';
-    const convId   = window.NIM_CANVAS_LAST_SESSION_ID || null;
+    const convId   = window.NIM_CANVAS_LAST_SESSION_ID
+                   || window.NIM_CANVAS_GLOBAL_CONV_ID
+                   || null;
     const wsId     = window.NIM_CANVAS_LAST_WS_ID      || null;
     const model    = window.NIM_CANVAS_LAST_MODEL       || null;   // null → auto
     const fileIds  = window.NIM_CANVAS_LAST_FILE_IDS    || [];     // 5D: file wire

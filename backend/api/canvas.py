@@ -1,7 +1,9 @@
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.canvas_graph import (
@@ -10,7 +12,7 @@ from agent.canvas_graph import (
 )
 from auth.security import get_current_user
 from core.db import get_db
-from models import User
+from models import Conversation, User
 
 router = APIRouter(prefix="/canvas", tags=["canvas"])
 logger = logging.getLogger("canvas")
@@ -111,3 +113,27 @@ async def canvas_unwire(
         await unwire_nodes(current_user.id, body.src_id, body.dst_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/global")
+async def canvas_global(
+    current_user: User         = Depends(get_current_user),
+    db:           AsyncSession = Depends(get_db),
+):
+    """Return-or-create the JARVIS global conversation for this user."""
+    result = await db.execute(
+        select(Conversation)
+        .where(Conversation.user_id == current_user.id, Conversation.title == "JARVIS")
+        .limit(1)
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        conv = Conversation(
+            id=uuid.uuid4(),
+            user_id=current_user.id,
+            title="JARVIS",
+            memory_enabled=True,
+        )
+        db.add(conv)
+        await db.commit()
+    return {"conversation_id": str(conv.id)}

@@ -95,6 +95,19 @@ TOOL_SCHEMAS = [
           {"cypher": {"type": "string", "description": "Cypher MATCH/RETURN query. Must include {user_id: $uid}."}},
           ["cypher"]),
     _tool("get_canvas_graph", "Return your full canvas — all active nodes and their connections."),
+    _tool("create_conversation",
+          "Create a new conversation (session) in the database. Returns the conversation_id. "
+          "After creating, call create_canvas_node(type='session', config={'conversation_id': <id>}) to visualize it on the canvas.",
+          {"title":        {"type": "string", "description": "Short title for the conversation."},
+           "workspace_id": {"type": "string", "description": "Optional workspace UUID to scope the conversation."}},
+          ["title"]),
+    _tool("create_workspace",
+          "Create a new workspace in the database. Returns the workspace_id. "
+          "After creating, call create_canvas_node(type='workspace', config={'workspace_id': <id>}) to visualize it on the canvas.",
+          {"name":          {"type": "string", "description": "Workspace name."},
+           "description":   {"type": "string", "description": "Optional description."},
+           "system_prompt": {"type": "string", "description": "Optional system prompt applied to all sessions in this workspace."}},
+          ["name"]),
 ]
 
 WRITE_MEMORY_SCHEMA = _tool("write_memory", (

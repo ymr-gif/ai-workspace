@@ -173,7 +173,8 @@
     apiGet('/api/tool-calls?limit=50'),
     apiGet('/api/conversations'),
     apiGet('/api/canvas/graph'),
-  ]).then(([memR, filesR, wsR, usageR, logsR, convsR, canvasR]) => {
+    apiGet('/api/canvas/global'),
+  ]).then(([memR, filesR, wsR, usageR, logsR, convsR, canvasR, globalR]) => {
 
     // Wait for data.js to finish defining NIM_CANVAS_DATA
     const ready = () => {
@@ -206,10 +207,17 @@
         if (rfEdges.length) D.INITIAL_EDGES = D.INITIAL_EDGES.concat(rfEdges);
       }
 
+      /* bootstrap JARVIS global conversation ID */
+      const globalConv = globalR.status === 'fulfilled' ? globalR.value : null;
+      if (globalConv?.conversation_id) {
+        window.NIM_CANVAS_GLOBAL_CONV_ID = globalConv.conversation_id;
+      }
+
       console.info('[NIM LIVE] data patched in', Date.now() - startTime, 'ms', {
         mem: !!mem, files: !!files, ws: !!ws, sessions: !!sessions,
         usage: !!usage, logs: !!logs,
         aiNodes: aiGraph?.nodes?.length || 0,
+        globalConv: globalConv?.conversation_id || null,
       });
     };
 

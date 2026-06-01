@@ -260,11 +260,8 @@
 
   /* ─────────────── INPUT NODE ─────────────── */
   function InputNode({ data }) {
-    const sessions = data.sessions || [];
-    const [active, setActive] = React.useState(sessions[0] || null);
-    const [pill,   setPill]    = React.useState(false);
-    const [text,   setText]    = React.useState('');
-    const [insight, setInsight] = React.useState(null);
+    const [text,      setText]      = React.useState('');
+    const [insight,   setInsight]   = React.useState(null);
     const [countdown, setCountdown] = React.useState(10);
 
     /* listen for insight events from Canvas */
@@ -285,88 +282,53 @@
     function handleSend(e) {
       e.preventDefault();
       if (!text.trim()) return;
-      /* Stage 5: store state for canvas-sse.js to read */
-      window.NIM_CANVAS_LAST_INPUT      = text;
-      window.NIM_CANVAS_LAST_SESSION_ID = active?.id || null;
-      window.NIM_CANVAS_LAST_WS_ID      = active?.workspace_id || null;
-      window.NIM_CANVAS_CB?.onDemoSend?.();
-    }
-    function handleDemo() {
-      window.NIM_CANVAS_LAST_INPUT      = text || 'How does auto-routing work?';
-      window.NIM_CANVAS_LAST_SESSION_ID = active?.id || null;
+      window.NIM_CANVAS_LAST_INPUT = text;
+      /* no session override — buildBody() falls through to NIM_CANVAS_GLOBAL_CONV_ID */
       window.NIM_CANVAS_CB?.onDemoSend?.();
     }
 
     const compat = useCompatState('inputNode');
     const ns = {
-      card:    { ...S.nodeCard, width:280, ...animStyle(data.animState), ...compatStyle(compat) },
-      pill:    { display:'flex', alignItems:'center', gap:6, padding:'4px 8px',
-                 background:'none', border:`1px solid ${C.RED}`, cursor:'pointer',
-                 fontFamily:C.DISP, fontSize:9, letterSpacing:'0.1em', color:C.RED, textTransform:'uppercase' },
-      drop:    { position:'absolute', top:'100%', left:0, right:0, zIndex:100,
-                 background:'#0d0d0d', border:`1px solid ${C.LINE2}`, borderTop:'none' },
-      dropRow: { padding:'7px 10px', fontFamily:C.TERM, fontSize:12, color:C.FG3,
-                 cursor:'pointer', borderBottom:`1px solid ${C.LINE}` },
-      ta:      { width:'100%', background:'#000', border:`1px solid ${C.LINE2}`, borderRadius:0,
-                 color:C.FG1, fontFamily:C.TERM, fontSize:13, padding:'8px', resize:'none',
-                 outline:'none', boxSizing:'border-box', lineHeight:1.4 },
-      send:    { width:'100%', padding:'7px', background:C.RED, border:'none', color:'#000',
-                 fontFamily:C.DISP, fontSize:10, fontWeight:700, letterSpacing:'0.12em',
-                 textTransform:'uppercase', cursor:'pointer' },
-      demo:    { width:'100%', padding:'5px', background:'none', border:`1px solid rgba(139,92,246,0.5)`,
-                 color:'rgba(139,92,246,0.8)', fontFamily:C.DISP, fontSize:8, letterSpacing:'0.1em', cursor:'pointer', marginTop:4 },
+      card:   { ...S.nodeCard, width:280, ...animStyle(data.animState), ...compatStyle(compat) },
+      global: { display:'flex', alignItems:'center', gap:6, padding:'5px 10px',
+                borderBottom:`1px solid ${C.LINE}`,
+                fontFamily:C.DISP, fontSize:8, color:'rgba(255,34,34,0.5)', letterSpacing:'0.14em' },
+      ta:     { width:'100%', background:'#000', border:`1px solid ${C.LINE2}`, borderRadius:0,
+                color:C.FG1, fontFamily:C.TERM, fontSize:13, padding:'8px', resize:'none',
+                outline:'none', boxSizing:'border-box', lineHeight:1.4 },
+      send:   { width:'100%', padding:'7px', background:C.RED, border:'none', color:'#000',
+                fontFamily:C.DISP, fontSize:10, fontWeight:700, letterSpacing:'0.12em',
+                textTransform:'uppercase', cursor:'pointer' },
     };
 
     return (
       <div style={{ position:'relative' }}>
-        {/* insight ghost card — floats above node */}
         {insight && (
           <InsightCard text={insight} countdown={countdown}
             onInsert={() => { setText(insight); setInsight(null); }}
             onDismiss={() => setInsight(null)} />
         )}
-      <div style={ns.card}>
-        <AllHandles />
-        <NodeHeader dot={C.RED} label="INPUT" />
-        <CompatLabel compat={compat} />
-
-        {/* session picker */}
-        <div style={{ padding:'8px 10px', borderBottom:`1px solid ${C.LINE}`, position:'relative' }}>
-          <div style={ns.pill} onClick={() => setPill(o => !o)}>
-            <span style={{ width:6, height:6, background:C.RED }} />
-            {active ? active.name : 'no session'}
-            <span style={{ marginLeft:'auto', fontSize:8 }}>{pill ? '▲' : '▼'}</span>
+        <div style={ns.card}>
+          <AllHandles />
+          <NodeHeader dot={C.RED} label="INPUT" />
+          <CompatLabel compat={compat} />
+          {/* global mode indicator */}
+          <div style={ns.global}>
+            <span style={{ width:5, height:5, background:'rgba(255,34,34,0.5)' }} />
+            JARVIS // GLOBAL
           </div>
-          {pill && (
-            <div style={ns.drop}>
-              {sessions.map(s => (
-                <div key={s.id} style={ns.dropRow}
-                  onMouseEnter={e => e.currentTarget.style.color = C.FG1}
-                  onMouseLeave={e => e.currentTarget.style.color = C.FG3}
-                  onClick={() => { setActive(s); setPill(false); }}>
-                  {s.name}
-                </div>
-              ))}
-            </div>
-          )}
+          {/* text area */}
+          <div style={{ padding:'8px 10px 0' }}>
+            <textarea rows={3} value={text} onChange={e => setText(e.target.value)}
+              placeholder="address JARVIS..." style={ns.ta} />
+          </div>
+          {/* send */}
+          <div style={{ padding:'8px 10px' }}>
+            <form onSubmit={handleSend}>
+              <button type="submit" style={ns.send}>Send</button>
+            </form>
+          </div>
         </div>
-
-        {/* text area */}
-        <div style={{ padding:'8px 10px 0' }}>
-          <textarea rows={3} value={text} onChange={e => setText(e.target.value)}
-            placeholder="route query..." style={ns.ta} />
-        </div>
-
-        {/* buttons */}
-        <div style={{ padding:'8px 10px' }}>
-          <form onSubmit={handleSend}>
-            <button type="submit" style={ns.send}>Send</button>
-          </form>
-          <button style={ns.demo} onClick={handleDemo}>
-            DEMO SEND (stage 3 animation)
-          </button>
-        </div>
-      </div>
       </div>
     );
   }
@@ -374,84 +336,38 @@
   /* ─────────────── SESSION NODE ─────────────── */
   function SessionNode({ data }) {
     const compatS = useCompatState('sessionNode');
-    const { session, recentSessions=[], allSessions=[], streamText='', isStreaming=false } = data;
-    const [expandOpen,  setExpandOpen]  = React.useState(false);
+    const { streamText='', isStreaming=false } = data;
 
     const ns = {
-      card:    { ...S.nodeCard, width:300, borderLeft:'2px solid rgba(139,92,246,0.7)', ...animStyle(data.animState) },
-      name:    { fontFamily:C.TERM, fontSize:13, color:C.FG2 },
-      ws:      { fontFamily:C.DISP, fontSize:8, color:C.FG4, letterSpacing:'0.1em', textTransform:'uppercase' },
-      preview: { fontFamily:C.TERM, fontSize:12, color:C.FG4, lineHeight:1.4,
-                 overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' },
-      ts:      { fontFamily:C.DISP, fontSize:8, color:C.FG5, letterSpacing:'0.06em' },
-      row:     { display:'flex', justifyContent:'space-between', padding:'5px 10px',
-                 borderTop:`1px solid ${C.LINE}`, fontFamily:C.TERM, fontSize:11 },
-      expBtn:  { background:'none', border:`1px solid ${C.LINE2}`, color:C.FG4,
-                 fontFamily:C.DISP, fontSize:8, letterSpacing:'0.08em', cursor:'pointer', padding:'2px 6px' },
-      expPanel:{ position:'fixed', top:60, left:20, width:260, zIndex:999,
-                 background:'#0c0c0c', border:`1px solid ${C.LINE2}`, borderLeft:'2px solid rgba(139,92,246,0.6)' },
-      expRow:  { padding:'8px 12px', fontFamily:C.TERM, fontSize:12, color:C.FG3,
-                 borderBottom:`1px solid ${C.LINE}`, cursor:'pointer' },
+      card:   { ...S.nodeCard, width:300, borderLeft:'2px solid rgba(139,92,246,0.7)', ...animStyle(data.animState) },
+      label:  { fontFamily:C.DISP, fontSize:8, color:'rgba(139,92,246,0.6)', letterSpacing:'0.14em' },
     };
 
     return (
       <div style={{ ...ns.card, ...compatStyle(compatS) }}>
         <AllHandles />
         <CompatLabel compat={compatS} />
-        <div style={{ ...S.nodeHeader, justifyContent:'space-between' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-            <span style={{ width:8, height:8, background:'rgba(139,92,246,0.9)', flexShrink:0,
-              boxShadow:'0 0 6px rgba(139,92,246,0.6)',
-              animation: data.animState==='processing' ? 'pulse 0.6s ease-in-out infinite' : 'pulse 2s ease-in-out infinite' }} />
-            <div>
-              <div style={ns.name}>{session?.name || 'session'}</div>
-              {session?.workspace && <div style={ns.ws}>{session.workspace}</div>}
+        <div style={{ ...S.nodeHeader }}>
+          <span style={{ width:8, height:8, background:'rgba(139,92,246,0.9)', flexShrink:0,
+            boxShadow:'0 0 6px rgba(139,92,246,0.6)',
+            animation: data.animState==='processing' ? 'pulse 0.6s ease-in-out infinite' : 'pulse 2s ease-in-out infinite' }} />
+          <div>
+            <div style={{ fontFamily:C.TERM, fontSize:13, color:C.FG2 }}>
+              {data.config?.conversation_id ? 'AI SESSION' : 'GLOBAL SESSION'}
+            </div>
+            <div style={ns.label}>
+              {data.config?.conversation_id
+                ? (data.config.conversation_id.slice(0,8) + '…')
+                : 'JARVIS // PERSISTENT'}
             </div>
           </div>
-          <button style={ns.expBtn} onClick={() => setExpandOpen(o => !o)}>LIST</button>
-        </div>
-        <div style={{ padding:'8px 10px', borderBottom:`1px solid ${C.LINE}` }}>
-          <div style={ns.preview}>{session?.lastMsg || '—'}</div>
-          <div style={{ display:'flex', justifyContent:'space-between', marginTop:4, alignItems:'center' }}>
-            <span style={{ fontFamily:C.DISP, fontSize:8, color:C.FG5, letterSpacing:'0.08em' }}>LAST INTERACTED</span>
-            <span style={ns.ts}>{session?.ts}</span>
-          </div>
-        </div>
-        {recentSessions.map(s => (
-          <div key={s.id} style={ns.row}>
-            <span style={{ color:C.FG4, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:200 }}>{s.name}</span>
-            <span style={{ color:C.FG5, fontFamily:C.DISP, fontSize:8, flexShrink:0 }}>{s.ts}</span>
-          </div>
-        ))}
-        <div style={{ padding:'6px 10px', display:'flex', gap:6 }}>
         </div>
 
         <SessionOutputPanel
-          session={session}
+          session={null}
           streamText={streamText}
           isStreaming={isStreaming}
         />
-
-        {expandOpen && (
-          <div style={ns.expPanel}>
-            <div style={{ ...S.nodeHeader, borderBottom:`1px solid ${C.LINE}` }}>
-              <span style={S.nodeLabel}>ALL SESSIONS</span>
-              <button style={{ ...ns.expBtn, marginLeft:'auto' }} onClick={() => setExpandOpen(false)}>X</button>
-            </div>
-            <div style={{ maxHeight:220, overflowY:'auto' }} className="nim-scroll">
-              {allSessions.map(s => (
-                <div key={s.id} style={ns.expRow}
-                  onMouseEnter={e => e.currentTarget.style.color = C.FG1}
-                  onMouseLeave={e => e.currentTarget.style.color = C.FG3}>
-                  <div>{s.name}</div>
-                  <div style={{ fontFamily:C.DISP, fontSize:8, color:C.FG5, marginTop:2 }}>
-                    {s.workspace || 'global'} · {s.ts}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     );
   }

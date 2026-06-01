@@ -68,6 +68,37 @@ async def execute_tool(
             result = await query_canvas(user_id, args["cypher"])
         elif name == "get_canvas_graph":
             result = await get_canvas_graph(user_id)
+        elif name == "create_conversation":
+            import uuid as _uuid
+            from core.db import AsyncSessionLocal
+            from models import Conversation as _Conv
+            async with AsyncSessionLocal() as _db:
+                _ws_id = None
+                if args.get("workspace_id"):
+                    try: _ws_id = _uuid.UUID(args["workspace_id"])
+                    except ValueError: pass
+                _conv = _Conv(
+                    id=_uuid.uuid4(), user_id=user_id,
+                    title=args.get("title", "Agent Session"),
+                    workspace_id=_ws_id, memory_enabled=True,
+                )
+                _db.add(_conv)
+                await _db.commit()
+                result = str(_conv.id)
+        elif name == "create_workspace":
+            import uuid as _uuid
+            from core.db import AsyncSessionLocal
+            from models import Workspace as _Ws
+            async with AsyncSessionLocal() as _db:
+                _ws = _Ws(
+                    id=_uuid.uuid4(), user_id=user_id,
+                    name=args["name"],
+                    description=args.get("description", ""),
+                    system_prompt=args.get("system_prompt"),
+                )
+                _db.add(_ws)
+                await _db.commit()
+                result = str(_ws.id)
     except Exception as e:
         logger.warning("[tools] execute_tool failed name=%s err=%s", name, e)
         result = f"Error: {e}"
