@@ -12,3 +12,4 @@ class ChatRequest(BaseModel):
     image_b64:       str | None   = Field(None, max_length=2_097_152)
     image_mime_type: str | None   = None
     workspace_id:    str | None   = None
+    file_ids:        list[str]    = Field(default_factory=list)
