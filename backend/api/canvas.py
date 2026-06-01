@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.canvas_graph import (
-    create_node, delete_node, get_canvas_graph,
-    unwire_nodes, update_node, wire_nodes,
+    create_node, delete_node, find_nodes,
+    get_canvas_graph, unwire_nodes, update_node, wire_nodes,
 )
 from auth.security import get_current_user
 from core.db import get_db
@@ -120,7 +120,8 @@ async def canvas_global(
     current_user: User         = Depends(get_current_user),
     db:           AsyncSession = Depends(get_db),
 ):
-    """Return-or-create the JARVIS global conversation for this user."""
+    """Return-or-create the JARVIS global conversation for this user.
+    Also ensures input→session canvas wiring exists."""
     result = await db.execute(
         select(Conversation)
         .where(Conversation.user_id == current_user.id, Conversation.title == "JARVIS")
@@ -140,4 +141,35 @@ async def canvas_global(
     elif conv.locked_model != "reasoning":
         conv.locked_model = "reasoning"
         await db.commit()
+
+    await _ensure_canvas_wiring(current_user.id, str(conv.id))
     return {"conversation_id": str(conv.id)}
+
+
+async def _ensure_canvas_wiring(user_id: int, conversation_id: str) -> None:
+    """Create input node + session node and wire input→session if not already present."""
+    conv_id_str = conversation_id
+
+    sessions = await find_nodes(user_id, "session")
+    session_node = next(
+        (s for s in sessions if s.get("config", {}).get("conversation_id") == conv_id_str),
+        None,
+    )
+    if not session_node:
+        session_id = await create_node(user_id, "session", {"conversation_id": conv_id_str})
+    else:
+        session_id = session_node["node_id"]
+
+    inputs = await find_nodes(user_id, "input")
+    if inputs:
+        input_id = inputs[0]["node_id"]
+    else:
+        input_id = await create_node(user_id, "input", {})
+
+    graph = await get_canvas_graph(user_id)
+    already_wired = any(
+        w["src_id"] == input_id and w["dst_id"] == session_id
+        for w in graph["wires"]
+    )
+    if not already_wired:
+        await wire_nodes(user_id, input_id, session_id, "routed_message", "message", "routes_to")

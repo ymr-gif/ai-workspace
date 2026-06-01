@@ -207,11 +207,20 @@
         if (rfEdges.length) D.INITIAL_EDGES = D.INITIAL_EDGES.concat(rfEdges);
       }
 
-      /* bootstrap JARVIS global conversation ID */
+      /* bootstrap JARVIS global conversation ID (history loaded by Canvas.jsx useEffect) */
       const globalConv = globalR.status === 'fulfilled' ? globalR.value : null;
       if (globalConv?.conversation_id) {
         window.NIM_CANVAS_GLOBAL_CONV_ID = globalConv.conversation_id;
       }
+
+      /* remove permanently-closed static nodes */
+      try {
+        const closed = new Set(JSON.parse(localStorage.getItem('nim_canvas_closed') || '[]'));
+        if (closed.size) {
+          D.INITIAL_NODES = D.INITIAL_NODES.filter(n => !closed.has(n.id));
+          D.INITIAL_EDGES = D.INITIAL_EDGES.filter(e => !closed.has(e.source) && !closed.has(e.target));
+        }
+      } catch {}
 
       /* restore saved node positions from localStorage */
       try {

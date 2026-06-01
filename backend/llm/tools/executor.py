@@ -1,9 +1,12 @@
+import json
 import logging
+import re
 import uuid
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import ToolCallLog
+from models import Message, ToolCallLog
 
 from .file_ops import (
     _list_files, _read_file, _write_file, _create_file,
@@ -11,7 +14,7 @@ from .file_ops import (
 )
 from .search import _search_in_file, _search_across_files
 from agent.canvas_graph import (
-    create_node, delete_node, update_node,
+    create_node, delete_node, update_node, find_nodes,
     wire_nodes, unwire_nodes, query_canvas, get_canvas_graph,
 )
 
@@ -19,6 +22,34 @@ logger = logging.getLogger("tools")
 
 ASK_USER_PREFIX = "__ASK_USER__:"
 CONFIRM_WRITE_PREFIX = "__CONFIRM_WRITE_MEMORY__:"
+
+# ── Creation guard constants ──────────────────────────────────────
+
+_CREATION_RE = [
+    re.compile(r"(create|new|make|start|set\s*up|setup)\s*.{0,30}\s*(session|workspace|conversation)", re.I),
+    re.compile(r"(session|workspace|conversation)\s*.{0,10}\s*(create|new)", re.I),
+]
+_NEGATION_RE = re.compile(r"don'?t\s+(create|make|add)|never\s*mind|cancel|forget\s+it|scratch\s+that", re.I)
+_CONFIRMATION_RE = re.compile(
+    r"yes|yeah|sure|confirm|create|do\s*it|proceed|go\s*ahead|make\s*it|let'?s\s+do|okay?\b|please|that\s+sounds|agree|approved|start",
+    re.I,
+)
+_CREATION_FLOW_TTL = 300
+
+_FLOW_STATE_PENDING = "pending_specs"
+_FLOW_STATE_CONFIRMED = "confirmed"
+
+_CREATION_REJECT_SESSION = (
+    "Cannot create session: the user didn't request one. "
+    "This tool creates real database records — only call it when the user explicitly asks to create a session."
+)
+_CREATION_REJECT_WORKSPACE = (
+    "Cannot create workspace: the user didn't request one. "
+    "Only call this tool when the user explicitly asks to create a workspace."
+)
+_CREATION_NOT_CONFIRMED = (
+    "The user hasn't confirmed yet. Wait for their response before calling this tool again."
+)
 
 
 async def execute_tool(
@@ -69,39 +100,60 @@ async def execute_tool(
         elif name == "get_canvas_graph":
             result = await get_canvas_graph(user_id)
         elif name == "create_conversation":
-            import uuid as _uuid
-            from core.db import AsyncSessionLocal
-            from models import Conversation as _Conv
-            async with AsyncSessionLocal() as _db:
-                _ws_id = None
-                if args.get("workspace_id"):
-                    try: _ws_id = _uuid.UUID(args["workspace_id"])
-                    except ValueError: pass
-                _conv = _Conv(
-                    id=_uuid.uuid4(), user_id=user_id,
-                    title=args.get("title", "Agent Session"),
-                    workspace_id=_ws_id, memory_enabled=True,
-                )
-                _db.add(_conv)
-                await _db.commit()
-                result = str(_conv.id)
+            _guard = await _run_creation_guard(db, conv_id, "session")
+            if isinstance(_guard, str):
+                result = _guard
+            else:
+                import uuid as _uuid
+                from core.db import AsyncSessionLocal
+                from models import Conversation as _Conv
+
+                async with AsyncSessionLocal() as _db:
+                    _ws_id = None
+                    if args.get("workspace_id"):
+                        try: _ws_id = _uuid.UUID(args["workspace_id"])
+                        except ValueError: pass
+                    _conv = _Conv(
+                        id=_uuid.uuid4(), user_id=user_id,
+                        title=args.get("title", "Session"),
+                        workspace_id=_ws_id, memory_enabled=True,
+                    )
+                    _db.add(_conv)
+                    await _db.commit()
+                    result = str(_conv.id)
+
+                await _ensure_creation_wiring(user_id, result, "session", {"conversation_id": result})
+                await _clear_creation_flow(conv_id)
         elif name == "create_workspace":
-            import uuid as _uuid
-            from core.db import AsyncSessionLocal
-            from models import Workspace as _Ws
-            async with AsyncSessionLocal() as _db:
-                _ws = _Ws(
-                    id=_uuid.uuid4(), user_id=user_id,
-                    name=args["name"],
-                    description=args.get("description", ""),
-                    system_prompt=args.get("system_prompt"),
-                )
-                _db.add(_ws)
-                await _db.commit()
-                result = str(_ws.id)
+            _guard = await _run_creation_guard(db, conv_id, "workspace")
+            if isinstance(_guard, str):
+                result = _guard
+            else:
+                import uuid as _uuid
+                from core.db import AsyncSessionLocal
+                from models import Workspace as _Ws
+
+                async with AsyncSessionLocal() as _db:
+                    _ws = _Ws(
+                        id=_uuid.uuid4(), user_id=user_id,
+                        name=args["name"],
+                        description=args.get("description", ""),
+                        system_prompt=args.get("system_prompt"),
+                    )
+                    _db.add(_ws)
+                    await _db.commit()
+                    result = str(_ws.id)
+
+                await _ensure_creation_wiring(user_id, result, "workspace", {"workspace_id": result})
+                await _clear_creation_flow(conv_id)
     except Exception as e:
         logger.warning("[tools] execute_tool failed name=%s err=%s", name, e)
         result = f"Error: {e}"
+
+    if result is None:
+        result = "ok"
+    elif not isinstance(result, str):
+        result = json.dumps(result)
 
     try:
         preview = result if (result.startswith(ASK_USER_PREFIX) or result.startswith(CONFIRM_WRITE_PREFIX)) else result[:500]
@@ -117,3 +169,193 @@ async def execute_tool(
         pass
 
     return result
+
+
+# ── Creation guard: 3-layer state machine ─────────────────────────
+
+
+async def _run_creation_guard(
+    db: AsyncSession,
+    conv_id: uuid.UUID,
+    create_type: str,  # "session" | "workspace"
+) -> str | bool:
+    """Run the 3-layer creation guard.
+
+    Returns True to allow creation, or a string rejection/ASK_USER_PREFIX message.
+    """
+    noun = "session" if create_type == "session" else "workspace"
+    reject = _CREATION_REJECT_SESSION if create_type == "session" else _CREATION_REJECT_WORKSPACE
+
+    # ── Layer 1: Redis flow state ──────────────────────────────────
+    state = await _get_flow_state(conv_id)
+
+    if state == _FLOW_STATE_CONFIRMED:
+        return True
+
+    if state == _FLOW_STATE_PENDING:
+        # ── Layer 3: message pairing ──
+        if await _user_replied_after_ask(db, conv_id):
+            await _set_flow_state(conv_id, _FLOW_STATE_CONFIRMED)
+            return True
+        return _CREATION_NOT_CONFIRMED
+
+    # ── Layer 2: user intent in recent messages ────────────────────
+    if await _user_requested_creation(db, conv_id, noun):
+        await _set_flow_state(conv_id, _FLOW_STATE_PENDING)
+        return (
+            f"{ASK_USER_PREFIX}I need your confirmation to create a new {noun}. "
+            f"Please provide a {'title and any workspace' if create_type == 'session' else 'name and optional description'}."
+        )
+
+    return reject
+
+
+async def _user_requested_creation(
+    db: AsyncSession,
+    conv_id: uuid.UUID,
+    noun: str,  # "session" | "workspace"
+) -> bool:
+    """Layer 2: check the LATEST user message for creation intent.
+
+    Only the most recent message matters — old intent from prior turns
+    is not re-detected on every tool call.
+    """
+    try:
+        result = await db.execute(
+            select(Message)
+            .where(Message.conversation_id == conv_id, Message.role == "user")
+            .order_by(Message.created_at.desc())
+            .limit(1)
+        )
+        msg = result.scalars().first()
+    except Exception:
+        return False
+    if msg is None:
+        return False
+
+    text = msg.content or ""
+    if _NEGATION_RE.search(text):
+        return False
+    if any(p.search(text) for p in _CREATION_RE):
+        if noun in text.lower() or re.search(r"(create|new|make|start)\s*(one|a|an|the|this|some)", text.lower()):
+            return True
+    return False
+
+
+async def _user_replied_after_ask(
+    db: AsyncSession,
+    conv_id: uuid.UUID,
+) -> bool:
+    """Layer 3: check if user confirmed after the last ask_user assistant msg.
+
+    The reply must contain affirmative intent — not just any message.
+    """
+    try:
+        result = await db.execute(
+            select(Message)
+            .where(Message.conversation_id == conv_id)
+            .order_by(Message.created_at.desc())
+            .limit(4)
+        )
+        messages = list(reversed(result.scalars().all()))
+    except Exception:
+        return False
+
+    found_ask = False
+    for m in messages:
+        if m.role == "assistant" and "I need your confirmation" in (m.content or ""):
+            found_ask = True
+        elif found_ask and m.role == "user":
+            return bool(_CONFIRMATION_RE.search(m.content or ""))
+
+    return False
+
+
+async def _get_flow_state(conv_id: uuid.UUID) -> str | None:
+    """Layer 1: read Redis creation flow state."""
+    from config import USE_REDIS
+    if not USE_REDIS:
+        return None
+    try:
+        from core.redis_client import get_redis
+        r = get_redis()
+        val = await r.get(f"creation_flow:{conv_id}")
+        if val:
+            data = json.loads(val)
+            return data.get("state")
+    except Exception:
+        pass
+    return None
+
+
+async def _set_flow_state(conv_id: uuid.UUID, state: str) -> None:
+    """Layer 1: write Redis creation flow state."""
+    from config import USE_REDIS
+    if not USE_REDIS:
+        return
+    try:
+        from core.redis_client import get_redis
+        r = get_redis()
+        await r.setex(
+            f"creation_flow:{conv_id}",
+            _CREATION_FLOW_TTL,
+            json.dumps({"state": state}),
+        )
+    except Exception:
+        pass
+
+
+async def _clear_creation_flow(conv_id: uuid.UUID) -> None:
+    """Layer 1: delete Redis creation flow state (after successful creation)."""
+    from config import USE_REDIS
+    if not USE_REDIS:
+        return
+    try:
+        from core.redis_client import get_redis
+        r = get_redis()
+        await r.delete(f"creation_flow:{conv_id}")
+    except Exception:
+        pass
+
+
+async def _ensure_creation_wiring(
+    user_id: int,
+    db_id: str,
+    node_type: str,
+    node_config: dict,
+) -> None:
+    """Create matching canvas node + wire to input node."""
+    try:
+        existing = await find_nodes(user_id, node_type)
+        node = next(
+            (n for n in existing if n.get("config", {}).get(
+                "conversation_id" if node_type == "session" else "workspace_id"
+            ) == db_id),
+            None,
+        )
+        if node:
+            node_id = node["node_id"]
+        else:
+            node_id = await create_node(user_id, node_type, node_config)
+
+        inputs = await find_nodes(user_id, "input")
+        if not inputs:
+            input_id = await create_node(user_id, "input", {})
+        else:
+            input_id = inputs[0]["node_id"]
+
+        graph = await get_canvas_graph(user_id)
+        already_wired = any(
+            w["src_id"] == input_id and w["dst_id"] == node_id
+            for w in graph["wires"]
+        )
+        if not already_wired:
+            # session input port = "message"; workspace input port = "workspace_id"
+            dst_port = "message" if node_type == "session" else "workspace_id"
+            relation = "routes_to" if node_type == "session" else "manages"
+            await wire_nodes(
+                user_id, input_id, node_id,
+                "routed_message", dst_port, relation,
+            )
+    except Exception:
+        logger.warning("[tools] auto-wire failed user=%d id=%s", user_id, db_id)

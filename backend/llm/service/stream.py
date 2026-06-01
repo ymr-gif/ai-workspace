@@ -12,7 +12,7 @@ from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, CANVAS_TOOL_SCHEMAS, WRIT
 
 from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, apply_context_budget
 
-MAX_TOOL_ITERATIONS = 10
+MAX_TOOL_ITERATIONS = 20
 
 logger = logging.getLogger("service")
 
@@ -129,7 +129,7 @@ async def generate_stream(
     if image_b64:
         fallback_chain = [MODEL_VISION]
     elif model_override:
-        fallback_chain = [model_override]
+        fallback_chain = [model_override] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model_override]
     elif file_ids:
         # Always use reasoning model when files attached — 8B cannot reliably use tool results
         fallback_chain = [MODELS["reasoning"]]
@@ -202,6 +202,14 @@ async def generate_stream(
                         started = True
                         accumulated.append(chunk)
                         yield {"type": "token", "content": chunk}
+
+                # Model streamed preamble text and THEN requested a tool call.
+                # Tokens already went out live; tell the client to drop that
+                # preamble — the real answer arrives after the tool result on a
+                # later iteration. Avoids the preamble being duplicated/persisted.
+                if tool_calls_done and accumulated:
+                    yield {"type": "preamble_discard"}
+                    accumulated.clear()
             except Exception as e:
                 logger.warning("[service] stream_failed model=%s started=%s err=%s", current_model, started, e)
                 if started:

@@ -21,6 +21,10 @@ _CANVAS_CACHE_TTL = 60
 
 _WRITE_KEYWORDS = frozenset({"create", "delete", "set", "merge", "remove", "detach"})
 
+# These live inside other nodes (insights=ghost card above Input; goals/automations=
+# Config info section; mech=UNIT slot in Config) — never standalone canvas nodes.
+_NON_CANVAS_TYPES = frozenset({"insights", "goals", "automations", "mech"})
+
 
 # ── Redis cache helpers ──────────────────────────────────────────
 
@@ -64,6 +68,11 @@ async def _cache_del(user_id: int) -> None:
 
 
 async def create_node(user_id: int, node_type: str, config: dict | None = None) -> str:
+    if node_type in _NON_CANVAS_TYPES:
+        raise ValueError(
+            f"'{node_type}' is not a standalone canvas node — it lives inside another node "
+            f"(insights=Input ghost card; goals/automations/mech=Config). Do not create it."
+        )
     node_def = get_node_type(node_type)
     if not node_def:
         raise ValueError(f"Unknown node type: {node_type}")
@@ -287,8 +296,8 @@ async def get_node(user_id: int, node_id: str) -> dict | None:
             "OPTIONAL MATCH (n)-[w:WIRED_TO]->(c:CanvasNode {user_id: $uid}) "
             "OPTIONAL MATCH (p:CanvasNode {user_id: $uid})-[w2:WIRED_TO]->(n) "
             "RETURN n, "
-            "  collect(DISTINCT {rel: w, target_id: c.node_id}) AS outgoing, "
-            "  collect(DISTINCT {rel: w2, source_id: p.node_id}) AS incoming",
+            "  collect(DISTINCT {relation: w.relation, src_port: w.src_port, dst_port: w.dst_port, target_id: c.node_id}) AS outgoing, "
+            "  collect(DISTINCT {relation: w2.relation, src_port: w2.src_port, dst_port: w2.dst_port, source_id: p.node_id}) AS incoming",
             uid=user_id, nid=node_id,
         )
         row = await result.single()
@@ -298,8 +307,8 @@ async def get_node(user_id: int, node_id: str) -> dict | None:
         node = dict(row["n"])
         cfg = node.get("config")
         node["config"] = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
-        node["outgoing"] = [c for c in row["outgoing"] if c.get("rel") is not None]
-        node["incoming"] = [c for c in row["incoming"] if c.get("rel") is not None]
+        node["outgoing"] = [c for c in row["outgoing"] if c.get("target_id") is not None]
+        node["incoming"] = [c for c in row["incoming"] if c.get("source_id") is not None]
 
         node_def = get_node_type(node.get("node_type", ""))
         if node_def:
@@ -322,7 +331,7 @@ async def get_canvas_graph(user_id: int) -> dict:
         result = await session.run(
             "MATCH (n:CanvasNode {user_id: $uid}) "
             "OPTIONAL MATCH (n)-[w:WIRED_TO]->(c:CanvasNode {user_id: $uid}) "
-            "RETURN n, collect({rel: w, target_id: c.node_id}) AS connections",
+            "RETURN n, collect({relation: w.relation, src_port: w.src_port, dst_port: w.dst_port, target_id: c.node_id}) AS connections",
             uid=user_id,
         )
         rows = await result.data()
@@ -333,20 +342,19 @@ async def get_canvas_graph(user_id: int) -> dict:
 
     for row in rows:
         node_data = dict(row["n"])
-        # deserialize config from JSON string
         cfg = node_data.get("config")
         node_data["config"] = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
         node_def = get_node_type(node_data.get("node_type", ""))
         if node_def:
             node_data["ports"] = node_def.ports
 
-        conns = [c for c in row["connections"] if c.get("rel") is not None]
+        conns = [c for c in row["connections"] if c.get("target_id") is not None]
         node_data["connections"] = [
             {
                 "target_id": c["target_id"],
-                "relation": c["rel"]["relation"],
-                "src_port": c["rel"].get("src_port"),
-                "dst_port": c["rel"].get("dst_port"),
+                "relation": c["relation"],
+                "src_port": c.get("src_port"),
+                "dst_port": c.get("dst_port"),
             }
             for c in conns
         ]
@@ -358,9 +366,9 @@ async def get_canvas_graph(user_id: int) -> dict:
                 wires.append({
                     "src_id": node_data["node_id"],
                     "dst_id": c["target_id"],
-                    "relation": c["rel"]["relation"],
-                    "src_port": c["rel"].get("src_port"),
-                    "dst_port": c["rel"].get("dst_port"),
+                    "relation": c["relation"],
+                    "src_port": c.get("src_port"),
+                    "dst_port": c.get("dst_port"),
                 })
 
         nodes.append(node_data)
@@ -368,6 +376,27 @@ async def get_canvas_graph(user_id: int) -> dict:
     result_data = {"nodes": nodes, "wires": wires}
     await _cache_set(user_id, result_data)
     return result_data
+
+
+async def find_nodes(user_id: int, node_type: str) -> list[dict]:
+    driver = get_driver()
+    if not driver:
+        return []
+
+    async with driver.session() as session:
+        result = await session.run(
+            "MATCH (n:CanvasNode {user_id: $uid, node_type: $type}) RETURN n",
+            uid=user_id, type=node_type,
+        )
+        rows = await result.data()
+
+    nodes = []
+    for row in rows:
+        n = dict(row["n"])
+        cfg = n.get("config")
+        n["config"] = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
+        nodes.append(n)
+    return nodes
 
 
 async def query_canvas(
@@ -379,6 +408,9 @@ async def query_canvas(
 
     if "$uid" not in cypher:
         raise ValueError("Cypher query must include {user_id: $uid} to scope to current user")
+
+    if ":CanvasNode" not in cypher:
+        raise ValueError("Cypher query must scope to :CanvasNode nodes (e.g. MATCH (n:CanvasNode {user_id: $uid}))")
 
     driver = get_driver()
     if not driver:

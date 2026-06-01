@@ -68,7 +68,7 @@ TOOL_SCHEMAS = [
     _tool("query_graph", "Search the user's knowledge graph for entities and relationships related to a topic, person, or concept.",
           {"query": {"type": "string", "description": "Topic, person, or concept to search for."}},
           ["query"]),
-    _tool("create_canvas_node", "Create a new node on your canvas. Node types: input, session, memory, files, logs, usage, workspace, config, insights, goals, automations, mech.",
+    _tool("create_canvas_node", "Create a new node on your canvas. Node types: files, logs, usage, workspace. (input/session/memory/config are permanent; insights/goals/automations/mech are not standalone nodes.)",
           {"node_type": {"type": "string", "description": "Type of node to create (see node inventory)."},
            "config": {"type": "object", "description": "Optional config for the node (e.g. workspace_id, conversation_id)."}},
           ["node_type"]),
@@ -97,14 +97,20 @@ TOOL_SCHEMAS = [
     _tool("get_canvas_graph", "Return your full canvas — all active nodes and their connections."),
     _tool("create_conversation",
           "Create a new conversation (session) in the database. Returns the conversation_id. "
-          "After creating, call create_canvas_node(type='session', config={'conversation_id': <id>}) to visualize it on the canvas.",
-          {"title":        {"type": "string", "description": "Short title for the conversation."},
+          "Only call after user has confirmed details in conversation. "
+          "After creating, call create_canvas_node(type='session', config={'conversation_id': <id>}), "
+          "then wire_nodes(src_id=<input node id>, dst_id=<new session id>, "
+          "src_port='routed_message', dst_port='message', relation='routes_to').",
+          {"title":        {"type": "string", "description": "Short title for the conversation, provided by user."},
            "workspace_id": {"type": "string", "description": "Optional workspace UUID to scope the conversation."}},
           ["title"]),
     _tool("create_workspace",
           "Create a new workspace in the database. Returns the workspace_id. "
-          "After creating, call create_canvas_node(type='workspace', config={'workspace_id': <id>}) to visualize it on the canvas.",
-          {"name":          {"type": "string", "description": "Workspace name."},
+          "Only call after user has confirmed details in conversation. "
+          "After creating, call create_canvas_node(type='workspace', config={'workspace_id': <id>}), "
+          "then wire_nodes(src_id=<input node id>, dst_id=<new workspace id>, "
+          "src_port='routed_message', dst_port='workspace_id', relation='manages').",
+          {"name":          {"type": "string", "description": "Workspace name, provided by user."},
            "description":   {"type": "string", "description": "Optional description."},
            "system_prompt": {"type": "string", "description": "Optional system prompt applied to all sessions in this workspace."}},
           ["name"]),

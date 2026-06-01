@@ -15,7 +15,7 @@
 ├── tests/
 │   └── test.py + retrieval/conftest.py + test_hybrid_eval.py — 47 tests, mock DB, no NIM
 ├── llm/
-│   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=10)
+│   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=20)
 │   ├── nim.py              — NIM API call, accumulates tool_call deltas
 │   ├── tools/              — 18 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
 │   │   └── schemas.py, executor.py, file_ops.py, search.py
@@ -33,7 +33,7 @@
 │   │   ├── __init__.py     — combines router + stream_router
 │   │   ├── schemas.py      — ChatRequest model
 │   │   ├── router.py       — POST /chat (non-streaming)
-│   │   ├── stream.py       — POST /chat/stream SSE endpoint + event_generator; status="partial" for mid-stream breaks (STREAM_INTERRUPTIONS counter); ALL_MODELS_FAILED counter; emits `canvas_update` event after any `canvas_*` tool result (frontend re-fetches GET /canvas/graph)
+│   │   ├── stream.py       — POST /chat/stream SSE endpoint + event_generator; status="partial" for mid-stream breaks (STREAM_INTERRUPTIONS counter); ALL_MODELS_FAILED counter; emits `canvas_update` event after any `canvas_*` tool result (frontend re-fetches GET /canvas/graph); saves `pending_question` from `ask_user` event as assistant message content; injects node_inventory with supplemental prompt instructions
 │   │   ├── helpers.py      — context build, model resolve, cost cap; auto-resolves expired MemoryConflicts (keep_a); time-based fact salience decay in ranking (not persisted)
 │   │   └── background.py   — auto-title, embed, proactive, token/cost calc; _auto_title uses atomic UPDATE...WHERE title=:default (no TOCTOU race)
 │   ├── workspaces.py       — /workspaces CRUD + memory routes
@@ -94,8 +94,9 @@
 - Trigger: any message when `file_ids` non-empty → always forces reasoning model (70B); 8B cannot reliably use tool results
 - File tools always available when files attached (not keyword-gated); `_needs_file_tools()` no longer gates tool availability
 - Tools (20 total — 11 existing + 7 canvas + 2 creation): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph` · `create_conversation` (Postgres Conversation + returns id; AI follows with create_canvas_node type=session) · `create_workspace` (Postgres Workspace + returns id; AI follows with create_canvas_node type=workspace)
-- Guards: same tool >3× → abort · MAX_TOOL_ITERATIONS=10 · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
-- `ask_user` / `write_memory` emit SSE + done → pauses loop; amber/green card in UI; `POST /api/memory/write` on user confirm
+- Guards: same tool >3× → abort · MAX_TOOL_ITERATIONS=20 · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
+- **Creation guard** (`create_conversation` / `create_workspace`): 3-layer state machine in `executor.py` (`_run_creation_guard`)
+- `ask_user` / `write_memory` emit SSE + done → pauses loop; amber/green card in UI; `POST /api/memory/write` on user confirm; `ask_user` question persisted as assistant message content so model sees it on next turn
 - `append_to_file` for explicit write requests only; `search_in_file` preferred over `read_file` for sections
 
 ---
@@ -111,6 +112,51 @@
 - create/delete/update `CanvasNode` (label separate from `Entity`); wire/unwire with port validation; get_node with incident wires
 - get_canvas_graph (Redis `canvas:{uid}` TTL 60s); read-only `query_canvas` (write keyword guard); scratchpad R/W via SQLAlchemy `UserMemory.agent_scratchpad` (append-only merge)
 - All ops scoped to `CanvasNode` / `agent_scratchpad` / `canvas:` prefix — never touch `Entity`, `UserMemory.content`, or `graph:*` keys
+
+## Creation Guard (`llm/tools/executor.py`)
+
+3-layer state machine preventing `create_conversation` / `create_workspace` without explicit user intent.
+
+### Layer 1 — Redis Flow State
+- Key: `creation_flow:{conv_id}`, TTL 300s
+- States: `pending_specs` → `confirmed`
+- Set to `pending_specs` when Layer 2 detects creation intent
+- Set to `confirmed` when Layer 3 confirms user reply matches `_CONFIRMATION_RE`
+- Cleared on successful creation; degrades gracefully when Redis unavailable (falls through to Layer 2)
+
+### Layer 2 — Latest Message Intent
+- Queries ONLY the most recent user message (`.limit(1)`) — not last 3
+- Matches against `_CREATION_RE`: `(create|new|make|start|set up|setup)...(session|workspace|conversation)` or reverse order
+- Skips messages matching `_NEGATION_RE` (don't create, never mind, cancel, etc.)
+- Also checks `noun in text` or generic `(create|new|make|start) (one|a|an|the|this|some)`
+- Returns `ASK_USER_PREFIX` to ask user for specs + confirmation
+
+### Layer 3 — Confirmation Check
+- Runs when Redis state is `pending_specs`
+- Scans last 4 messages for assistant ASK_USER content ("I need your confirmation") followed by user reply
+- User reply must match `_CONFIRMATION_RE`: `yes|yeah|sure|confirm|create|do it|proceed|go ahead|make it|let's do|okay?|please|that sounds|agree|approved|start`
+- Prevented false-positive: canvas queries like "what nodes are on my canvas?" do NOT match → stays pending
+
+### Rejection Flow
+- All 3 layers false → returns instructional rejection string (not `ASK_USER_PREFIX`): "Cannot create session/workspace: the user didn't request one."
+- Model sees this as tool result text, can retry or move on
+- If user hasn't confirmed → returns "The user hasn't confirmed yet. Wait for their response."
+
+### Auto-wiring
+- On successful creation, `_ensure_creation_wiring()` creates the matching canvas node (type=session/workspace) and wires it to the input node from `routed_message`. Port/relation are type-specific: session → `message` (relation `routes_to`); workspace → `workspace_id` (relation `manages`). The system prompt tells the model NOT to create/wire these nodes itself — auto-wiring owns it.
+
+### Prompt Reinforcement
+- Node inventory prompt includes: "Never call create_conversation or create_workspace unless the user explicitly asks to create a session or workspace."
+- Rejection messages reinforce: "This tool creates real database records — only call it when the user explicitly asks."
+
+---
+
+### Token Buffering (`llm/service/stream.py`)
+- Tokens accumulated in `_token_buffer` per `call_stream` call
+- If response contains tool calls → discard buffered tokens (prevent model from generating preamble text before tool execution, then duplicating it after)
+- If no tool calls → flush buffer as normal SSE `content` events
+
+---
 
 ### Boot Sequence (`agent/boot.py`)
 - `agent_boot(user_id)` → `BootReport` with health, scratchpad, canvas graph, node_summary
@@ -177,6 +223,7 @@ Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACT
 - NIM retry: `MAX_RETRIES=3` (4 total); exponential backoff with jitter `min(30, 2**attempt) * (0.75 + 0.5*random)` — attempt 0≈1s, 1≈2s, 2≈4s, 3≈8s
 - Circuit breaker: _THRESHOLD=5, _COOLDOWN=90s; Redis-persisted `cb:open:{model}` EX 90; restored on startup via `restore_circuit_state()`; pre-tripped at startup by `probe_models_on_startup()` for any model returning non-200
 - Prometheus: multiprocess mode active when `PROMETHEUS_MULTIPROC_DIR` set — `export_metrics()` uses `MultiProcessCollector(CollectorRegistry())`; new counters: `stream_interruptions_total`, `all_models_failed_total`, `arq_job_failed_total{job_type}`
+- Summarizer imports: `api/chat/stream.py` imports `compress_history`, `update_memory`, `update_project_summary` from `llm.summarizer.*` — missing these causes `NameError` at runtime (caught by except handler, skips memory update)
 
 ---
 
