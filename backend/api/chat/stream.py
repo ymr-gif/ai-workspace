@@ -147,6 +147,10 @@ async def chat_stream(
     node_inventory_lines.append("Use delete_canvas_node / update_canvas_node / unwire_nodes to modify it.")
     node_inventory_lines.append("Use get_canvas_graph / query_canvas to inspect your canvas.")
     node_inventory_lines.append("Use update_scratchpad to persist context across sessions.")
+    node_inventory_lines.append("")
+    node_inventory_lines.append("CRITICAL: When the user asks you to create nodes, wire nodes, or modify the canvas,")
+    node_inventory_lines.append("you MUST call the tool immediately. Never describe the action in text ('=== NEW NODE ===',")
+    node_inventory_lines.append("'NODE CREATED', etc.) — that is hallucination. Only tool calls create real nodes.")
     node_inventory = "\n".join(node_inventory_lines)
 
     canvas = boot_report.canvas

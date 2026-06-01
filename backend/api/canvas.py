@@ -133,7 +133,11 @@ async def canvas_global(
             user_id=current_user.id,
             title="JARVIS",
             memory_enabled=True,
+            locked_model="reasoning",
         )
         db.add(conv)
+        await db.commit()
+    elif conv.locked_model != "reasoning":
+        conv.locked_model = "reasoning"
         await db.commit()
     return {"conversation_id": str(conv.id)}
