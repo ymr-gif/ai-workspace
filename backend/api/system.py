@@ -187,6 +187,7 @@ def _get_uptime() -> str:
     return f"{days}d {hours}h {minutes}m"
 
 
+@router.get("/system/hardware")
 @router.get("/hardware")
 async def hardware():
     freq = psutil.cpu_freq()

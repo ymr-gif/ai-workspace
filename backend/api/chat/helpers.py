@@ -13,7 +13,7 @@ from llm.embeddings import embed as embed_text
 from llm.router import classify_query
 from llm.retriever.policy import get_policy
 from llm.summarizer.salience import bump_fact_saliences, compute_salience, score_facts
-from models import Conversation, MemoryConflict, Message, User, UserGoal, UserMemory, Workspace, WorkspaceMemory
+from models import Conversation, File, MemoryConflict, Message, User, UserGoal, UserMemory, Workspace, WorkspaceMemory
 
 from .schemas import ChatRequest
 
@@ -144,7 +144,7 @@ async def _build_stream_context(
     policy     = get_policy(query_type)
 
     embed_task = None
-    if req.conversation_id or is_ref:
+    if req.conversation_id or is_ref or req.file_ids:
         embed_task = asyncio.create_task(embed_text(req.message, input_type="query"))
 
     history_summary = conv.history_summary or ""
@@ -205,34 +205,63 @@ async def _build_stream_context(
     file_chunks: list[str] = []
     file_names:  list[str] = []
     file_ids:    list      = []
+
+    req_fids: list = []
+    for fid in (req.file_ids or []):
+        try:
+            req_fids.append(uuid.UUID(fid))
+        except ValueError:
+            pass
+
     if req.conversation_id:
-        file_ids, file_names = await retriever.get_conversation_files(db, conv.id)
-        if file_ids:
-            if query_emb:
-                file_chunks = await retriever.retrieve_from_files(
-                    db, query_emb, file_ids,
-                    top_k=policy["top_k"], query_text=req.message,
-                    fusion_mode=policy["fusion_mode"], k_dense=policy["k_dense"],
-                    k_sparse=policy["k_sparse"], alpha=policy["alpha"],
-                )
-                if memory_row and file_chunks:
-                    fs_mult = 1.0 + min(memory_row.salience, 2.0) * 0.05
-                    for c in file_chunks:
-                        c["final_score"] = c.get("final_score", 0.0) * fs_mult
-                    file_chunks.sort(key=lambda c: -c.get("final_score", 0.0))
-            else:
-                file_chunks = await retriever.retrieve_files_sequential(db, file_ids, top_k=10)
-            if file_chunks:
-                for i, chunk in enumerate(file_chunks):
-                    preview = chunk["content"][:120] if isinstance(chunk, dict) else chunk[:120]
-                    logger.info("[file_ctx] rid=%s chunk=%d/%d chunk_id=%s source_id=%s score=%.6f preview=%s",
-                                rid, i + 1, len(file_chunks),
-                                chunk.get("chunk_id") if isinstance(chunk, dict) else None,
-                                chunk.get("source_id") if isinstance(chunk, dict) else None,
-                                chunk.get("final_score", 0.0) if isinstance(chunk, dict) else 0.0,
-                                repr(preview))
-            else:
-                logger.warning("[file_ctx] rid=%s file_ids=%d but NO chunks retrieved", rid, len(file_ids))
+        conv_ids, conv_names = await retriever.get_conversation_files(db, conv.id)
+        extra = [fid for fid in req_fids if fid not in set(conv_ids)]
+        if extra:
+            name_res = await db.execute(
+                select(File.id, File.filename)
+                .where(File.id.in_(extra), File.user_id == current_user.id)
+            )
+            name_map   = {row[0]: row[1] for row in name_res.all()}
+            safe_extra = [fid for fid in extra if fid in name_map]
+            file_ids   = conv_ids + safe_extra
+            file_names = list(conv_names) + [name_map[fid] for fid in safe_extra]
+        else:
+            file_ids, file_names = conv_ids, conv_names
+    elif req_fids:
+        name_res = await db.execute(
+            select(File.id, File.filename)
+            .where(File.id.in_(req_fids), File.user_id == current_user.id)
+        )
+        name_map   = {row[0]: row[1] for row in name_res.all()}
+        file_ids   = [fid for fid in req_fids if fid in name_map]
+        file_names = [name_map[fid] for fid in file_ids]
+
+    if file_ids:
+        if query_emb:
+            file_chunks = await retriever.retrieve_from_files(
+                db, query_emb, file_ids,
+                top_k=policy["top_k"], query_text=req.message,
+                fusion_mode=policy["fusion_mode"], k_dense=policy["k_dense"],
+                k_sparse=policy["k_sparse"], alpha=policy["alpha"],
+            )
+            if memory_row and file_chunks:
+                fs_mult = 1.0 + min(memory_row.salience, 2.0) * 0.05
+                for c in file_chunks:
+                    c["final_score"] = c.get("final_score", 0.0) * fs_mult
+                file_chunks.sort(key=lambda c: -c.get("final_score", 0.0))
+        else:
+            file_chunks = await retriever.retrieve_files_sequential(db, file_ids, top_k=10)
+        if file_chunks:
+            for i, chunk in enumerate(file_chunks):
+                preview = chunk["content"][:120] if isinstance(chunk, dict) else chunk[:120]
+                logger.info("[file_ctx] rid=%s chunk=%d/%d chunk_id=%s source_id=%s score=%.6f preview=%s",
+                            rid, i + 1, len(file_chunks),
+                            chunk.get("chunk_id") if isinstance(chunk, dict) else None,
+                            chunk.get("source_id") if isinstance(chunk, dict) else None,
+                            chunk.get("final_score", 0.0) if isinstance(chunk, dict) else 0.0,
+                            repr(preview))
+        else:
+            logger.warning("[file_ctx] rid=%s file_ids=%d but NO chunks retrieved", rid, len(file_ids))
 
     workspace_memory    = ""
     workspace_sysprompt = None

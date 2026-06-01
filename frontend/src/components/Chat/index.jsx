@@ -207,6 +207,7 @@ export default function Chat({ token, onLogout }) {
                 ⚡ Invites
               </button>
             )}
+            <button onClick={() => window.open('/canvas/index.html', '_blank')} style={{ ...s.hdrBtn, color:RED, borderColor:RED }} title="Open JARVIS canvas">⬡ Canvas</button>
             <button onClick={onLogout} style={s.logout}>Logout</button>
           </div>
         </header>

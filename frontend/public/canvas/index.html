@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NIM // CANVAS</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- CRT effects -->
+  <link href="../effects.css" rel="stylesheet" />
+
+  <!-- React Flow styles -->
+  <link href="https://unpkg.com/reactflow@11.11.4/dist/style.css" rel="stylesheet" />
+
+  <template id="__bundler_thumbnail">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <rect width="100" height="100" fill="#000"/>
+      <rect x="12" y="42" width="16" height="16" fill="none" stroke="#ff2222" stroke-width="1.5"/>
+      <rect x="42" y="28" width="16" height="16" fill="none" stroke="#555" stroke-width="1.5"/>
+      <rect x="72" y="42" width="16" height="16" fill="none" stroke="#555" stroke-width="1.5"/>
+      <line x1="28" y1="50" x2="42" y2="36" stroke="#555" stroke-width="1"/>
+      <line x1="58" y1="36" x2="72" y2="50" stroke="#555" stroke-width="1"/>
+    </svg>
+  </template>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root { height: 100%; background: #000; }
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      color: #fff;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    @keyframes insightSlideIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+
+    ::selection { background: #ff2222; color: #000; }
+    input:focus, textarea:focus {
+      border-color: #ff2222 !important;
+      box-shadow: 0 0 0 1px rgba(255,34,34,.4) !important;
+      outline: none;
+    }
+    input[type=range]    { accent-color: #ff2222; }
+    input[type=checkbox] { accent-color: #ff2222; }
+
+    /* thin pixel scrollbars */
+    ::-webkit-scrollbar       { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: #000; }
+    ::-webkit-scrollbar-thumb { background: #4a4a4a; border-radius: 0; }
+    ::-webkit-scrollbar-thumb:hover { background: #ff2222; }
+
+    /* ── React Flow overrides ─────────────────────────────────── */
+    .react-flow__attribution { display: none; }
+
+    .react-flow__controls {
+      box-shadow: none;
+      gap: 3px;
+    }
+    .react-flow__controls-button {
+      background: #0a0a0a;
+      border: 1px solid #4a4a4a;
+      border-radius: 0 !important;
+      color: #8f8f8f;
+      fill: #8f8f8f;
+      width: 26px;
+      height: 26px;
+    }
+    .react-flow__controls-button:hover {
+      background: rgba(255,34,34,.08);
+      color: #ff2222;
+      fill: #ff2222;
+    }
+    .react-flow__controls-button svg { max-width: 14px; }
+
+    .react-flow__minimap { border-radius: 0 !important; }
+
+    /* node selection ring → red */
+    .react-flow__node.selected > div {
+      outline: 1px solid #ff2222;
+      box-shadow: 0 0 0 1px rgba(255,34,34,.35);
+    }
+
+    /* Handles hidden by default — revealed on hover or while connecting */
+    .react-flow__handle {
+      opacity: 0;
+      transition: opacity 0.12s;
+      pointer-events: all !important;
+    }
+    .react-flow__node:hover .react-flow__handle,
+    .react-flow__handle.connecting,
+    .react-flow__handle-valid,
+    .react-flow__handle-invalid {
+      opacity: 1;
+    }
+    /* edge hover — brighten path */
+    .react-flow__edge:hover .react-flow__edge-path {
+      stroke: #888 !important;
+      filter: drop-shadow(0 0 3px rgba(255,255,255,0.15));
+    }
+
+    /* connection line (while dragging from handle) */
+    .react-flow__connection-path {
+      stroke: #808080 !important;
+      stroke-width: 1 !important;
+      stroke-dasharray: 4 4 !important;
+    }
+
+    /* hide animated CRT overlays on canvas phase — keep vignette only */
+    body[data-phase="canvas"] .crt-scanlines,
+    body[data-phase="canvas"] .crt-beam,
+    body[data-phase="canvas"] .crt-grille { display: none; }
+
+    /* handle hover highlight */
+    .react-flow__handle:hover {
+      background: #ff2222 !important;
+      box-shadow: 0 0 5px rgba(255,34,34,.6);
+    }
+    .react-flow__handle-connecting { background: #ff2222 !important; }
+    .react-flow__handle-valid      { background: #3dff6e !important; }
+  </style>
+</head>
+<body>
+  <!-- CPU schematic wallpaper (behind #root via z-index) -->
+  <div class="cpu-bg" style="
+    position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:#000 url('../cpu-schematic.svg') center/cover no-repeat;
+    opacity:0.7;
+  "></div>
+
+  <div id="root" style="position:relative;z-index:1;"></div>
+
+  <!-- CRT overlays (always on top) -->
+  <div class="crt-grille"></div>
+  <div class="crt-scanlines"></div>
+  <div class="crt-beam"></div>
+  <div class="crt-vignette"></div>
+
+  <!-- React 18 + ReactDOM (pinned) -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js"
+    integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L"
+    crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"
+    integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm"
+    crossorigin="anonymous"></script>
+
+  <!-- Lucide icons added in Stage 2 via proper build step -->
+  <!-- <script src="lucide-placeholder"></script> -->
+
+  <!-- D3 v7 (for Memory Graph node) -->
+  <script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js"></script>
+
+  <!-- d3 (force simulation engine) -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+
+  <!-- React Flow 11 -->
+  <script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
+    integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
+    crossorigin="anonymous"></script>
+
+  <!-- Design tokens + mock data (plain scripts — no JSX) -->
+  <script src="styles.js"></script>
+  <script src="data.js"></script>
+
+  <!-- STAGE 5 — live data + SSE stream -->
+  <script src="canvas-live.js"></script>
+  <script src="canvas-sse.js"></script>
+
+  <!-- Components (Babel JSX — order matters) -->
+  <script type="text/babel" src="BootScreen.jsx"></script>
+  <script type="text/babel" src="nodes.jsx"></script>
+  <script type="text/babel" src="memory-branches.jsx"></script>
+  <script type="text/babel" src="secondary-nodes.jsx"></script>
+  <script type="text/babel" src="popup-nodes.jsx"></script>
+  <script type="text/babel" src="MemoryBranches.jsx"></script>
+  <script type="text/babel" src="Canvas.jsx"></script>
+  <script type="text/babel" src="app.jsx"></script>
+</body>
+</html>
