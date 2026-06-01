@@ -130,13 +130,13 @@
     return html;
   }
 
-  function SessionOutputPanel({ session, streamText, isStreaming }) {
+  function SessionOutputPanel({ session, streamText, isStreaming, messages = [] }) {
     const bottomRef  = React.useRef(null);
     const dragRef    = React.useRef(null);
     const [open,  setOpen]  = React.useState(false);
     const [width, setWidth] = React.useState(300);
 
-    React.useEffect(() => { bottomRef.current?.scrollIntoView?.({ block:'end' }); }, [streamText]);
+    React.useEffect(() => { bottomRef.current?.scrollIntoView?.({ block:'end' }); }, [streamText, messages.length]);
 
     /* drag-to-resize: drag the left edge of the panel */
     function onResizeDown(e) {
@@ -225,29 +225,44 @@
 
             {/* body */}
             <div style={{ flex:1, overflowY:'auto', padding:'10px 14px' }} className="nim-scroll">
-              {!hasContent
+              {messages.length === 0 && !hasContent
                 ? <div style={{ display:'flex', alignItems:'center', justifyContent:'center',
                     minHeight:60, fontFamily:C.TERM, fontSize:12, color:C.FG5 }}>
                     — no messages yet —
                   </div>
                 : <div>
-                    {session?.lastMsg && (
-                      <div style={{ fontFamily:C.TERM, fontSize:11, color:C.FG5,
-                        lineHeight:1.5, marginBottom:8 }}>{session.lastMsg}</div>
+                    {/* conversation history */}
+                    {messages.map((m, i) => (
+                      <div key={i} style={{ marginBottom:10, paddingBottom:10,
+                        borderBottom:'1px solid #111' }}>
+                        <div style={{ fontFamily:C.DISP, fontSize:7, letterSpacing:'0.1em',
+                          marginBottom:3, color: m.role === 'user' ? C.AMB : VIO }}>
+                          {m.role === 'user' ? 'USER' : 'JARVIS'}
+                          {m.role !== 'user' && m.model &&
+                            <span style={{ color:C.FG5, marginLeft:6 }}>{m.model}</span>}
+                          {m.role !== 'user' && m.total_tokens > 0 &&
+                            <span style={{ color:C.FG5, marginLeft:6 }}>{m.total_tokens} tok</span>}
+                        </div>
+                        <div style={{ fontFamily:C.TERM, fontSize:11, color:C.FG3, lineHeight:1.5 }}
+                          dangerouslySetInnerHTML={{ __html: nimMdSimple(m.content) }} />
+                      </div>
+                    ))}
+                    {/* live stream (current turn) */}
+                    {hasContent && (
+                      <div>
+                        {messages.length > 0 &&
+                          <div style={{ fontFamily:C.DISP, fontSize:7, letterSpacing:'0.1em',
+                            marginBottom:3, color:VIO }}>JARVIS</div>}
+                        <div style={{ fontFamily:C.TERM, fontSize:12, color:C.FG3, lineHeight:1.6 }}>
+                          <div dangerouslySetInnerHTML={{ __html: nimMdSimple(streamText) }} />
+                          {isStreaming && (
+                            <span style={{ display:'inline-block', width:'0.5em', height:'1em',
+                              background:C.RED, verticalAlign:'text-bottom',
+                              animation:'blink 1s step-end infinite', marginLeft:2 }} />
+                          )}
+                        </div>
+                      </div>
                     )}
-                    <div style={{ height:1, background:'#1a1a1a', margin:'6px 0 8px' }} />
-                    <div style={{ fontFamily:C.TERM, fontSize:12, color:C.FG3, lineHeight:1.6 }}>
-                      <div dangerouslySetInnerHTML={{ __html: nimMdSimple(streamText) }} />
-                      {isStreaming && (
-                        <span style={{ display:'inline-block', width:'0.5em', height:'1em',
-                          background:C.RED, verticalAlign:'text-bottom',
-                          animation:'blink 1s step-end infinite', marginLeft:2 }} />
-                      )}
-                      {!isStreaming && hasContent && (
-                        <div style={{ fontFamily:C.DISP, fontSize:7, color:C.FG5,
-                          marginTop:6, letterSpacing:'0.06em' }}>AUTO · 312 tok · $0.00010</div>
-                      )}
-                    </div>
                   </div>
               }
               <div ref={bottomRef} />
@@ -364,7 +379,7 @@
   /* ─────────────── SESSION NODE ─────────────── */
   function SessionNode({ data, id }) {
     const compatS = useCompatState('sessionNode');
-    const { streamText='', isStreaming=false } = data;
+    const { streamText='', isStreaming=false, messages=[] } = data;
 
     const ns = {
       card:   { ...S.nodeCard, width:300, borderLeft:'2px solid rgba(139,92,246,0.7)', ...animStyle(data.animState) },
@@ -392,11 +407,14 @@
           <NodeControls nodeId={id} pinned={data.pinned} />
         </div>
 
-        <SessionOutputPanel
-          session={null}
-          streamText={streamText}
-          isStreaming={isStreaming}
-        />
+        {id === 'session' && (
+          <SessionOutputPanel
+            session={null}
+            streamText={streamText}
+            isStreaming={isStreaming}
+            messages={messages}
+          />
+        )}
       </div>
     );
   }

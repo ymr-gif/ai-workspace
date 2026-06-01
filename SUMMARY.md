@@ -100,7 +100,7 @@ ai-api/
 backend/
 ├── main.py                  — lifespan, middleware, router includes
 ├── config.py                — env vars via find_dotenv()
-├── models/                  — 20 ORM classes across 8 sub-modules
+├── models/                  — 23 ORM classes across 8 sub-modules
 │   ├── user.py              — User, UserInsight, AdminAuditLog, UserMemory, UserMemoryVersion
 │   ├── chat.py              — Conversation, Message, MessageEmbedding, ConversationFile
 │   ├── file.py              — File, FileChunk, FileVersion
@@ -218,7 +218,7 @@ backend/
 ## AI Agent Tool Loop
 
 - **Trigger:** any message when `file_ids` non-empty → forces reasoning model (70B)
-- **Tools (17 total — 10 existing + 7 canvas):** `list_files` · `read_file` · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph`
+- **Tools (18 total — 11 existing + 7 canvas):** `list_files` · `read_file` · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph`
 - **Guards:** same tool >3× → abort; `MAX_TOOL_ITERATIONS=10`; tool result capped 12000 chars in context
 - **`ask_user`:** yields `{type:"ask_user"}` SSE + done → pauses loop; amber card in UI
 - **`write_memory`:** offered only when reasoning model selected AND `_needs_memory_tool()` returns true; yields `{type:"confirm_write_memory", fact}` SSE; green card in UI; user confirms → `POST /api/memory/write`
@@ -298,9 +298,10 @@ frontend/src/
 │       ├── InsightsPanel.jsx — unread badge, mark-read, delete
 │       ├── InvitePanel.jsx  — admin invite token management
 │       └── WorkspaceModal.jsx — create/edit workspace
-└── hooks/                   — 10 hooks (useConversations, useMemory, useWorkspace,
+└── hooks/                   — 14 hooks (useConversations, useMemory, useWorkspace,
                                useFiles, useModelParams, useSettings, useToolLogs,
-                               useUsage, useAdmin, useInsights)
+                               useUsage, useAdmin, useInsights, useSearch,
+                               useScheduledPrompts, useGoals, useStreamChat)
 ```
 
 ### Key UI Behaviors

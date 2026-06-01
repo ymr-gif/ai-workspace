@@ -6,170 +6,63 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 
 ---
 
-## NIM / LLM Resilience
+## Backend Audit — 2026-06-01
 
-- [x] **NIM retry exhausts too fast on transient spikes**
-  - **Subdir:** `backend/`
-  - **Files:** `llm/nim.py:130`, `config.py:46`
-  - **Fix:** Backoff changed to `min(30, 2**attempt) * (0.75 + 0.5*random)`. `MAX_RETRIES` default raised from `2` → `3` (4 total attempts).
+Scope: full `backend/` scan. pyflakes across all 164 files → only one undefined name (#B1). Remaining items found by tracing the modified canvas/creation flow.
 
-- [x] **Circuit breaker threshold too low — trips on brief blips**
-  - **Subdir:** `backend/`
-  - **Files:** `llm/circuit_breaker.py:10–11`
-  - **Fix:** `_THRESHOLD=5`, `_COOLDOWN=90`.
+### P0 — Broken at runtime
 
-- [x] **Circuit breaker state lost on container restart**
-  - **Subdir:** `backend/`
-  - **Files:** `llm/circuit_breaker.py:68–81`, `main.py:53–54`
-  - **Fix:** Redis-backed persistence via `cb:open:{model}` keys. `restore_circuit_state()` called on startup. Gated on `USE_REDIS`.
+- [x] **B1 · `update_node` not imported → `update_canvas_node` tool always fails**
+  - **Files:** `backend/llm/tools/executor.py:16-19` (import block), `:93` (call site)
+  - **Root cause:** import from `agent.canvas_graph` lists `create_node, delete_node, find_nodes, wire_nodes, unwire_nodes, query_canvas, get_canvas_graph` — `update_node` is missing. `update_node` exists (`canvas_graph.py:120`) and is imported correctly in `api/canvas.py:11`, but not here.
+  - **Blast radius:** every `update_canvas_node` tool call raises `NameError: name 'update_node' is not defined`, caught by the `except` at `executor.py:149`, so the model receives `"Error: name 'update_node' is not defined"`. AI can never update a node's config/status. REST `PATCH /canvas/nodes/{id}` is unaffected.
+  - **Fix:** add `update_node` to the import block.
 
-- [x] **No startup model health probe — dead models get real traffic first**
-  - **Subdir:** `backend/`
-  - **Files:** `main.py:70–71`, `api/system.py`
-  - **Fix:** `probe_models_on_startup()` called in lifespan. Pre-trips circuit for failing models.
+### P1 — Silent failures / data corruption
 
-- [x] **Partial stream failure counted as full request failure**
-  - **Subdir:** `backend/`
-  - **Files:** `api/chat/stream.py:293`, `api/chat/stream.py:303`
-  - **Fix:** Mid-stream breaks now set `status="partial"` instead of `"error"`.
+- [x] **B2 · Workspace auto-wire uses wrong port → always fails silently**
+  - **Files:** `backend/llm/tools/executor.py:353-356`, `backend/agent/node.py:87`
+  - **Root cause:** `_ensure_creation_wiring()` hardcodes `dst_port="message"` for both session and workspace. Workspace's only input port is `workspace_id` (node.py:87), not `message`. `wire_nodes()` validates ports (`canvas_graph.py:233`) and raises `ValueError` → swallowed by the bare `except` at `executor.py:357`.
+  - **Blast radius:** auto-created workspace canvas node is never wired to the input node. (Session path works — session input port is `message`.)
+  - **Fix:** pick `dst_port` by type — `"message"` for session, `"workspace_id"` for workspace (matches the system-prompt instructions in `api/chat/stream.py`).
 
-- [x] **Rate limiter fails open on Redis outage with no warning**
-  - **Subdir:** `backend/`
-  - **Files:** `rate_limiter/rate_limiter.py:144`, `:199`, `:255`, `:273`
-  - **Fix:** Warnings logged on every fail-open activation with scope and key.
+- [x] **B3 · Duplicate session/workspace canvas nodes** — kept auto-wire, removed manual create_canvas_node/wire_nodes steps from system prompt.
+  - **Files:** `backend/llm/tools/executor.py:125,147` (calls `_ensure_creation_wiring`), `:321-358`, `backend/agent/canvas_graph.py:66` (`create_node`, no dedup), `backend/api/chat/stream.py` node-inventory prompt (SESSION/WORKSPACE CREATION steps)
+  - **Root cause:** two creation paths run for one entity. The `create_conversation`/`create_workspace` tool *itself* calls `_ensure_creation_wiring()` which creates the canvas node and wires it. The system prompt *then* tells the model to also call `create_canvas_node(...)` + `wire_nodes(...)` (steps 2-3). Ordering: the executor's auto-wire runs first (model hasn't called create_canvas_node yet), so `_ensure_creation_wiring`'s dedup-by-`conversation_id` (executor.py:330-335) doesn't help — the model's later `create_canvas_node` has no dedup and makes a second node.
+  - **Blast radius:** two `session` (or `workspace`) nodes per created entity, plus a duplicate/invalid wire. Canvas clutter + confused graph state.
+  - **Fix:** pick one owner. Either drop `_ensure_creation_wiring` and let the model do steps 2-3, or keep auto-wiring and remove steps 2-3 from the prompt. Recommend keeping auto-wire (deterministic) and changing the prompt to "the session/workspace node is created and wired automatically — do not call create_canvas_node for it."
 
-- [x] **No dedicated "all models failed" Prometheus counter**
-  - **Subdir:** `backend/`
-  - **Files:** `observability/prom_metrics.py:80–82`, `api/chat/stream.py:298`
-  - **Fix:** `ALL_MODELS_FAILED` counter added and incremented on chain exhaustion.
+- [x] **B4 · No `canvas_update` SSE after `create_conversation`/`create_workspace`**
+  - **Files:** `backend/api/chat/stream.py:44-47` (`_CANVAS_WRITE_TOOLS`), `:331`
+  - **Root cause:** `_CANVAS_WRITE_TOOLS` lists only `create_canvas_node/delete_canvas_node/update_canvas_node/wire_nodes/unwire_nodes`. But `create_conversation`/`create_workspace` mutate the canvas through `_ensure_creation_wiring`. Their `tool_result` does not match the set, so no `canvas_update` event is emitted.
+  - **Blast radius:** the auto-created node never triggers a frontend `GET /canvas/graph` re-fetch — it stays invisible until the user manually refreshes. (Masked today by B3 because the model's own `create_canvas_node` does emit the event — fix B3 and this surfaces.)
+  - **Fix:** add `create_conversation`, `create_workspace` to `_CANVAS_WRITE_TOOLS`.
 
----
+### P2 — Regressions / spec gaps
 
-## Graph Memory / Neo4j
+- [x] **B5 · Token buffering kills incremental streaming** — stream tokens live again; emit `preamble_discard` SSE when a tool call follows streamed text. Frontend (`useStreamChat.js`, `canvas-sse.js`) clears the streamed preamble on that event; api layer clears its accumulator so the persisted message holds only the final answer.
+  - **Files:** `backend/llm/service/stream.py:196-211`
+  - **Root cause:** tokens are appended to `_token_buffer` inside the `async for`, and only flushed (`yield {"type": "token"}`) *after* the upstream stream fully completes. Done to discard preamble when a tool call follows (NIM signals tool calls only at end-of-stream, so buffering is the only way to know). Side effect: the final text answer no longer streams — every token is held until generation finishes, then dumped at once.
+  - **Blast radius:** time-to-first-token for any non-tool reply ≈ full generation latency. SSE streaming UX is effectively gone for normal answers.
+  - **Fix options:** (a) accept the trade-off and document it; (b) stream tokens live and instead suppress/replace preamble on the frontend when a `tool_call` event arrives; (c) only buffer when `tools` is non-None (tool loop active), stream directly otherwise.
 
-- [x] **Graph extraction uses 8B model — unreliable structured JSON output**
-  - **Subdir:** `backend/`
-  - **Files:** `llm/graph_memory.py:82`
-  - **Fix:** Switched to `MODELS["reasoning"]` (70B).
+- [x] **B6 · `create_canvas_node` still accepts `insights`/`goals`/`automations`/`mech`**
+  - **Files:** `backend/agent/canvas_graph.py:66-69` (no type guard), `backend/llm/tools/schemas.py:71`, `backend/api/chat/stream.py` (`_CREATABLE_NODES` lists them)
+  - **Root cause:** the resolved Canvas Planning Gap (this file, line 21-24) says these 4 types are not standalone nodes and `create_canvas_node` "must guard against these 4 types and reject them." Not enforced: `create_node` creates any type in the registry; the tool schema description and the prompt's CREATABLE list both advertise them.
+  - **Blast radius:** model can spawn orphan `insights/goals/automations/mech` canvas nodes the UI has no real home for.
+  - **Fix:** reject these 4 in `create_node` (or in the executor), and drop them from the schema description + `_CREATABLE_NODES`.
 
-- [x] **No entity name length limit — oversized names enter Neo4j**
-  - **Subdir:** `backend/`
-  - **Files:** `llm/graph_memory.py:13`, `:107`
-  - **Fix:** `_MAX_ENTITY_NAME_LEN=200` enforced in entity batch filter.
+### P3 — Doc drift (code vs `backend/CLAUDE.md`)
 
-- [x] **No per-call entity/relationship count cap**
-  - **Subdir:** `backend/`
-  - **Files:** `llm/graph_memory.py:14–15`, `:110`, `:122`
-  - **Fix:** `_MAX_ENTITIES_PER_CALL=30`, `_MAX_RELS_PER_CALL=60`.
+- [x] **B7 · `MAX_TOOL_ITERATIONS` changed 10 → 20**
+  - **Files:** `backend/llm/service/stream.py:15`; stale in `backend/CLAUDE.md:18,97`, root `CLAUDE.md` "Tool loop guard" row.
+- [x] **B8 · Auto-wire relation/port doc mismatch**
+  - **Files:** `backend/CLAUDE.md:146` says relation `manages`, `routed_message → message`. Code uses `relation="routes_to"`, `dst_port="message"` for session (`executor.py:355`). Workspace prompt uses `workspace_id`/`manages`. Align doc to code (and to B2 fix).
 
-- [x] **MERGE...SET unconditionally overwrites entity type**
-  - **Subdir:** `backend/`
-  - **Files:** `llm/graph_memory.py:152`
-  - **Fix:** `CASE WHEN e.type <> 'OTHER' THEN e.type ELSE n.type END` — only overwrites with a more specific type.
+### Notes (not bugs, worth a decision)
 
-- [x] **No Redis cache invalidation after graph write**
-  - **Subdir:** `backend/`
-  - **Files:** `llm/graph_memory.py:42–50`, `:156`
-  - **Fix:** `_cache_del_user(user_id)` deletes all `graph:{user_id}:*` keys via `scan_iter` after a successful write.
-
-- [x] **No per-user graph size limit — unbounded Neo4j growth**
-  - **Subdir:** `backend/`
-  - **Files:** `llm/graph_memory.py:16`, `:140`
-  - **Fix:** `_MAX_USER_ENTITIES=500`. Oldest nodes replaced when limit is exceeded.
-
-- [x] **No graph validate/prune endpoint**
-  - **Subdir:** `backend/`
-  - **Files:** `api/graph.py:97–121`
-  - **Fix:** `POST /graph/prune` — deletes oversized/stale `OTHER`-typed entities.
-
-- [x] **Graph extraction background task runs without compaction coordination**
-  - **Subdir:** `backend/`
-  - **Files:** `llm/graph_memory.py:126–127`, `llm/summarizer/compact.py:21`
-  - **Fix:** `compact_memory()` sets `compact:running:{user_id}` Redis key. `extract_and_store()` skips if key present.
-
----
-
-## Memory System (Postgres)
-
-- [x] **MemoryConflict suppression is permanent — facts disappear silently**
-  - **Subdir:** `backend/`
-  - **Files:** `models/user.py:64`, `api/memory.py:144`, `:305`, `:313`
-  - **Fix:** `expires_at` column added. New conflicts get a 7-day expiry. Expired conflicts excluded from suppression queries.
-
-- [x] **`fact_saliences` JSONB grows unboundedly**
-  - **Subdir:** `backend/`
-  - **Files:** `llm/summarizer/salience.py:46–52`
-  - **Fix:** `decay_fact_saliences()` drops entries where decayed score < 0.05 on every compaction cycle.
-
-- [x] **Salience decays only on compaction — stale facts persist across sessions**
-  - **Subdir:** `backend/`
-  - **Files:** `api/chat/helpers.py:124–130`
-  - **Fix:** Time-based decay applied in-memory during context injection: `0.95 ** (hours_since_compaction / 24)` multiplied against ranking saliences before fact sorting. Not written back to DB.
-
----
-
-## Request Handling
-
-- [x] **Auto-title can fire twice on concurrent messages**
-  - **Subdir:** `backend/`
-  - **Files:** `api/chat/background.py:45–66`
-  - **Fix:** Replaced read-then-write with an atomic `UPDATE ... WHERE id = :conv_id AND title = :default` via SQLAlchemy `update()`. If two tasks race, only one matches the WHERE clause — the second silently affects 0 rows.
-
-- [x] **Graph cache key uses SHA256[:20] — theoretical collision**
-  - **Subdir:** `backend/`
-  - **Files:** `llm/graph_memory.py:20`
-  - **Fix:** Extended to `hexdigest()[:32]` (128-bit key space).
-
----
-
-## Background Jobs (ARQ)
-
-- [x] **ARQ jobs silently dropped after 4 failed attempts**
-  - **Subdir:** `backend/`
-  - **Files:** `observability/prom_metrics.py:85–88`, `services/arq_worker.py:30`, `:74`, `:110`, `:123`
-  - **Fix:** `ARQ_JOB_FAILED = Counter("arq_job_failed_total", ..., ["job_type"])` added. All four job types (`process_file`, `generate_insight`, `re_embed_batch`, `compact_memory`) increment it on permanent failure. File jobs also set `upload_status="error"`.
-
----
-
-## Observability / Grafana
-
-- [x] **model_usage, api_errors, model_latency, ai_request_latency panels show no data**
-  - **Subdir:** `docker/`
-  - **Files:** `docker/grafana/provisioning/dashboards/nim-gateway.json`
-  - **Fix:** Testing artifact — panels were empty because all NIM models were down during testing, so `MODEL_USAGE.inc()` never fired (gated on `status=="success" and model_used!="unknown"`). PromQL expressions confirmed correct. Panels populate under live traffic.
-
-- [x] **Prometheus counters reset on container restart — rate panels lose history**
-  - **Subdir:** `backend/`, `docker/`
-  - **Files:** `docker/docker-compose.yml:24`, `backend/observability/prom_metrics.py:96–99`
-  - **Fix:** `PROMETHEUS_MULTIPROC_DIR: /tmp/prom_multiproc` set in compose. `prom_metrics.py` uses `MultiProcessCollector` when env var is present. `prometheusdata` named volume persists Prometheus TSDB across restarts. Rate-based panels (`rate()`) handle counter resets natively.
-
-- [x] **No Grafana alert on circuit breaker opening**
-  - **Subdir:** `docker/`
-  - **Files:** `docker/grafana/provisioning/alerting/nim-alerts.yml`
-  - **Fix:** Unified alert rule `nim-circuit-breaker-alert` — fires when `rate(circuit_breaker_trips_total[5m]) > 0` sustained for 1 minute.
-
-- [x] **No Grafana alert on success rate drop**
-  - **Subdir:** `docker/`
-  - **Files:** `docker/grafana/provisioning/alerting/nim-alerts.yml`
-  - **Fix:** Unified alert rule `nim-success-rate-alert` — fires when success rate < 99% sustained for 1 minute.
-
----
-
-## Data Integrity
-
-- [x] **Pre-migration 011 messages have NULL token counts**
-  - **Subdir:** `backend/`
-  - **Files:** `alembic/versions/032_message_token_estimate.py`
-  - **Fix:** Migration 032 adds `token_estimate` flag and backfills NULL-token assistant messages with character-based estimates.
-
----
-
-## Compatibility
-
-- [x] **passlib crypt warning on Python 3.13+**
-  - **Subdir:** `backend/`
-  - **Files:** `auth/security.py`
-  - **Fix:** `passlib` replaced with direct `bcrypt` (`bcrypt.hashpw`, `bcrypt.checkpw`).
+- Fire-and-forget `asyncio.create_task(compress_history/update_memory/update_project_summary)` at `stream.py:369-372` — previously flagged as inconsistent with the ARQ job system; also unreferenced tasks can be GC'd mid-flight and they open their own DB sessions outside request scope. Consider enqueuing via ARQ.
+- Unused imports across ~25 files (pyflakes) — harmless but noisy; e.g. `llm/service/stream.py:11,13`, `api/chat/stream.py:16-17`, `api/chat/background.py:1` (`asyncio`). Cleanup only.
 
 ---
 
@@ -177,12 +70,8 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 
 | Area | Total | Fixed | Open |
 |------|-------|-------|------|
-| NIM / LLM Resilience | 7 | 7 | 0 |
-| Graph Memory / Neo4j | 8 | 8 | 0 |
-| Memory System (Postgres) | 3 | 3 | 0 |
-| Request Handling | 2 | 2 | 0 |
-| Background Jobs | 1 | 1 | 0 |
-| Observability / Grafana | 4 | 4 | 0 |
-| Data Integrity | 1 | 1 | 0 |
-| Compatibility | 1 | 1 | 0 |
-| **Total** | **27** | **27** | **0** |
+| Canvas Planning Gaps | 3 | 3 | 0 |
+| Documentation Inconsistencies | 9 | 9 | 0 |
+| Canvas Runtime Bugs | 1 | 1 | 0 |
+| Backend Audit 2026-06-01 | 8 | 8 | 0 |
+| **Total** | **21** | **21** | **0** |

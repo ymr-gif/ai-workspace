@@ -484,28 +484,75 @@
     }, [setNodes]);
 
     const closeNode = React.useCallback((id) => {
-      if (id.startsWith('ai-')) {
-        const tok = localStorage.getItem('nim_token');
-        fetch('/api/canvas/nodes/' + id.slice(3), {
-          method: 'DELETE', headers: { 'Authorization': 'Bearer ' + tok },
-        }).catch(() => {});
-      }
+      /* optimistic: remove immediately from canvas */
       pinnedRef.current.delete(id);
       setNodes(nds => nds.filter(n => n.id !== id));
       setEdges(eds => eds.filter(e => e.source !== id && e.target !== id));
-    }, [setNodes, setEdges]);
+
+      if (id.startsWith('ai-')) {
+        /* AI node: DELETE from Neo4j, then re-fetch to confirm Neo4j is source of truth */
+        const tok = localStorage.getItem('nim_token');
+        fetch('/api/canvas/nodes/' + id.slice(3), {
+          method: 'DELETE', headers: { 'Authorization': 'Bearer ' + tok },
+        })
+        .then(r => r.ok ? fetch('/api/canvas/graph', { headers: { 'Authorization': 'Bearer ' + tok } }) : null)
+        .then(r => r?.json?.())
+        .then(data => { if (data) patchCanvas(data); })
+        .catch(() => {});
+      } else {
+        /* static node: persist closure so it stays gone after refresh */
+        try {
+          const closed = new Set(JSON.parse(localStorage.getItem('nim_canvas_closed') || '[]'));
+          closed.add(id);
+          localStorage.setItem('nim_canvas_closed', JSON.stringify([...closed]));
+        } catch {}
+      }
+    }, [setNodes, setEdges, patchCanvas]);
+
+    /* append messages to session node history */
+    const appendMessages = React.useCallback((newMsgs) => {
+      setNodes(nds => nds.map(n => n.id === 'session'
+        ? { ...n, data: { ...n.data, messages: [...(n.data.messages || []), ...newMsgs] } }
+        : n
+      ));
+    }, [setNodes]);
+
+    /* load JARVIS conversation history after mount */
+    React.useEffect(() => {
+      function load() {
+        const convId = window.NIM_CANVAS_GLOBAL_CONV_ID;
+        if (!convId) { setTimeout(load, 150); return; }
+        const tok = localStorage.getItem('nim_token');
+        fetch('/api/conversations/' + convId + '/messages', {
+          headers: { Authorization: 'Bearer ' + tok },
+        })
+        .then(r => r.ok ? r.json() : null)
+        .then(msgs => {
+          if (!msgs || !msgs.length) return;
+          setNodes(nds => nds.map(n => n.id === 'session' ? {
+            ...n, data: { ...n.data, messages: msgs.map(m => ({
+              role: m.role, content: m.content,
+              model: m.model || '', total_tokens: m.total_tokens || 0,
+            })) }
+          } : n));
+        })
+        .catch(() => {});
+      }
+      load();
+    }, []); // once on mount
 
     /* expose callbacks via window bridge */
     React.useEffect(() => {
       window.NIM_CANVAS_CB = {
         onMemExpand, onRemoveBranch, onDemoSend, onAutoArrange,
-        _setNodeAnim:   setNodeAnim,
-        _streamSession: streamSession,
-        _patch:         patchCanvas,
-        _pinNode:       pinNode,
-        _closeNode:     closeNode,
+        _setNodeAnim:    setNodeAnim,
+        _streamSession:  streamSession,
+        _patch:          patchCanvas,
+        _pinNode:        pinNode,
+        _closeNode:      closeNode,
+        _appendMessages: appendMessages,
       };
-    }, [onMemExpand, onRemoveBranch, onDemoSend, onAutoArrange, setNodeAnim, streamSession, patchCanvas, pinNode, closeNode]);
+    }, [onMemExpand, onRemoveBranch, onDemoSend, onAutoArrange, setNodeAnim, streamSession, patchCanvas, pinNode, closeNode, appendMessages]);
 
     /* ARRANGE — reheat simulation (Obsidian-style: let physics settle organically) */
     const onAutoArrange = React.useCallback(() => {

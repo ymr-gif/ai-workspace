@@ -106,6 +106,12 @@
               streamToSession(fullText, false);
               break;
 
+            case 'preamble_discard':
+              /* streamed text was pre-tool preamble — drop it, real answer follows */
+              fullText = '';
+              streamToSession('', false);
+              break;
+
             case 'done':
               streamToSession(fullText, true);
               convId = event.conversation_id || convId;
@@ -121,6 +127,14 @@
                 });
               }
               if (convId) window.NIM_CANVAS_LAST_SESSION_ID = convId;
+              /* append exchange to session history */
+              if (window.NIM_CANVAS_LAST_INPUT && fullText) {
+                window.NIM_CANVAS_CB?._appendMessages?.([
+                  { role: 'user',      content: window.NIM_CANVAS_LAST_INPUT },
+                  { role: 'assistant', content: fullText,
+                    model: event.model || '', total_tokens: event.total_tokens || 0 },
+                ]);
+              }
               /* done flash on all nodes */
               ['input','config','memory','session'].forEach((id, k) =>
                 setTimeout(() => setAnim(id, 'done'), k * 80)
@@ -196,6 +210,7 @@
         _streamSession:     val._streamSession     || null,
         _updateSessionMeta: val._updateSessionMeta || null,
         _patch:             val._patch             || null,
+        _appendMessages:    val._appendMessages    || null,
       };
     },
     configurable: true,

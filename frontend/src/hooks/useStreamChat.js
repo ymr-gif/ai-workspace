@@ -62,6 +62,16 @@ export default function useStreamChat({ token, conv, modelParams, ws, mem, insig
               } else {
                 conv.setMessages(prev => prev.map(m => m.id === aiId ? { ...m, text: m.text + event.content } : m))
               }
+            } else if (event.type === 'preamble_discard') {
+              // streamed tokens were pre-tool preamble — clear them; real answer follows
+              if (isCompare) {
+                const model = event.model
+                conv.setMessages(prev => prev.map(m => m.id === aiId
+                  ? { ...m, responses: { ...m.responses, [model]: { ...m.responses[model], text: '' } } }
+                  : m))
+              } else {
+                conv.setMessages(prev => prev.map(m => m.id === aiId ? { ...m, text: '' } : m))
+              }
             } else if (event.type === 'done') {
               if (isCompare) {
                 conv.setMessages(prev => prev.map(m => m.id === aiId

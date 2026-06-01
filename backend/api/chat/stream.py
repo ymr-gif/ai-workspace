@@ -21,6 +21,10 @@ from observability.prom_metrics import (
 from observability.token_metrics import record_tokens
 from rate_limiter import limit, check_model_rate
 
+from llm.summarizer.history import compress_history
+from llm.summarizer.memory import update_memory
+from llm.summarizer.project import update_project_summary
+
 from agent.boot import agent_boot, format_boot_log
 from agent.canvas_graph import update_scratchpad
 from agent.node import registry as node_registry
@@ -40,6 +44,8 @@ logger = logging.getLogger("chat")
 _CANVAS_WRITE_TOOLS = frozenset({
     "create_canvas_node", "delete_canvas_node", "update_canvas_node",
     "wire_nodes", "unwire_nodes",
+    # these auto-create + wire a canvas node via _ensure_creation_wiring
+    "create_conversation", "create_workspace",
 })
 
 
@@ -138,29 +144,100 @@ async def chat_stream(
     # Agent boot — health check, scratchpad restore, canvas state
     boot_report = await agent_boot(current_user.id)
     boot_log = format_boot_log(boot_report)
-    node_inventory_lines = [f"NODE INVENTORY ({len(node_registry)} types):"]
+    _PERMANENT_NODES = {"input", "session", "memory", "config"}
+    # insights/goals/automations/mech are not standalone canvas nodes — they live inside others
+    _EMBEDDED_NODES = {"insights", "goals", "automations", "mech"}
+    _CREATABLE_NODES = [
+        n for n in node_registry
+        if n not in _PERMANENT_NODES and n not in _EMBEDDED_NODES
+    ]
     ni_width = max(len(n) for n in node_registry) + 2
-    for n_name, n_def in node_registry.items():
-        node_inventory_lines.append(f"{n_name.ljust(ni_width)}→ {n_def.label}")
+    node_inventory_lines = ["CANVAS LAYOUT:"]
     node_inventory_lines.append("")
-    node_inventory_lines.append("Use create_canvas_node / wire_nodes to build your workspace.")
-    node_inventory_lines.append("Use delete_canvas_node / update_canvas_node / unwire_nodes to modify it.")
-    node_inventory_lines.append("Use get_canvas_graph / query_canvas to inspect your canvas.")
-    node_inventory_lines.append("Use update_scratchpad to persist context across sessions.")
+    node_inventory_lines.append("PERMANENT nodes (already exist — NEVER call create_canvas_node for these):")
+    node_inventory_lines.append("  input    → user's global message input box (sends to this JARVIS conversation)")
+    node_inventory_lines.append("  session  → this JARVIS global conversation output — ONE exists, never duplicate it")
+    node_inventory_lines.append("  memory   → user memory store")
+    node_inventory_lines.append("  config   → model/params settings")
     node_inventory_lines.append("")
-    node_inventory_lines.append("CRITICAL: When the user asks you to create nodes, wire nodes, or modify the canvas,")
-    node_inventory_lines.append("you MUST call the tool immediately. Never describe the action in text ('=== NEW NODE ===',")
-    node_inventory_lines.append("'NODE CREATED', etc.) — that is hallucination. Only tool calls create real nodes.")
+    node_inventory_lines.append("CREATABLE nodes (create only when user explicitly asks):")
+    for n_name in _CREATABLE_NODES:
+        n_def = node_registry[n_name]
+        node_inventory_lines.append(f"  {n_name.ljust(ni_width)}→ {n_def.label}")
+    node_inventory_lines.append("")
+
+    node_inventory_lines.append("CONFIRMATION PROTOCOL (for all creations):")
+    node_inventory_lines.append("  When user mentions wanting something new (conversation, workspace, etc.),")
+    node_inventory_lines.append("  respond conversationally in text:")
+    node_inventory_lines.append('    "It seems you want to make a new [Session/Workspace]. What details should I use?"')
+    node_inventory_lines.append("  Wait for the user's reply with name/specs before creating anything.")
+    node_inventory_lines.append("")
+
+    node_inventory_lines.append("SESSION CREATION (only after user confirms details):")
+    node_inventory_lines.append("  1. call create_conversation(title='<user-given title>') → get conversation_id")
+    node_inventory_lines.append("  The session canvas node is created AND wired to the input node automatically.")
+    node_inventory_lines.append("  Do NOT call create_canvas_node or wire_nodes for it.")
+    node_inventory_lines.append("  These session nodes are SEPARATE threads, not the global JARVIS session.")
+    node_inventory_lines.append("")
+
+    node_inventory_lines.append("WORKSPACE CREATION (only after user confirms details):")
+    node_inventory_lines.append("  1. call create_workspace(name='<user-given name>', description='<purpose>') → get workspace_id")
+    node_inventory_lines.append("  The workspace canvas node is created AND wired to the input node automatically.")
+    node_inventory_lines.append("  Do NOT call create_canvas_node or wire_nodes for it.")
+    node_inventory_lines.append("")
+
+    node_inventory_lines.append("RULES:")
+    node_inventory_lines.append("  - ALWAYS ask for confirmation and specs before creating — never create silently.")
+    node_inventory_lines.append("  - create_conversation / create_workspace auto-create and wire their canvas node — never wire those yourself.")
+    node_inventory_lines.append("  - For other node types, call get_canvas_graph to get full UUIDs before wiring.")
+    node_inventory_lines.append("  - CRITICAL: call tools immediately — never describe actions in text before calling them.")
+    node_inventory_lines.append("  - Never call create_conversation or create_workspace unless the user explicitly asks to create a session or workspace.")
     node_inventory = "\n".join(node_inventory_lines)
 
     canvas = boot_report.canvas
     canvas_lines = []
     if canvas.get("nodes"):
+        # batch-resolve workspace names and conversation titles
+        import uuid as _uuid_mod
+        _ws_ids, _conv_ids = [], []
+        for _n in canvas["nodes"]:
+            _cfg = _n.get("config", {})
+            if _n.get("node_type") == "workspace" and _cfg.get("workspace_id"):
+                _ws_ids.append(_cfg["workspace_id"])
+            elif _n.get("node_type") == "session" and _cfg.get("conversation_id"):
+                _conv_ids.append(_cfg["conversation_id"])
+        _ws_names: dict = {}
+        _conv_titles: dict = {}
+        try:
+            if _ws_ids:
+                _r = await db.execute(
+                    select(Workspace.id, Workspace.name)
+                    .where(Workspace.id.in_([_uuid_mod.UUID(i) for i in _ws_ids]),
+                           Workspace.user_id == current_user.id)
+                )
+                _ws_names = {str(r[0]): r[1] for r in _r}
+            if _conv_ids:
+                _r = await db.execute(
+                    select(Conversation.id, Conversation.title)
+                    .where(Conversation.id.in_([_uuid_mod.UUID(i) for i in _conv_ids]),
+                           Conversation.user_id == current_user.id)
+                )
+                _conv_titles = {str(r[0]): r[1] for r in _r}
+        except Exception:
+            pass
+
         canvas_lines.append("[CANVAS STATE]")
         for n in canvas["nodes"]:
+            cfg = n.get("config", {})
+            name = cfg.get("name", "")
+            if not name and n.get("node_type") == "workspace":
+                name = _ws_names.get(cfg.get("workspace_id", ""), "")
+            elif not name and n.get("node_type") == "session":
+                name = _conv_titles.get(cfg.get("conversation_id", ""), "")
+            name_str = f' "{name}"' if name else ""
             conns = n.get("connections", [])
             conn_str = f" → {len(conns)} connections" if conns else ""
-            canvas_lines.append(f"  {n.get('node_type', '?')} ({n.get('node_id', '?')[:8]}){conn_str}")
+            canvas_lines.append(f"  {n.get('node_type', '?')}{name_str} ({n.get('node_id', '?')[:8]}){conn_str}")
     canvas_state = "\n".join(canvas_lines)
 
     # Workspace system_prompt takes precedence; merge with conv system_prompt if both set
@@ -213,12 +290,13 @@ async def chat_stream(
     t_start     = metrics.record_request_start()
 
     async def event_generator():
-        status        = "success"
-        model_used    = "unknown"
-        cache_hit     = False
-        fallback_used = False
-        accumulated   = []
-        tools_in_turn = []
+        status         = "success"
+        model_used     = "unknown"
+        cache_hit      = False
+        fallback_used  = False
+        accumulated    = []
+        pending_question = ""
+        tools_in_turn  = []
         last_tool_name: str | None = None
 
         try:
@@ -244,10 +322,18 @@ async def chat_stream(
                     accumulated.append(event["content"])
                     yield f"data: {_json.dumps(event)}\n\n"
 
+                elif event["type"] == "preamble_discard":
+                    # tokens streamed live were pre-tool preamble — drop them so the
+                    # persisted assistant message holds only the real final answer
+                    accumulated.clear()
+                    yield f"data: {_json.dumps(event)}\n\n"
+
                 elif event["type"] in ("tool_call", "tool_result", "ask_user", "confirm_write_memory"):
                     if event["type"] == "tool_call":
                         tools_in_turn.append(event.get("name", ""))
                         last_tool_name = event.get("name", "")
+                    if event["type"] == "ask_user":
+                        pending_question = event.get("question", "")
                     yield f"data: {_json.dumps(event)}\n\n"
                     if event["type"] == "tool_result" and last_tool_name in _CANVAS_WRITE_TOOLS:
                         yield f"data: {_json.dumps({'type': 'canvas_update'})}\n\n"
@@ -263,7 +349,7 @@ async def chat_stream(
 
                         asst_msg = Message(
                             conversation_id=conv.id, role="assistant",
-                            content=full_response, model=model_used,
+                            content=full_response or pending_question, model=model_used,
                             prompt_tokens=pt, completion_tokens=ct,
                             total_tokens=tt, cost_usd=cost,
                         )

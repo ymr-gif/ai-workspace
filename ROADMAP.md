@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-05-31 (P0 + P1 complete; P2 in progress — #12, #14 done)
+Last updated: 2026-05-31 (P0 + P1 complete; P2 in progress — #12, #13, #14, #15 done)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -34,7 +34,7 @@ Last updated: 2026-05-31 (P0 + P1 complete; P2 in progress — #12, #14 done)
 
 ---
 
-## Current State (as of migration 034; P0 + P1 complete; P2 #12 done)
+## Current State (as of migration 036; P0 + P1 complete; P2 #12–15 done)
 
 | Area | Status |
 |------|--------|
@@ -52,7 +52,8 @@ Last updated: 2026-05-31 (P0 + P1 complete; P2 in progress — #12, #14 done)
 | File storage — SHA256 dedup, versioning, chunk quality states | ✅ |
 | File formats — PDF, DOCX, XLSX, text/code/markdown | ✅ |
 | Full data export (`GET /api/export/full` ZIP stream) | ✅ |
-| AI agent tool loop (10 tools, ask_user, query_graph, write_memory) | ✅ |
+| AI agent tool loop (18 tools: 11 existing + 7 canvas) | ✅ |
+| Pattern detection + proactive triggers (`detect_recurring_patterns()`; 7-day dedup; ARQ enqueue with hint) | ✅ |
 | Global autonomous agent canvas — Neo4j-backed node system (12 node types, typed ports, WIRED_TO relationships, agent scratchpad, boot diagnostics) | ✅ |
 | Autonomous memory writing (write_memory tool, user-confirm green card) | ✅ |
 | User preference extraction (ARQ job every 50 msgs; `[PREFERENCES]` in UserMemory) | ✅ |
@@ -195,9 +196,9 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 
 ### P2 — Autonomous Agency
 
-#### Pattern Detection + Proactive Triggers
-Post-reply: compare current query pattern against `UserBehaviorProfile`. If user has asked similar questions 3+ times, enqueue an ARQ insight: "You ask about X often — want me to create a summary document?" Extends `agency.py`.
-- Backend: `agency.py` + behavior profile reader; ARQ job
+#### ~~Pattern Detection + Proactive Triggers~~ ✅
+~~Post-reply: compare current query pattern against `UserBehaviorProfile`. If user has asked similar questions 3+ times, enqueue an ARQ insight: "You ask about X often — want me to create a summary document?" Extends `agency.py`.~~
+~~- Backend: `detect_recurring_patterns()` in `agency.py`; 7-day dedup guard; ARQ enqueue with hint kwarg~~
 
 #### ~~User-Defined Scheduled Agents~~ ✅
 ~~User-facing CRUD for `ScheduledPrompt`: create/edit/delete via UI with natural-language schedule (daily/weekly/monthly), target workspace, and prompt. On trigger, injects into full chat pipeline.~~
@@ -278,10 +279,10 @@ P1 — next sprint
 P2 — following sprint
   ~~12. User-Defined Scheduled Agents   ScheduledPrompt already exists, low lift~~ ✅
    ~~13. Goal / Task Tracker             new model + UI, medium effort~~ ✅
-   ~~14. Global Autonomous Agent Canvas  Neo4j-based node system; 12 node types; typed ports; agent scratchpad; boot diagnostics; 7 new canvas tools~~ ✅ (NEW-2026-05-31)
-   15. Pattern Detection + Triggers    builds on Behavioral Profile (needs #3 first)
+   ~~14. Pattern Detection + Triggers    builds on Behavioral Profile~~ ✅
+   ~~15. Global Autonomous Agent Canvas  Neo4j-based node system; 12 node types; typed ports; agent scratchpad; boot diagnostics; 7 new canvas tools~~ ✅ (NEW-2026-05-31)
    16. Web Search Tool                 gated by env var, isolated
-  16. Daily/Weekly Digest             scheduler already wired
+   17. Daily/Weekly Digest             scheduler already wired
 
 P3 — future
   17. Live Webpage Ingestion
