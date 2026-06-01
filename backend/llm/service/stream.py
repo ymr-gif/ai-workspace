@@ -153,6 +153,14 @@ async def generate_stream(
             tools_list.append(t)
     tools = tools_list or None
 
+    # Tool-required turns (canvas/file ops) must not degrade to 8B — it emits tool
+    # calls as plain text instead of using the tool-calling API. Drop llama from the
+    # fallback chain when tools are active, but never leave the chain empty.
+    if tools and MODELS["llama"] in fallback_chain:
+        _tool_capable = [m for m in fallback_chain if m != MODELS["llama"]]
+        if _tool_capable:
+            fallback_chain = _tool_capable
+
     if image_b64 and image_mime_type:
         user_content = [
             {"type": "text", "text": message},

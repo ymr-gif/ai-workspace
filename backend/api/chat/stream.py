@@ -237,7 +237,8 @@ async def chat_stream(
             name_str = f' "{name}"' if name else ""
             conns = n.get("connections", [])
             conn_str = f" → {len(conns)} connections" if conns else ""
-            canvas_lines.append(f"  {n.get('node_type', '?')}{name_str} ({n.get('node_id', '?')[:8]}){conn_str}")
+            # full node_id (not truncated) — the model passes these verbatim to delete/update/wire
+            canvas_lines.append(f"  {n.get('node_type', '?')}{name_str} ({n.get('node_id', '?')}){conn_str}")
     canvas_state = "\n".join(canvas_lines)
 
     # Workspace system_prompt takes precedence; merge with conv system_prompt if both set

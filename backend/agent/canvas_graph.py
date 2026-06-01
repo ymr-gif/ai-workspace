@@ -120,7 +120,10 @@ async def delete_node(user_id: int, node_id: str) -> None:
             "DELETE r, n",
             uid=user_id, nid=node_id,
         )
-        await result.consume()
+        summary = await result.consume()
+        if summary.counters.nodes_deleted == 0:
+            # no match (e.g. wrong/truncated id) — surface instead of reporting success
+            raise ValueError(f"Node {node_id} not found")
 
     await _cache_del(user_id)
     logger.info("[canvas] deleted node %s user=%d", node_id, user_id)
