@@ -110,6 +110,15 @@ TOOL_SCHEMAS = [
           ["name"]),
 ]
 
+_CANVAS_TOOL_NAMES = frozenset({
+    "create_canvas_node", "delete_canvas_node", "update_canvas_node",
+    "wire_nodes", "unwire_nodes", "query_canvas", "get_canvas_graph",
+    "create_conversation", "create_workspace",
+})
+
+FILE_TOOL_SCHEMAS    = [t for t in TOOL_SCHEMAS if t["function"]["name"] not in _CANVAS_TOOL_NAMES]
+CANVAS_TOOL_SCHEMAS  = [t for t in TOOL_SCHEMAS if t["function"]["name"] in _CANVAS_TOOL_NAMES]
+
 WRITE_MEMORY_SCHEMA = _tool("write_memory", (
     "Propose saving a significant, durable fact about the user to long-term memory. "
     "ONLY call this when the user explicitly says 'remember', 'save', 'store', 'keep in memory', or similar direct instructions. "
