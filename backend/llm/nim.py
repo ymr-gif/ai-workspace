@@ -154,85 +154,99 @@ async def call_stream(
         body["tool_choice"] = "auto"
 
     async with llm_client.semaphore:
-        try:
-            async with llm_client.client.stream(
-                "POST",
-                NIM_URL,
-                headers={
-                    "Authorization": f"Bearer {NVIDIA_API_KEY}",
-                    "Content-Type":  "application/json",
-                },
-                json=body,
-            ) as response:
-                if response.status_code != 200:
-                    logger.warning("[nim] stream_error model=%s status=%s", model, response.status_code)
-                    await record_failure(model)
-                    return
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                async with llm_client.client.stream(
+                    "POST",
+                    NIM_URL,
+                    headers={
+                        "Authorization": f"Bearer {NVIDIA_API_KEY}",
+                        "Content-Type":  "application/json",
+                    },
+                    json=body,
+                ) as response:
+                    if response.status_code != 200:
+                        logger.warning("[nim] stream_error model=%s status=%s attempt=%d",
+                                       model, response.status_code, attempt)
+                        # transient throttle / unavailable → backoff + retry before giving up
+                        if response.status_code in (429, 503) and attempt < MAX_RETRIES:
+                            delay = min(30, 2 ** attempt) * (0.75 + 0.5 * random.random())
+                            await asyncio.sleep(delay)
+                            continue
+                        await record_failure(model)
+                        return
 
-                pending: dict[int, dict] = {}  # index → {id, name, arguments}
+                    pending: dict[int, dict] = {}  # index → {id, name, arguments}
 
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    raw = line[6:].strip()
-                    if raw == "[DONE]":
-                        break
-                    try:
-                        chunk         = json.loads(raw)
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        raw = line[6:].strip()
+                        if raw == "[DONE]":
+                            break
+                        try:
+                            chunk         = json.loads(raw)
 
-                        # Usage-only chunk (stream_options.include_usage)
-                        usage = chunk.get("usage")
-                        if usage and isinstance(usage, dict) and not chunk.get("choices"):
-                            yield {"__usage__": usage}
+                            # Usage-only chunk (stream_options.include_usage)
+                            usage = chunk.get("usage")
+                            if usage and isinstance(usage, dict) and not chunk.get("choices"):
+                                yield {"__usage__": usage}
+                                continue
+
+                            choice        = chunk["choices"][0]
+                            delta         = choice.get("delta") or {}
+                            finish_reason = choice.get("finish_reason")
+
+                            # Emit usage if attached to the final choice chunk
+                            if usage and isinstance(usage, dict):
+                                yield {"__usage__": usage}
+
+                            content = delta.get("content") or ""
+                            if content:
+                                yield content
+
+                            # NB: some models emit `"tool_calls": null` in the delta —
+                            # `.get(..., [])` would return None, so coerce with `or []`.
+                            for tc in (delta.get("tool_calls") or []):
+                                idx = tc.get("index", 0)
+                                if idx not in pending:
+                                    pending[idx] = {"id": "", "name": "", "arguments": ""}
+                                if tc.get("id"):
+                                    pending[idx]["id"] = tc["id"]
+                                fn = tc.get("function", {})
+                                if fn.get("name"):
+                                    pending[idx]["name"] += fn["name"]
+                                if fn.get("arguments"):
+                                    pending[idx]["arguments"] += fn["arguments"]
+
+                            if finish_reason == "tool_calls" and pending:
+                                tool_calls = []
+                                for i in sorted(pending):
+                                    p = pending[i]
+                                    tool_calls.append({
+                                        "id":   p["id"],
+                                        "type": "function",
+                                        "function": {
+                                            "name":      p["name"],
+                                            "arguments": p["arguments"],
+                                        },
+                                    })
+                                yield {"__tool_calls__": tool_calls}
+
+                        except (json.JSONDecodeError, KeyError, IndexError, TypeError):
                             continue
 
-                        choice        = chunk["choices"][0]
-                        delta         = choice.get("delta", {})
-                        finish_reason = choice.get("finish_reason")
+                    record_success(model)
+                    return
 
-                        # Emit usage if attached to the final choice chunk
-                        if usage and isinstance(usage, dict):
-                            yield {"__usage__": usage}
-
-                        content = delta.get("content") or ""
-                        if content:
-                            yield content
-
-                        for tc in delta.get("tool_calls", []):
-                            idx = tc.get("index", 0)
-                            if idx not in pending:
-                                pending[idx] = {"id": "", "name": "", "arguments": ""}
-                            if tc.get("id"):
-                                pending[idx]["id"] = tc["id"]
-                            fn = tc.get("function", {})
-                            if fn.get("name"):
-                                pending[idx]["name"] += fn["name"]
-                            if fn.get("arguments"):
-                                pending[idx]["arguments"] += fn["arguments"]
-
-                        if finish_reason == "tool_calls" and pending:
-                            tool_calls = []
-                            for i in sorted(pending):
-                                p = pending[i]
-                                tool_calls.append({
-                                    "id":   p["id"],
-                                    "type": "function",
-                                    "function": {
-                                        "name":      p["name"],
-                                        "arguments": p["arguments"],
-                                    },
-                                })
-                            yield {"__tool_calls__": tool_calls}
-
-                    except (json.JSONDecodeError, KeyError, IndexError):
-                        continue
-
-                record_success(model)
-
-        except (httpx.TimeoutException, httpx.RequestError) as e:
-            logger.warning("[nim] stream_network_error model=%s err=%s", model, e)
-            await record_failure(model)
-            raise
+            except (httpx.TimeoutException, httpx.RequestError) as e:
+                logger.warning("[nim] stream_network_error model=%s err=%s attempt=%d", model, e, attempt)
+                if attempt < MAX_RETRIES:
+                    delay = min(30, 2 ** attempt) * (0.75 + 0.5 * random.random())
+                    await asyncio.sleep(delay)
+                    continue
+                await record_failure(model)
+                raise
 
 
 def _extract(data: dict) -> tuple[str | None, list | None]:

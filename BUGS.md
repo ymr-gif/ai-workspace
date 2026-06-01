@@ -66,6 +66,44 @@ Scope: full `backend/` scan. pyflakes across all 164 files → only one undefine
 
 ---
 
+## JARVIS Fallback Cascade & Silent Delete — 2026-06-01
+
+Investigated from a live JARVIS session (api logs + `tool_call_logs` + Neo4j). The JARVIS
+conversation is `locked_model="reasoning"` (70B); NIM was rate-limiting 70B (429), triggering a
+broken fallback cascade that surfaced raw tool-call JSON to the user and a delete that lied about
+success.
+
+- [x] **F1 · coder fallback crashes — `'NoneType' object is not iterable`**
+  - **Files:** `backend/llm/nim.py` `call_stream` (~line 201, 227)
+  - **Root cause:** deepseek-v4-flash emits `"tool_calls": null` in stream deltas; `delta.get("tool_calls", [])` returns `None` (key present), and the inner `except` only caught `JSONDecodeError/KeyError/IndexError`, not `TypeError`. Generator died → coder never worked as a streaming fallback when tools were passed.
+  - **Fix:** `for tc in (delta.get("tool_calls") or [])`; `delta = choice.get("delta") or {}`; added `TypeError` to the except.
+  - **Verified:** live `call_stream("deepseek-v4-flash", …, CANVAS_TOOL_SCHEMAS)` now streams text, no crash.
+
+- [x] **F2 · `delete_node` reports success even when nothing matched**
+  - **Files:** `backend/agent/canvas_graph.py` `delete_node`
+  - **Root cause:** ran the DELETE, `consume()`d, then logged "deleted" + returned `None` (→ "ok") unconditionally. A wrong/truncated id deleted 0 nodes but reported success — confirmed: session `66bc10c1` survived a "delete" that logged success.
+  - **Fix:** check `summary.counters.nodes_deleted == 0` → raise `ValueError("Node … not found")` (mirrors `update_node`).
+  - **Verified:** `delete_node(1, "does-not-exist")` now raises `ValueError`.
+
+- [x] **F3 · CANVAS STATE prompt fed truncated 8-char node ids**
+  - **Files:** `backend/api/chat/stream.py:240`
+  - **Root cause:** `n.get('node_id','?')[:8]` — model passed truncated ids to delete/update/wire → no match (compounded F2).
+  - **Fix:** render the full node id.
+
+- [x] **F4 · Tool turns degraded to 8B, which hallucinates tool calls as text**
+  - **Files:** `backend/llm/service/stream.py` (after `tools` is computed)
+  - **Root cause:** the model_override fallback chain (`[reasoning, coder, llama]`) let JARVIS fall to llama 8B, which emits tool-call JSON as plain content (the raw `{"name":"create_canvas_node",…}` with an invented conversation_id the user saw — `tool_call_logs` proves it never executed).
+  - **Fix:** when `tools` is non-empty, drop `llama` from the fallback chain (never empty it). Tool turns degrade only across tool-capable models (70B → coder); if all fail, the existing clean "All models failed" error fires instead of garbage.
+
+- [x] **F5 · No retry on 429 in streaming → instant fallback cascade**
+  - **Files:** `backend/llm/nim.py` `call_stream`
+  - **Root cause:** non-200 branch did `record_failure` + return after one attempt; a transient 70B 429 immediately cascaded.
+  - **Fix:** retry `429`/`503` with the same exponential-backoff-with-jitter budget as non-stream `call()` (`MAX_RETRIES`); also retry network errors; circuit-breaker semantics preserved on final give-up.
+
+> External factor (not a code bug): NIM is rate-limiting the 70B reasoning model; F4/F5 make JARVIS degrade gracefully, but sustained 429s point to a NIM-side quota on `meta/llama-3.3-70b-instruct`.
+
+---
+
 ## Summary
 
 | Area | Total | Fixed | Open |
@@ -74,4 +112,5 @@ Scope: full `backend/` scan. pyflakes across all 164 files → only one undefine
 | Documentation Inconsistencies | 9 | 9 | 0 |
 | Canvas Runtime Bugs | 1 | 1 | 0 |
 | Backend Audit 2026-06-01 | 8 | 8 | 0 |
-| **Total** | **21** | **21** | **0** |
+| JARVIS Fallback & Silent Delete | 5 | 5 | 0 |
+| **Total** | **26** | **26** | **0** |
