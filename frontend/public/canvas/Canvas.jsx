@@ -60,6 +60,58 @@
   }
   window.NIM_CHECK_COMPAT = checkCompat;
 
+  /* ── Smart handle routing ── */
+  const HANDLE_SRC = ['s-top', 's-right', 's-bot', 's-left'];
+  const HANDLE_TGT = ['t-top', 't-right', 't-bot', 't-left'];
+  const NODE_W = { inputNode:280, sessionNode:300, configNode:280, memoryNode:260, filesNode:280, workspaceNode:280, logsNode:260, usageNode:260 };
+  const OCCUPANCY_PENALTY = 80;
+
+  function getHandlePos(node, hid) {
+    const w = node.width  || NODE_W[node.type] || 280;
+    const h = node.height || 220;
+    const x = node.position.x, y = node.position.y;
+    switch (hid) {
+      case 's-top':   case 't-top':   return { x: x + w/2, y };
+      case 's-bot':   case 't-bot':   return { x: x + w/2, y: y + h };
+      case 's-right': case 't-right': return { x: x + w,   y: y + h/2 };
+      case 's-left':  case 't-left':  return { x,           y: y + h/2 };
+      default:                        return { x: x + w/2,  y: y + h/2 };
+    }
+  }
+
+  function pickHandles(srcId, tgtId, nodes, edges) {
+    const src = nodes.find(n => n.id === srcId);
+    const tgt = nodes.find(n => n.id === tgtId);
+    if (!src || !tgt) return {};
+    const srcOcc = {}, tgtOcc = {};
+    for (const e of edges) {
+      if (e.source === srcId && e.sourceHandle) srcOcc[e.sourceHandle] = (srcOcc[e.sourceHandle]||0)+1;
+      if (e.target === tgtId && e.targetHandle) tgtOcc[e.targetHandle] = (tgtOcc[e.targetHandle]||0)+1;
+    }
+    const tgtCx = tgt.position.x + (tgt.width||NODE_W[tgt.type]||280)/2;
+    const tgtCy = tgt.position.y + (tgt.height||220)/2;
+    const srcCx = src.position.x + (src.width||NODE_W[src.type]||280)/2;
+    const srcCy = src.position.y + (src.height||220)/2;
+    let best = null, bestScore = Infinity;
+    for (const sh of HANDLE_SRC) {
+      const sp = getHandlePos(src, sh);
+      for (const th of HANDLE_TGT) {
+        const tp = getHandlePos(tgt, th);
+        const score = Math.hypot(sp.x - tgtCx, sp.y - tgtCy)
+                    + Math.hypot(tp.x - srcCx, tp.y - srcCy)
+                    + (srcOcc[sh]||0) * OCCUPANCY_PENALTY
+                    + (tgtOcc[th]||0) * OCCUPANCY_PENALTY;
+        if (score < bestScore) { bestScore = score; best = { sourceHandle:sh, targetHandle:th }; }
+      }
+    }
+    return best || {};
+  }
+
+  /* pre-stamp smart handles on INITIAL_EDGES using known node positions */
+  const SMART_INITIAL_EDGES = D.INITIAL_EDGES.map((e, i, arr) => ({
+    ...e, ...pickHandles(e.source, e.target, D.INITIAL_NODES, arr.slice(0, i)),
+  }));
+
   /* ── d3-force physics (continuous live simulation) ── */
   /* simRef, pinnedRef, physRef hold mutable state outside React renders */
 
@@ -130,7 +182,7 @@
   /* ── Main canvas ── */
   function NimCanvas() {
     const [nodes, setNodes, onNodesChange] = useNodesState(D.INITIAL_NODES);
-    const [edges, setEdges, onEdgesChange] = useEdgesState(D.INITIAL_EDGES);
+    const [edges, setEdges, onEdgesChange] = useEdgesState(SMART_INITIAL_EDGES);
     const [menu,        setMenu]        = React.useState(null);
     const [edgeMenu,    setEdgeMenu]    = React.useState(null);
     const [memExpanded, setMemExpanded] = React.useState(false);
@@ -258,25 +310,35 @@
         setEdges(eds => eds.filter(e => !['e-mem-edit','e-mem-hist','e-mem-graph'].includes(e.id)));
         setMemExpanded(false);
       } else {
-        setNodes(nds => {
-          const mem = nds.find(n => n.id === 'memory');
-          const mx  = mem?.position.x || 780;
-          const my  = mem?.position.y || 100;
-          return [
-            ...nds.map(n => n.id === 'memory' ? { ...n, data:{ ...n.data, isExpanded:true } } : n),
-            { id:'mem-edit',    type:'memEditNode',    data:{}, position:{ x:mx+300, y:my-80  } },
-            { id:'mem-history', type:'memHistoryNode', data:{}, position:{ x:mx+300, y:my+90  } },
-            { id:'mem-graph',   type:'memGraphNode',   data:{}, position:{ x:mx+300, y:my+280 } },
-          ];
-        });
-        setEdges(eds => [...eds,
-          { id:'e-mem-edit',  source:'memory', target:'mem-edit',    animated:true, style:{ stroke:'rgba(139,92,246,0.7)', strokeWidth:2 } },
-          { id:'e-mem-hist',  source:'memory', target:'mem-history', animated:true, style:{ stroke:'rgba(139,92,246,0.7)', strokeWidth:2 } },
-          { id:'e-mem-graph', source:'memory', target:'mem-graph',   animated:true, style:{ stroke:'rgba(139,92,246,0.7)', strokeWidth:2 } },
+        const mem = nodes.find(n => n.id === 'memory');
+        const mx  = mem?.position.x || 780;
+        const my  = mem?.position.y || 100;
+        const branchNodes = [
+          { id:'mem-edit',    type:'memEditNode',    data:{}, position:{ x:mx+300, y:my-80  } },
+          { id:'mem-history', type:'memHistoryNode', data:{}, position:{ x:mx+300, y:my+90  } },
+          { id:'mem-graph',   type:'memGraphNode',   data:{}, position:{ x:mx+300, y:my+280 } },
+        ];
+        setNodes(nds => [
+          ...nds.map(n => n.id === 'memory' ? { ...n, data:{ ...n.data, isExpanded:true } } : n),
+          ...branchNodes,
         ]);
+        const allNodes = [...nodes, ...branchNodes];
+        setEdges(eds => {
+          const pairs = [
+            ['memory','mem-edit',   'e-mem-edit'],
+            ['memory','mem-history','e-mem-hist'],
+            ['memory','mem-graph',  'e-mem-graph'],
+          ];
+          let next = eds;
+          for (const [src, tgt, id] of pairs) {
+            const { sourceHandle, targetHandle } = pickHandles(src, tgt, allNodes, next);
+            next = [...next, { id, source:src, target:tgt, sourceHandle, targetHandle, animated:true, style:{ stroke:'rgba(139,92,246,0.7)', strokeWidth:2 } }];
+          }
+          return next;
+        });
         setMemExpanded(true);
       }
-    }, [memExpanded, setNodes, setEdges]);
+    }, [memExpanded, nodes, setNodes, setEdges]);
 
     /* remove individual branch node */
     const onRemoveBranch = React.useCallback((nodeId) => {
@@ -394,7 +456,11 @@
       setNodes(nds => nds.map(n => n.id===node.id ? { ...n, data:{...n.data, pinned:!wasPinned} } : n));
     }, [setNodes]);
 
-    const onConnect       = React.useCallback((p) => setEdges(eds => addEdge({ ...p, style:{ stroke:C.FG4, strokeWidth:1.5 } }, eds)), [setEdges]);
+    const onConnect       = React.useCallback((p) => {
+      const smart = (!p.sourceHandle || !p.targetHandle)
+        ? pickHandles(p.source, p.target, nodes, edges) : {};
+      setEdges(eds => addEdge({ ...p, ...smart, style:{ stroke:C.FG4, strokeWidth:1.5 } }, eds));
+    }, [setEdges, nodes, edges]);
     const onEdgeCtx       = React.useCallback((e, edge) => { e.preventDefault(); setEdgeMenu({ x:e.clientX, y:e.clientY, edgeId:edge.id }); }, []);
     const onConnectStart  = React.useCallback((_, { nodeId }) => {
       const nd = nodes.find(n => n.id === nodeId);

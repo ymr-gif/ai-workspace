@@ -72,6 +72,8 @@
         <H type="target" position={P.Top}    id="t-top"    style={{ ...hs, top:-5    }} />
         <H type="source" position={P.Top}    id="s-top"    style={{ ...hs, top:-5    }} />
         <H type="target" position={P.Left}   id="t-left"  style={{ ...hs, left:-5   }} />
+        <H type="source" position={P.Left}   id="s-left"  style={{ ...hs, left:-5   }} />
+        <H type="target" position={P.Right}  id="t-right" style={{ ...hs, right:-5  }} />
         <H type="source" position={P.Right}  id="s-right" style={{ ...hs, right:-5  }} />
         <H type="target" position={P.Bottom} id="t-bot"   style={{ ...hs, bottom:-5 }} />
         <H type="source" position={P.Bottom} id="s-bot"   style={{ ...hs, bottom:-5 }} />
