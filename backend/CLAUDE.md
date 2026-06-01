@@ -9,7 +9,7 @@
 │   ├── node.py             — Node dataclass + 12-type registry
 │   ├── canvas_graph.py     — Neo4j CanvasNode CRUD, canvas cache, scratchpad read/write
 │   └── boot.py             — agent_boot() health checks, BootReport, format_boot_log()
-├── models/                 — ORM (21 classes: Workspace, WorkspaceMemory, Invitation, User, UserInsight, AdminAuditLog, UserMemory, UserMemoryVersion, UserGoal, File, FileChunk, FileVersion, Conversation, Message, MessageEmbedding, ConversationFile, ToolCallLog, PromptTemplate, ScheduledPrompt, ScheduledPromptRun, SystemConfig)
+├── models/                 — ORM (23 classes: Workspace, WorkspaceMemory, Invitation, User, UserInsight, AdminAuditLog, UserMemory, MemoryConflict, UserMemoryVersion, UserBehaviorProfile, UserGoal, File, FileChunk, FileVersion, Conversation, Message, MessageEmbedding, ConversationFile, ToolCallLog, PromptTemplate, ScheduledPrompt, ScheduledPromptRun, SystemConfig)
 ├── alembic/versions/       — 036 migrations; latest: 036_agent_scratchpad.py
 ├── auth/                   — JWT, bcrypt (direct, no passlib), API key fallback, invite validation
 ├── tests/
@@ -17,7 +17,7 @@
 ├── llm/
 │   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=10)
 │   ├── nim.py              — NIM API call, accumulates tool_call deltas
-│   ├── tools/              — 17 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
+│   ├── tools/              — 18 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
 │   │   └── schemas.py, executor.py, file_ops.py, search.py
 │   ├── graph_memory.py     — Neo4j extraction (70B model) + query_by_keywords; entity caps: _MAX_ENTITY_NAME_LEN=200, _MAX_ENTITIES_PER_CALL=30, _MAX_RELS_PER_CALL=60, _MAX_USER_ENTITIES=500 (evicts oldest by updated_at); cache key SHA256[:32]; _cache_del_user() busts on write; skips if compact:running:{user_id} Redis lock held; MERGE SET preserves specific type over OTHER
 │   ├── router.py / circuit_breaker.py / embeddings.py — classify, circuit, embed
@@ -50,7 +50,7 @@
 │   │   ├── env.py          — GET/PUT env vars, reload
 │   │   └── system.py       — POST /re-embed
 │   ├── graph.py            — /graph/stats, /health, /sample (?limit=1-200, ?entity_type=); DELETE /graph/entities/{name}; POST /graph/prune (removes long names + stale OTHER-type entities >7 days)
-│   ├── system.py           — /health, /metrics, /hardware (CPU/RAM/GPU/disk/uptime — psutil + pynvml); probe_models_on_startup() pings all MODELS, pre-trips circuit on failure
+│   ├── system.py           — /health, /metrics, /hardware + /system/hardware alias (both serve CPU/RAM/GPU/disk/uptime — psutil + pynvml); probe_models_on_startup() pings all MODELS, pre-trips circuit on failure
 │   ├── memory.py           — GET /memory returns active_conflicts count; scan_conflicts sets expires_at=+7d; conflicts auto-resolved keep_a after expiry
 │   ├── export.py            — GET /export/full; builds ZIP in memory with conversations/files/memory/graph data
 │   ├── search.py            — GET /api/search unified search; fans out to files/conversations/memory/graph via asyncio.gather
@@ -85,13 +85,14 @@
 `message` (str, max 2000) · `conversation_id` · `workspace_id` (UUID) · `model_override`
 `temperature` (0–2) · `max_tokens` (1–4096) · `top_p` (0–1) · `compare` (bool)
 `image_b64` (base64 → forces vision) · `image_mime_type`
+`file_ids` (list[str], default []) — explicit file UUIDs to attach per-request (canvas File→Session wire); merged with conversation-attached files in `helpers.py`; ownership-checked against `current_user.id` before use; triggers embedding + reasoning model (70B) same as conversation files
 
 ---
 
 ## AI Agent Tool Loop
 - Trigger: any message when `file_ids` non-empty → always forces reasoning model (70B); 8B cannot reliably use tool results
 - File tools always available when files attached (not keyword-gated); `_needs_file_tools()` no longer gates tool availability
-- Tools: `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph`
+- Tools (18 total — 11 existing + 7 canvas): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph`
 - Guards: same tool >3× → abort · MAX_TOOL_ITERATIONS=10 · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
 - `ask_user` / `write_memory` emit SSE + done → pauses loop; amber/green card in UI; `POST /api/memory/write` on user confirm
 - `append_to_file` for explicit write requests only; `search_in_file` preferred over `read_file` for sections
