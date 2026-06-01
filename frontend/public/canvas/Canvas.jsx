@@ -469,6 +469,32 @@
       }
     }, [onEdgesChange]);
 
+    /* pin/close node callbacks (called by NodeControls inside node components) */
+    const pinNode = React.useCallback((id, pin) => {
+      const sim = simRef.current;
+      const s = sim?.nodes().find(n => n.id === id);
+      if (pin) {
+        pinnedRef.current.add(id);
+        if (s) { s.fx = s.x; s.fy = s.y; }
+      } else {
+        pinnedRef.current.delete(id);
+        if (s) { s.fx = null; s.fy = null; sim?.alpha(0.1).restart(); }
+      }
+      setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, pinned: pin } } : n));
+    }, [setNodes]);
+
+    const closeNode = React.useCallback((id) => {
+      if (id.startsWith('ai-')) {
+        const tok = localStorage.getItem('nim_token');
+        fetch('/api/canvas/nodes/' + id.slice(3), {
+          method: 'DELETE', headers: { 'Authorization': 'Bearer ' + tok },
+        }).catch(() => {});
+      }
+      pinnedRef.current.delete(id);
+      setNodes(nds => nds.filter(n => n.id !== id));
+      setEdges(eds => eds.filter(e => e.source !== id && e.target !== id));
+    }, [setNodes, setEdges]);
+
     /* expose callbacks via window bridge */
     React.useEffect(() => {
       window.NIM_CANVAS_CB = {
@@ -476,8 +502,10 @@
         _setNodeAnim:   setNodeAnim,
         _streamSession: streamSession,
         _patch:         patchCanvas,
+        _pinNode:       pinNode,
+        _closeNode:     closeNode,
       };
-    }, [onMemExpand, onRemoveBranch, onDemoSend, onAutoArrange, setNodeAnim, streamSession, patchCanvas]);
+    }, [onMemExpand, onRemoveBranch, onDemoSend, onAutoArrange, setNodeAnim, streamSession, patchCanvas, pinNode, closeNode]);
 
     /* ARRANGE — reheat simulation (Obsidian-style: let physics settle organically) */
     const onAutoArrange = React.useCallback(() => {
