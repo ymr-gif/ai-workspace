@@ -27,6 +27,7 @@
 - **Compare mode** — same streaming/done split per model card
 - **Automations panel** (ROADMAP #12) — ⏱ Auto header button; slide-in; `useScheduledPrompts.js`; CRUD for scheduled prompts via `/api/scheduled-prompts`; create/edit form with preset aliases (daily/weekly/monthly) or custom cron, optional model_override + workspace; per-row: active toggle (`PATCH is_active`) · ▶ Run (`POST /run`) · ▼ Runs (expandable run history from `GET /id/runs`) · Edit · 🗑 delete; form overlays panel with zIndex:2
 - **Goals panel** (ROADMAP #13) — 🎯 Goals header button; slide-in; `useGoals.js`; CRUD via `/api/goals`; status filter pills (all/active/paused/completed); per-card: StatusBadge · linked conv count · toggle active↔paused · 🔗 Link conv (if `activeConvId` set + goal active, `POST /goals/{id}/link/{convId}`, disabled if already linked) · Edit · 🗑 delete; create/edit form overlay (title, description, status dropdown)
+- **⬡ Canvas button** — opens `/canvas/index.html` in a new tab; styled red (`color:RED, borderColor:RED`); placed in header before Logout; canvas checks `nim_token` in localStorage and redirects to `/` if missing
 
 ## Files Panel
 - 📎 header button; amber + count when files attached; 2 tabs: Library / Attached
@@ -66,7 +67,17 @@
 ## Model Control Toolbar
 - Pills: Auto / LLaMA 8B / DeepSeek / 70B · ⊞ Compare · ⚙ params (temp, max_tokens, top_p with per-slider enable)
 - ⚙ settings modal: system prompt · model lock · workspace selector (`PATCH /api/conversations/{id}` with workspace_id)
-- Ctx button: toggles memory_enabled · sidebar shows 🔒 when model locked
+- Ctx button: **OBSOLETE — memory is always-on; this toggle should be removed** · sidebar shows 🔒 when model locked
+
+## JARVIS Canvas (Stage 5)
+- Static bundle at `frontend/public/canvas/` — served by nginx/Vite at `/canvas/`
+- Entry: `index.html` loads React 18 + ReactFlow 11 + Babel standalone (no build step)
+- Script load order: `styles.js` → `data.js` → `canvas-live.js` → `canvas-sse.js` → Babel JSX components
+- `canvas-live.js` — auth gate (`nim_token`), parallel fetch of all API nodes, patches `INITIAL_NODES` before React mounts; calls `/api/system/hardware`, `/api/memory`, `/api/files`, `/api/files/workspaces`, `/api/usage`, `/api/tool-calls?limit=50`, `/api/conversations`
+- `canvas-sse.js` — intercepts `NIM_CANVAS_CB` assignment; replaces `onDemoSend` with real `POST /api/chat/stream`; maps SSE events → node animations + session output streaming; reads `NIM_CANVAS_LAST_FILE_IDS` for File→Session wire (`file_ids` field)
+- `effects.css` — CRT overlay styles at `frontend/public/effects.css`; `index.html` references as `../effects.css`
+- `cpu-schematic.svg` wallpaper at `frontend/public/cpu-schematic.svg`; referenced as `../cpu-schematic.svg`
+- All API calls use `/api/` prefix — Vite proxy (dev) and nginx (prod) strip it before forwarding to backend
 
 ## Markdown CSS
 Scoped to `.md-body` via `<style>` tag. Covers: p · h1-h4 · code/pre · ul/ol/li · blockquote · table · a · strong · em · hr
