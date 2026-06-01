@@ -49,7 +49,7 @@
 │   │   ├── audit.py        — GET /audit-log
 │   │   ├── env.py          — GET/PUT env vars, reload
 │   │   └── system.py       — POST /re-embed
-│   ├── canvas.py           — REST bridge for AI canvas graph: GET /canvas/graph · POST /canvas/nodes · PATCH /canvas/nodes/{id} · DELETE /canvas/nodes/{id} · POST /canvas/wire · DELETE /canvas/wire; all auth-gated; calls agent/canvas_graph.py; 400 on ValueError (bad type/port), 404 on missing node
+│   ├── canvas.py           — REST bridge for AI canvas graph: GET /canvas/graph · POST /canvas/nodes · PATCH /canvas/nodes/{id} · DELETE /canvas/nodes/{id} · POST /canvas/wire · DELETE /canvas/wire · GET /canvas/global (returns-or-creates JARVIS conversation, title="JARVIS"); all auth-gated; calls agent/canvas_graph.py; 400 on ValueError (bad type/port), 404 on missing node
 │   ├── graph.py            — /graph/stats, /health, /sample (?limit=1-200, ?entity_type=); DELETE /graph/entities/{name}; POST /graph/prune (removes long names + stale OTHER-type entities >7 days)
 │   ├── system.py           — /health, /metrics, /hardware + /system/hardware alias (both serve CPU/RAM/GPU/disk/uptime — psutil + pynvml); probe_models_on_startup() pings all MODELS, pre-trips circuit on failure
 │   ├── memory.py           — GET /memory returns active_conflicts count; scan_conflicts sets expires_at=+7d; conflicts auto-resolved keep_a after expiry
@@ -93,7 +93,7 @@
 ## AI Agent Tool Loop
 - Trigger: any message when `file_ids` non-empty → always forces reasoning model (70B); 8B cannot reliably use tool results
 - File tools always available when files attached (not keyword-gated); `_needs_file_tools()` no longer gates tool availability
-- Tools (18 total — 11 existing + 7 canvas): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph`
+- Tools (20 total — 11 existing + 7 canvas + 2 creation): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph` · `create_conversation` (Postgres Conversation + returns id; AI follows with create_canvas_node type=session) · `create_workspace` (Postgres Workspace + returns id; AI follows with create_canvas_node type=workspace)
 - Guards: same tool >3× → abort · MAX_TOOL_ITERATIONS=10 · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
 - `ask_user` / `write_memory` emit SSE + done → pauses loop; amber/green card in UI; `POST /api/memory/write` on user confirm
 - `append_to_file` for explicit write requests only; `search_in_file` preferred over `read_file` for sections

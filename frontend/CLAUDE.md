@@ -79,6 +79,13 @@
 - `cpu-schematic.svg` wallpaper at `frontend/public/cpu-schematic.svg`; referenced as `../cpu-schematic.svg`
 - All API calls use `/api/` prefix — Vite proxy (dev) and nginx (prod) strip it before forwarding to backend
 
+### Canvas — JARVIS Global AI
+- `GET /api/canvas/global` — returns-or-creates the JARVIS conversation (`title="JARVIS"`) for the user; called by `canvas-live.js` at boot; result stored as `window.NIM_CANVAS_GLOBAL_CONV_ID`
+- InputNode has no session dropdown — sends to global conv by default via `NIM_CANVAS_GLOBAL_CONV_ID` fallback in `buildBody()`; shows `JARVIS // GLOBAL` static label
+- SessionNode is simplified — no session picker, no LIST button; shows `GLOBAL SESSION / JARVIS // PERSISTENT` for the primary node; AI-created session nodes show `AI SESSION / <uuid prefix>`
+- AI tools `create_conversation` and `create_workspace` create real Postgres records, then AI follows with `create_canvas_node` to visualize; `canvas_update` SSE triggers `_patch` to show new nodes
+- All messages from Input node always route to JARVIS global conversation; `NIM_CANVAS_LAST_SESSION_ID` can override (used by AI-created session nodes in future)
+
 ### Canvas — Backend Bridge (Neo4j ↔ React Flow)
 - `GET /api/canvas/graph` → `{"nodes": [...], "wires": [...]}` — fetched by `canvas-live.js` at boot and by `canvas-sse.js` on `canvas_update` events
 - AI canvas nodes use `id: "ai-{uuid}"` prefix to distinguish from the 8 static demo nodes (`input`, `session`, etc.)
