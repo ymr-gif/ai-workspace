@@ -80,7 +80,7 @@ async def create_node(user_id: int, node_type: str, config: dict | None = None) 
         raise RuntimeError("Neo4j driver not available")
 
     async with driver.session() as session:
-        await session.run(
+        result = await session.run(
             "CREATE (n:CanvasNode {"
             "  user_id: $uid,"
             "  node_id: $nid,"
@@ -89,8 +89,10 @@ async def create_node(user_id: int, node_type: str, config: dict | None = None) 
             "  status: 'active',"
             "  created_at: $ts"
             "}) RETURN n.node_id",
-            uid=user_id, nid=node_id, type=node_type, config=merged, ts=now,
+            uid=user_id, nid=node_id, type=node_type,
+            config=json.dumps(merged), ts=now,
         )
+        await result.consume()
 
     await _cache_del(user_id)
     logger.info("[canvas] created node %s type=%s user=%d", node_id, node_type, user_id)
@@ -103,12 +105,13 @@ async def delete_node(user_id: int, node_id: str) -> None:
         raise RuntimeError("Neo4j driver not available")
 
     async with driver.session() as session:
-        await session.run(
+        result = await session.run(
             "MATCH (n:CanvasNode {user_id: $uid, node_id: $nid}) "
             "OPTIONAL MATCH (n)-[r:WIRED_TO]-() "
             "DELETE r, n",
             uid=user_id, nid=node_id,
         )
+        await result.consume()
 
     await _cache_del(user_id)
     logger.info("[canvas] deleted node %s user=%d", node_id, user_id)
@@ -124,21 +127,32 @@ async def update_node(
     sets = []
     params: dict = {"uid": user_id, "nid": node_id}
 
-    if config is not None:
-        sets.append("n.config = n.config + $config")
-        params["config"] = config
-    if status is not None:
-        sets.append("n.status = $status")
-        params["status"] = status
-
-    if not sets:
+    if not config and not status:
         return
 
-    cypher = f"MATCH (n:CanvasNode {{user_id: $uid, node_id: $nid}}) SET {', '.join(sets)}"
-
     async with driver.session() as session:
+        if config is not None:
+            # fetch current config JSON, merge in Python, write back
+            read_r = await session.run(
+                "MATCH (n:CanvasNode {user_id: $uid, node_id: $nid}) RETURN n.config AS cfg",
+                uid=user_id, nid=node_id,
+            )
+            row = await read_r.single()
+            if not row:
+                raise ValueError(f"Node {node_id} not found")
+            current = json.loads(row["cfg"] or "{}")
+            current.update(config)
+            params["config"] = json.dumps(current)
+            sets.append("n.config = $config")
+
+        if status is not None:
+            sets.append("n.status = $status")
+            params["status"] = status
+
+        cypher = f"MATCH (n:CanvasNode {{user_id: $uid, node_id: $nid}}) SET {', '.join(sets)}"
         result = await session.run(cypher, **params)
-        if result.summary().counters.contains_updates is False:
+        summary = await result.consume()
+        if not summary.counters.contains_updates:
             raise ValueError(f"Node {node_id} not found")
 
     await _cache_del(user_id)
@@ -223,13 +237,14 @@ async def wire_nodes(
         )
 
     async with driver.session() as session:
-        await session.run(
+        result = await session.run(
             "MATCH (s:CanvasNode {user_id: $uid, node_id: $src_id}) "
             "MATCH (d:CanvasNode {user_id: $uid, node_id: $dst_id}) "
             "CREATE (s)-[:WIRED_TO {src_port: $sp, dst_port: $dp, relation: $rel}]->(d)",
             uid=user_id, src_id=src_id, dst_id=dst_id,
             sp=src_port, dp=dst_port, rel=relation,
         )
+        await result.consume()
 
     await _cache_del(user_id)
     logger.info(
@@ -281,6 +296,8 @@ async def get_node(user_id: int, node_id: str) -> dict | None:
             return None
 
         node = dict(row["n"])
+        cfg = node.get("config")
+        node["config"] = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
         node["outgoing"] = [c for c in row["outgoing"] if c.get("rel") is not None]
         node["incoming"] = [c for c in row["incoming"] if c.get("rel") is not None]
 
@@ -316,6 +333,9 @@ async def get_canvas_graph(user_id: int) -> dict:
 
     for row in rows:
         node_data = dict(row["n"])
+        # deserialize config from JSON string
+        cfg = node_data.get("config")
+        node_data["config"] = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
         node_def = get_node_type(node_data.get("node_type", ""))
         if node_def:
             node_data["ports"] = node_def.ports
