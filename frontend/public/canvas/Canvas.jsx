@@ -526,6 +526,22 @@
       const s = sim.nodes().find(n=>n.id===node.id);
       if (s && !pinnedRef.current.has(node.id)) { s.fx=null; s.fy=null; }
       sim.alphaTarget(0);
+      /* persist AI node position to Neo4j */
+      if (node.id.startsWith('ai-')) {
+        const nid = node.id.slice(3);
+        const tok = localStorage.getItem('nim_token');
+        fetch('/api/canvas/nodes/' + nid, {
+          method: 'PATCH',
+          headers: { 'Content-Type':'application/json', 'Authorization':'Bearer '+tok },
+          body: JSON.stringify({ config: { position: node.position } }),
+        }).catch(() => {});
+      }
+      /* save all node positions to localStorage (static nodes) */
+      try {
+        const pos = {};
+        nodesRef.current.forEach(n => { pos[n.id] = n.position; });
+        localStorage.setItem('nim_canvas_positions', JSON.stringify(pos));
+      } catch {}
     }, []);
 
     /* Node right-click → pin/unpin */

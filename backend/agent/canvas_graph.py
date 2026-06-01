@@ -125,7 +125,7 @@ async def update_node(
     params: dict = {"uid": user_id, "nid": node_id}
 
     if config is not None:
-        sets.append("n.config = $config")
+        sets.append("n.config = n.config + $config")
         params["config"] = config
     if status is not None:
         sets.append("n.status = $status")
