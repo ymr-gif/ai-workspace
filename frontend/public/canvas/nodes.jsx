@@ -14,7 +14,9 @@
   }
 
   /* ── Node action buttons (pin + close) — top-right of every node ── */
+  const _CORE_NODES = new Set(['input', 'session', 'memory', 'config']);
   function NodeControls({ nodeId, pinned }) {
+    const canClose = !_CORE_NODES.has(nodeId);
     const b = {
       background:'none', border:'none', cursor:'pointer',
       fontFamily:C.DISP, fontSize:10, padding:'0 2px', lineHeight:1,
@@ -22,11 +24,12 @@
     };
     return (
       <div style={{ display:'flex', gap:1, alignItems:'center', marginLeft:'auto', flexShrink:0 }}>
-        <button title="Close"
-          style={b}
-          onClick={e => { e.stopPropagation(); window.NIM_CANVAS_CB?._closeNode?.(nodeId); }}
-          onMouseEnter={e => e.currentTarget.style.color = C.RED}
-          onMouseLeave={e => e.currentTarget.style.color = C.FG5}>✕</button>
+        {canClose && (
+          <button title="Close" style={b}
+            onClick={e => { e.stopPropagation(); window.NIM_CANVAS_CB?._closeNode?.(nodeId); }}
+            onMouseEnter={e => e.currentTarget.style.color = C.RED}
+            onMouseLeave={e => e.currentTarget.style.color = C.FG5}>✕</button>
+        )}
         <button title={pinned ? 'Unpin' : 'Pin'}
           style={{ ...b, color: pinned ? C.AMB : C.FG5 }}
           onClick={e => { e.stopPropagation(); window.NIM_CANVAS_CB?._pinNode?.(nodeId, !pinned); }}
