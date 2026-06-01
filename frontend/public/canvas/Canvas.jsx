@@ -107,6 +107,26 @@
     return best || {};
   }
 
+  /* ── Neo4j → React Flow node conversion (shared with canvas-live.js) ── */
+  const _NEO_TYPE_MAP = {
+    input:'inputNode', session:'sessionNode', memory:'memoryNode',
+    files:'filesNode', logs:'logsNode', usage:'usageNode',
+    workspace:'workspaceNode', config:'configNode',
+  };
+  function neoToRF(n, idx) {
+    return {
+      id:       'ai-' + n.node_id,
+      type:     _NEO_TYPE_MAP[n.node_type] || 'placeholder',
+      data: {
+        label:     n.node_type.toUpperCase(),
+        animState: n.status === 'active' ? 'done' : 'idle',
+        icon:      'Terminal',
+        ...(n.config || {}),
+      },
+      position: (n.config || {}).position || { x: 1100 + idx * 200, y: 100 + idx * 70 },
+    };
+  }
+
   /* pre-stamp smart handles on INITIAL_EDGES using known node positions */
   const SMART_INITIAL_EDGES = D.INITIAL_EDGES.map((e, i, arr) => ({
     ...e, ...pickHandles(e.source, e.target, D.INITIAL_NODES, arr.slice(0, i)),
@@ -192,9 +212,17 @@
     const pinnedRef = React.useRef(new Set());
     const rafRef    = React.useRef(null);
     const physRef   = React.useRef({ repulsion:-1200, linkDist:220, linkStr:0.06, collide:85, decay:0.45 });
+    /* live-mirror for smart drag re-routing (avoids stale closure in RAF) */
+    const nodesRef   = React.useRef(D.INITIAL_NODES);
+    const dragRafRef = React.useRef(null);
+    /* AI wire map: edgeId → {src_id, dst_id} for backend deletion lookups */
+    const aiWireMapRef = React.useRef({});
 
     /* probe: confirm effect fires */
     React.useEffect(() => { console.info('[NIM] NimCanvas mounted'); }, []);
+
+    /* keep nodesRef in sync so drag re-router always has current positions */
+    React.useEffect(() => { nodesRef.current = nodes; }, [nodes]);
 
     /* ── Mount: create d3 simulation ── */
     React.useEffect(() => {
@@ -411,14 +439,45 @@
       ));
     }, [setNodes]);
 
+    /* merge AI canvas graph delta into React Flow state */
+    const patchCanvas = React.useCallback(({ nodes: neoNodes, wires }) => {
+      const rfNodes = (neoNodes || []).map(neoToRF);
+      setNodes(nds => [...nds.filter(n => !n.id.startsWith('ai-')), ...rfNodes]);
+      const rfEdges = (wires || []).map(w => {
+        const id = 'ai-wire-' + w.src_id + '__' + w.dst_id;
+        aiWireMapRef.current[id] = { src_id: w.src_id, dst_id: w.dst_id };
+        return { id, source:'ai-'+w.src_id, target:'ai-'+w.dst_id,
+          style:{ stroke:'rgba(61,255,110,0.6)', strokeWidth:1.5 } };
+      });
+      setEdges(eds => [...eds.filter(e => !e.id.startsWith('ai-wire-')), ...rfEdges]);
+    }, [setNodes, setEdges]);
+
+    /* wrap onEdgesChange to delete AI wires from backend on removal */
+    const handleEdgesChange = React.useCallback((changes) => {
+      onEdgesChange(changes);
+      const tok = localStorage.getItem('nim_token');
+      for (const ch of changes) {
+        if (ch.type !== 'remove') continue;
+        const wire = aiWireMapRef.current[ch.id];
+        if (!wire) continue;
+        delete aiWireMapRef.current[ch.id];
+        fetch('/api/canvas/wire', {
+          method: 'DELETE',
+          headers: { 'Content-Type':'application/json', 'Authorization':'Bearer '+tok },
+          body: JSON.stringify(wire),
+        }).catch(() => {});
+      }
+    }, [onEdgesChange]);
+
     /* expose callbacks via window bridge */
     React.useEffect(() => {
       window.NIM_CANVAS_CB = {
         onMemExpand, onRemoveBranch, onDemoSend, onAutoArrange,
         _setNodeAnim:   setNodeAnim,
         _streamSession: streamSession,
+        _patch:         patchCanvas,
       };
-    }, [onMemExpand, onRemoveBranch, onDemoSend, onAutoArrange, setNodeAnim, streamSession]);
+    }, [onMemExpand, onRemoveBranch, onDemoSend, onAutoArrange, setNodeAnim, streamSession, patchCanvas]);
 
     /* ARRANGE — reheat simulation (Obsidian-style: let physics settle organically) */
     const onAutoArrange = React.useCallback(() => {
@@ -433,10 +492,35 @@
       sim.alphaTarget(0.3).restart();
     }, []);
     const onNodeDrag = React.useCallback((_, node) => {
-      const sim = simRef.current; if (!sim) return;
-      const s = sim.nodes().find(n=>n.id===node.id);
-      if (s) { s.fx=node.position.x; s.fy=node.position.y; }
-    }, []);
+      /* d3 sim: keep dragged node fixed at cursor */
+      const sim = simRef.current;
+      if (sim) {
+        const s = sim.nodes().find(n => n.id === node.id);
+        if (s) { s.fx = node.position.x; s.fy = node.position.y; }
+      }
+      /* RAF-throttled edge re-routing — runs at most once per screen frame */
+      if (dragRafRef.current) cancelAnimationFrame(dragRafRef.current);
+      dragRafRef.current = requestAnimationFrame(() => {
+        dragRafRef.current = null;
+        /* patch the moving node to its current drag position */
+        const patchedNodes = nodesRef.current.map(n =>
+          n.id === node.id ? { ...n, position: node.position } : n
+        );
+        setEdges(eds => {
+          let changed = false;
+          const next = eds.map(e => {
+            if (e.source !== node.id && e.target !== node.id) return e;
+            /* exclude this edge from its own occupancy score */
+            const others = eds.filter(x => x.id !== e.id);
+            const smart = pickHandles(e.source, e.target, patchedNodes, others);
+            if (smart.sourceHandle === e.sourceHandle && smart.targetHandle === e.targetHandle) return e;
+            changed = true;
+            return { ...e, ...smart };
+          });
+          return changed ? next : eds;
+        });
+      });
+    }, [setEdges]);
     const onNodeDragStop = React.useCallback((_, node) => {
       const sim = simRef.current; if (!sim) return;
       const s = sim.nodes().find(n=>n.id===node.id);
@@ -460,6 +544,24 @@
       const smart = (!p.sourceHandle || !p.targetHandle)
         ? pickHandles(p.source, p.target, nodes, edges) : {};
       setEdges(eds => addEdge({ ...p, ...smart, style:{ stroke:C.FG4, strokeWidth:1.5 } }, eds));
+      /* persist to Neo4j when either endpoint is an AI canvas node */
+      const isAI = id => id && id.startsWith('ai-');
+      if (isAI(p.source) || isAI(p.target)) {
+        const srcId  = p.source.replace('ai-', '');
+        const dstId  = p.target.replace('ai-', '');
+        const edgeId = 'ai-wire-' + srcId + '__' + dstId;
+        const wire   = { src_id: srcId, dst_id: dstId,
+          src_port: smart.sourceHandle || 'out',
+          dst_port: smart.targetHandle || 'in',
+          relation: 'connected' };
+        aiWireMapRef.current[edgeId] = wire;
+        const tok = localStorage.getItem('nim_token');
+        fetch('/api/canvas/wire', {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json', 'Authorization':'Bearer '+tok },
+          body: JSON.stringify(wire),
+        }).catch(() => {});
+      }
     }, [setEdges, nodes, edges]);
     const onEdgeCtx       = React.useCallback((e, edge) => { e.preventDefault(); setEdgeMenu({ x:e.clientX, y:e.clientY, edgeId:edge.id }); }, []);
     const onConnectStart  = React.useCallback((_, { nodeId }) => {
@@ -489,7 +591,7 @@
         <div style={{ position:'absolute', inset:0, zIndex:1 }}>
           <ReactFlow
             nodes={nodes} edges={edges}
-            onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+            onNodesChange={onNodesChange} onEdgesChange={handleEdgesChange}
             onConnect={onConnect} onEdgeContextMenu={onEdgeCtx}
             onConnectStart={onConnectStart} onConnectEnd={onConnectEnd}
             onNodeDragStart={onNodeDragStart} onNodeDrag={onNodeDrag} onNodeDragStop={onNodeDragStop}

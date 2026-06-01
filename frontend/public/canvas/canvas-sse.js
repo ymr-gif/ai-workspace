@@ -150,6 +150,18 @@
               /* Pass through to session output as-is (already rendered as text) */
               break;
 
+            case 'canvas_update':
+              /* AI modified canvas via tool — re-fetch graph and patch React Flow state */
+              (function() {
+                const tok = window.NIM_CANVAS_TOKEN || localStorage.getItem('nim_token');
+                fetch('/api/canvas/graph', { headers: { 'Authorization': 'Bearer ' + tok } })
+                  .then(r => r.ok ? r.json() : null)
+                  .then(data => { if (data) window.NIM_CANVAS_CB?._patch?.(data); })
+                  .catch(() => {});
+              })();
+              pulseNode('logs');
+              break;
+
             case 'error':
               streamToSession('[ERROR] ' + (event.message || 'Unknown error'), true);
               setAnim('session', 'error');
@@ -178,9 +190,10 @@
         /* replace demo send with real SSE send */
         onDemoSend: realSend,
         /* expose internal helpers so realSend can call back into React state */
-        _setNodeAnim:     val._setNodeAnim     || null,
-        _streamSession:   val._streamSession   || null,
+        _setNodeAnim:       val._setNodeAnim       || null,
+        _streamSession:     val._streamSession     || null,
         _updateSessionMeta: val._updateSessionMeta || null,
+        _patch:             val._patch             || null,
       };
     },
     configurable: true,

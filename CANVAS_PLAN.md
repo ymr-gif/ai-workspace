@@ -524,3 +524,16 @@ Note: This stage is for Claude Code to implement in the real `frontend/` codebas
 ---
 
 *Last updated: planning phase complete. Stage 1 ready to build.*
+
+---
+
+## Post-Stage-5 Enhancements
+
+### Smart Handle Routing (2026-06-01)
+- `AllHandles()` expanded to 8 ports (full compass: top/right/bot/left × source/target)
+- `pickHandles()` scores all 16 combinations; penalises occupied handles at 80px equivalent
+- Applied at: initial edge stamp (`SMART_INITIAL_EDGES`), `onConnect`, memory branch expansion
+
+### Real-time Drag Re-routing (2026-06-01)
+- Edges auto-reroute to closest handle while node is dragged
+- RAF-throttled (≤60fps); `nodesRef` ref avoids stale closure; `setEdges` skipped if no handle changed

@@ -79,6 +79,30 @@
 - `cpu-schematic.svg` wallpaper at `frontend/public/cpu-schematic.svg`; referenced as `../cpu-schematic.svg`
 - All API calls use `/api/` prefix — Vite proxy (dev) and nginx (prod) strip it before forwarding to backend
 
+### Canvas — Backend Bridge (Neo4j ↔ React Flow)
+- `GET /api/canvas/graph` → `{"nodes": [...], "wires": [...]}` — fetched by `canvas-live.js` at boot and by `canvas-sse.js` on `canvas_update` events
+- AI canvas nodes use `id: "ai-{uuid}"` prefix to distinguish from the 8 static demo nodes (`input`, `session`, etc.)
+- AI wires use `id: "ai-wire-{src_uuid}__{dst_uuid}"` (double underscore separates UUIDs)
+- `neoToRF(n, idx)` — defined at module scope in `Canvas.jsx` AND in `canvas-live.js`; maps `node_type` → React Flow `type` via `_NEO_TYPE_MAP`; unknown types fall back to `placeholder`
+- `patchCanvas({nodes, wires})` — `useCallback` in `Canvas.jsx`; replaces all `ai-*` nodes/edges with fresh data from the API; exposed on `window.NIM_CANVAS_CB._patch`
+- `aiWireMapRef` — `useRef({})` in `Canvas.jsx`; maps `edgeId → {src_id, dst_id}`; populated by `patchCanvas` and `onConnect`; used by `handleEdgesChange` for backend DELETE lookups
+- `handleEdgesChange` — wraps built-in `onEdgesChange`; on `type:"remove"` for `ai-wire-*` edges, fires `DELETE /api/canvas/wire` (fire-and-forget)
+- `onConnect` — after adding edge to React Flow state, if either endpoint is `ai-*`, fires `POST /api/canvas/wire` with `{src_id, dst_id, src_port, dst_port, relation:"connected"}`
+- `canvas-sse.js` `canvas_update` case — re-fetches `/api/canvas/graph`, calls `_patch`; also pulses Logs node
+- AI wire edges rendered in green (`rgba(61,255,110,0.6)`) to distinguish from demo wires (`#555555`)
+
+### Canvas — Smart Handle Routing
+- `nodes.jsx` `AllHandles()` exposes 8 handles per node: `s-top` `s-right` `s-bot` `s-left` (source) + mirrored `t-*` targets
+- `pickHandles(srcId, tgtId, nodes, edges)` in `Canvas.jsx` — scores all 16 src×tgt combos; score = `dist(srcHandle→tgtCenter) + dist(tgtHandle→srcCenter) + occupancy×80px`; lowest score wins
+- `SMART_INITIAL_EDGES` — pre-stamps handles on `D.INITIAL_EDGES` at module load before React mounts
+- `onConnect` — calls `pickHandles` only when user drops on node body (no explicit handle); handle-drag always wins
+- Memory branch edges — `pickHandles` called with branch positions pre-computed so all 3 branches fan to different ports on Memory node
+
+### Canvas — Real-time Drag Re-routing
+- `nodesRef` — `React.useRef` mirror of `nodes` state; synced via `useEffect([nodes])`; avoids stale closure in RAF callback
+- `dragRafRef` — RAF handle; cancelled + rescheduled on each `onNodeDrag` so only the latest drag position is processed (≤60fps)
+- On each RAF fire: build `patchedNodes` with dragged node at cursor position → `pickHandles` for each connected edge (edge excluded from its own occupancy count) → `setEdges` only if handles changed
+
 ## Markdown CSS
 Scoped to `.md-body` via `<style>` tag. Covers: p · h1-h4 · code/pre · ul/ol/li · blockquote · table · a · strong · em · hr
 
