@@ -192,6 +192,7 @@ async def chat_stream(
     node_inventory_lines.append("  - For other node types, call get_canvas_graph to get full UUIDs before wiring.")
     node_inventory_lines.append("  - CRITICAL: call tools immediately — never describe actions in text before calling them.")
     node_inventory_lines.append("  - Never call create_conversation or create_workspace unless the user explicitly asks to create a session or workspace.")
+    node_inventory_lines.append("  - Never delete the input node or any node marked [CORE · protected] — they are permanent infrastructure. If the user asks to delete 'the session' and only the protected global session exists, explain that it is permanent instead of deleting it.")
     node_inventory = "\n".join(node_inventory_lines)
 
     canvas = boot_report.canvas
@@ -237,8 +238,9 @@ async def chat_stream(
             name_str = f' "{name}"' if name else ""
             conns = n.get("connections", [])
             conn_str = f" → {len(conns)} connections" if conns else ""
+            core_str = " [CORE · protected]" if n.get("protected") else ""
             # full node_id (not truncated) — the model passes these verbatim to delete/update/wire
-            canvas_lines.append(f"  {n.get('node_type', '?')}{name_str} ({n.get('node_id', '?')}){conn_str}")
+            canvas_lines.append(f"  {n.get('node_type', '?')}{name_str} ({n.get('node_id', '?')}){core_str}{conn_str}")
     canvas_state = "\n".join(canvas_lines)
 
     # Workspace system_prompt takes precedence; merge with conv system_prompt if both set

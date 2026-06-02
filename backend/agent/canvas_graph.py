@@ -114,6 +114,21 @@ async def delete_node(user_id: int, node_id: str) -> None:
         raise RuntimeError("Neo4j driver not available")
 
     async with driver.session() as session:
+        # existence + protection check before deleting
+        chk = await session.run(
+            "MATCH (n:CanvasNode {user_id: $uid, node_id: $nid}) "
+            "RETURN coalesce(n.protected, false) AS protected",
+            uid=user_id, nid=node_id,
+        )
+        row = await chk.single()
+        if row is None:
+            raise ValueError(f"Node {node_id} not found")
+        if row["protected"]:
+            raise ValueError(
+                f"Cannot delete core node {node_id}: the input node and the global "
+                f"JARVIS session are permanent infrastructure."
+            )
+
         result = await session.run(
             "MATCH (n:CanvasNode {user_id: $uid, node_id: $nid}) "
             "OPTIONAL MATCH (n)-[r:WIRED_TO]-() "
@@ -127,6 +142,20 @@ async def delete_node(user_id: int, node_id: str) -> None:
 
     await _cache_del(user_id)
     logger.info("[canvas] deleted node %s user=%d", node_id, user_id)
+
+
+async def set_protected(user_id: int, node_id: str, value: bool = True) -> None:
+    """Mark a canvas node as protected (core infrastructure — undeletable). Idempotent."""
+    driver = get_driver()
+    if not driver:
+        return
+    async with driver.session() as session:
+        result = await session.run(
+            "MATCH (n:CanvasNode {user_id: $uid, node_id: $nid}) SET n.protected = $v",
+            uid=user_id, nid=node_id, v=value,
+        )
+        await result.consume()
+    await _cache_del(user_id)
 
 
 async def update_node(

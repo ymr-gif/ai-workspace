@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.canvas_graph import (
-    create_node, delete_node, find_nodes,
+    create_node, delete_node, find_nodes, set_protected,
     get_canvas_graph, unwire_nodes, update_node, wire_nodes,
 )
 from auth.security import get_current_user
@@ -165,6 +165,10 @@ async def _ensure_canvas_wiring(user_id: int, conversation_id: str) -> None:
         input_id = inputs[0]["node_id"]
     else:
         input_id = await create_node(user_id, "input", {})
+
+    # core infrastructure — never deletable by the AI tool or REST (idempotent backfill)
+    await set_protected(user_id, input_id, True)
+    await set_protected(user_id, session_id, True)
 
     graph = await get_canvas_graph(user_id)
     already_wired = any(
