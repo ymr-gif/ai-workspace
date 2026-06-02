@@ -114,14 +114,18 @@
     workspace:'workspaceNode', config:'configNode',
   };
   function neoToRF(n, idx) {
+    const rfId = 'ai-' + n.node_id;
+    // track backend-protected (core) node ids so the close-button guard can hide ✕
+    if (n.protected) (window.NIM_PROTECTED_IDS ||= new Set()).add(rfId);
     return {
-      id:       'ai-' + n.node_id,
+      id:       rfId,
       type:     _NEO_TYPE_MAP[n.node_type] || 'placeholder',
       data: {
         label:     n.node_type.toUpperCase(),
         animState: n.status === 'active' ? 'done' : 'idle',
         icon:      'Terminal',
         ...(n.config || {}),
+        protected: !!n.protected,
       },
       position: (n.config || {}).position || { x: 1100 + idx * 200, y: 100 + idx * 70 },
     };
