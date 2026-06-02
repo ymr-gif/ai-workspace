@@ -1,10 +1,10 @@
-"""_reap_orphan_sessions coverage (I1)."""
+"""reconcile_canvas coverage (I1 reaper + H3/H6 duplicate collapse)."""
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import api.canvas as canvas
+import agent.canvas_graph as cg
 
 pytestmark = pytest.mark.asyncio
 
@@ -26,46 +26,51 @@ class _FakeExecResult:
 
 
 async def test_reaper_prunes_malformed_and_dead_keeps_valid(monkeypatch):
-    keep_id = "keep-node"
     live_conv = uuid.uuid4()
     dead_conv = uuid.uuid4()
 
     sessions = [
-        {"node_id": keep_id,  "protected": False, "config": {"conversation_id": str(uuid.uuid4())}},
-        {"node_id": "prot",   "protected": True,  "config": {"conversation_id": str(uuid.uuid4())}},
-        {"node_id": "bad",    "protected": False, "config": {"conversation_id": "test"}},          # malformed
-        {"node_id": "dead",   "protected": False, "config": {"conversation_id": str(dead_conv)}},  # no pg row
-        {"node_id": "live",   "protected": False, "config": {"conversation_id": str(live_conv)}},  # real
+        {"node_id": "prot",  "protected": True,  "config": {"conversation_id": str(uuid.uuid4())}},
+        {"node_id": "bad",   "protected": False, "config": {"conversation_id": "test"}},          # malformed
+        {"node_id": "dead",  "protected": False, "config": {"conversation_id": str(dead_conv)}},  # no pg row
+        {"node_id": "live",  "protected": False, "config": {"conversation_id": str(live_conv)}},  # real
     ]
-
-    monkeypatch.setattr(canvas, "find_nodes", AsyncMock(return_value=sessions))
+    monkeypatch.setattr(cg, "find_nodes", AsyncMock(return_value=sessions))
     pruned = []
-    async def _fake_delete(uid, nid):
-        pruned.append(nid)
-    monkeypatch.setattr(canvas, "delete_node", AsyncMock(side_effect=_fake_delete))
+    monkeypatch.setattr(cg, "delete_node", AsyncMock(side_effect=lambda uid, nid: pruned.append(nid)))
 
     db = MagicMock()
     db.execute = AsyncMock(return_value=_FakeExecResult([live_conv]))  # only live_conv exists
 
-    await canvas._reap_orphan_sessions(1, db, keep_node_id=keep_id)
+    await cg._reap_orphan_sessions(1, db)
 
-    assert set(pruned) == {"bad", "dead"}      # malformed + dead pruned
-    assert "prot" not in pruned                # protected skipped
-    assert keep_id not in pruned               # global session skipped
-    assert "live" not in pruned                # valid session kept
+    assert set(pruned) == {"bad", "dead"}
+    assert "prot" not in pruned and "live" not in pruned
 
 
-async def test_reaper_noop_when_all_valid(monkeypatch):
-    live_conv = uuid.uuid4()
-    sessions = [
-        {"node_id": "live", "protected": False, "config": {"conversation_id": str(live_conv)}},
-    ]
-    monkeypatch.setattr(canvas, "find_nodes", AsyncMock(return_value=sessions))
-    delete_mock = AsyncMock()
-    monkeypatch.setattr(canvas, "delete_node", delete_mock)
+async def test_collapse_duplicate_inputs_and_sessions(monkeypatch):
+    """H3/H6: duplicate singleton inputs + same-conv sessions collapse to one,
+    always keeping the protected node."""
+    conv = str(uuid.uuid4())
 
-    db = MagicMock()
-    db.execute = AsyncMock(return_value=_FakeExecResult([live_conv]))
+    def fake_find(uid, node_type):
+        if node_type == "input":
+            return [
+                {"node_id": "in-keep", "protected": True,  "config": {}},
+                {"node_id": "in-dup",  "protected": False, "config": {}},
+            ]
+        if node_type == "session":
+            return [
+                {"node_id": "ses-keep", "protected": True,  "config": {"conversation_id": conv}},
+                {"node_id": "ses-dup",  "protected": False, "config": {"conversation_id": conv}},
+            ]
+        return []  # memory/config — none
 
-    await canvas._reap_orphan_sessions(1, db, keep_node_id="other")
-    delete_mock.assert_not_called()
+    monkeypatch.setattr(cg, "find_nodes", AsyncMock(side_effect=fake_find))
+    pruned = []
+    monkeypatch.setattr(cg, "delete_node", AsyncMock(side_effect=lambda uid, nid: pruned.append(nid)))
+
+    await cg._collapse_duplicate_nodes(1)
+
+    assert set(pruned) == {"in-dup", "ses-dup"}      # protected ones kept
+    assert "in-keep" not in pruned and "ses-keep" not in pruned

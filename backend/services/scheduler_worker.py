@@ -13,9 +13,11 @@ from croniter import croniter
 from sqlalchemy import select
 
 import llm.client as llm_client
+from agent.canvas_graph import list_canvas_user_ids, reconcile_canvas
 from config import BACKUP_SCHEDULE, MODELS, REQUEST_TIMEOUT
 from core.db import AsyncSessionLocal, init_db
 from core.logger import setup_logging
+from core.neo4j_client import close_neo4j, init_neo4j
 from llm.nim import call as nim_call
 from models import File as FileModel, ScheduledPrompt, ScheduledPromptRun, UserMemory
 from services.processor import process_file_async
@@ -159,6 +161,26 @@ async def run_memory_compaction() -> None:
     logger.info("[scheduler] compaction queued for %d users", count)
 
 
+async def run_canvas_reconcile() -> None:
+    """Periodic canvas hygiene for every user — reaps orphan sessions and collapses
+    duplicate nodes that predate the create_node dedup guard. Idempotent."""
+    try:
+        user_ids = await list_canvas_user_ids()
+    except Exception as e:
+        logger.warning("[scheduler] canvas reconcile: could not list users: %s", e)
+        return
+
+    done = 0
+    for uid in user_ids:
+        try:
+            async with AsyncSessionLocal() as db:
+                await reconcile_canvas(uid, db)
+            done += 1
+        except Exception:
+            logger.exception("[scheduler] canvas reconcile failed user=%s", uid)
+    logger.info("[scheduler] canvas reconcile complete — %d users", done)
+
+
 async def run_backup() -> None:
     script = Path(__file__).resolve().parent.parent.parent / "docker" / "backup.sh"
     logger.info("[backup] starting — %s", script)
@@ -179,6 +201,7 @@ async def run_backup() -> None:
 async def main() -> None:
     logger.info("[scheduler] starting up")
     await init_db()
+    await init_neo4j()
 
     llm_client.client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
     logger.info("[scheduler] http client ready")
@@ -199,6 +222,14 @@ async def main() -> None:
         lambda: asyncio.create_task(run_memory_compaction()),
         CronTrigger.from_crontab("0 3 * * *", timezone="UTC"),
         id = "__compact_memory__",
+    )
+
+    # Canvas reconcile every 6 hours — reap orphans + collapse duplicates
+    scheduler.add_job(
+        lambda: asyncio.create_task(run_canvas_reconcile()),
+        "interval",
+        hours = 6,
+        id    = "__canvas_reconcile__",
     )
 
     # Scheduled backup via BACKUP_SCHEDULE env (default: 2 AM UTC)
@@ -223,6 +254,7 @@ async def main() -> None:
         scheduler.shutdown(wait=False)
         if llm_client.client:
             await llm_client.client.aclose()
+        await close_neo4j()
 
 
 if __name__ == "__main__":
