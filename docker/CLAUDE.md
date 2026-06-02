@@ -12,7 +12,7 @@
 | grafana | 3001 | admin/admin; 24-panel auto-provisioned dashboard; unified alerting enabled; 2 alert rules provisioned |
 | metrics-worker | — | `python -m observability.metrics_worker` |
 | arq-worker | — | `python -m arq services.arq_worker.WorkerSettings`; max_jobs=10 |
-| scheduler | — | `python -m services.scheduler_worker` |
+| scheduler | — | `python -m services.scheduler_worker`; needs `NEO4J_URI`/`NEO4J_PASSWORD` + `depends_on neo4j` (canvas reconcile job runs every 6h) |
 | neo4j | 7474 (browser), 7687 (bolt) | `neo4j:5`; auth `neo4j/${NEO4J_PASSWORD:-changeme}`; volume `neo4jdata` |
 
 ---
@@ -32,6 +32,15 @@
 - `DATABASE_URL` for api + scheduler → `pgbouncer:5432` (not `postgres:5432`)
 - SQLAlchemy `prepared_statement_cache_size=0` required for transaction mode
 - `pool_pre_ping=False` — pgBouncer manages dead connections
+
+---
+
+## Neo4j env — which services need it
+`NEO4J_URI` + `NEO4J_PASSWORD` must be set on every service that touches the graph:
+**api**, **arq-worker**, **scheduler**. Without them `init_neo4j()` logs
+`graph memory disabled` and silently no-ops (canvas reconcile + graph memory do nothing).
+The scheduler also needs `depends_on neo4j: service_healthy` so its 6h canvas reconcile
+job can connect on boot.
 
 ---
 
