@@ -104,9 +104,12 @@
 ## Agent Canvas Architecture
 
 ### Node Registry (`agent/node.py`)
-- `Node` dataclass: `name`, `label`, `ports` (input/output), `tools`, `default_config`
+- `Node` dataclass: `name`, `label`, `ports` (input/output), `tools`, `default_config`, + policy flags `embedded` / `ai_creatable` / `permanent`
 - 12 node types: `input`, `session`, `memory`, `files`, `logs`, `usage`, `workspace`, `config`, `insights`, `goals`, `automations`, `mech`
 - `registry: dict[str, Node]` and `get_node_type()` lookup
+- **Single source of truth for type classification** (H1): derived frozensets — `EMBEDDED_TYPES` (insights/goals/automations/mech), `AI_CREATABLE_TYPES` (files/logs/usage/workspace), `PERMANENT_TYPES` (input/memory/config), `MANAGED_TYPES` (input/session/memory/config — internal-create only). Consumed by `canvas_graph.create_node`, `api/chat/stream.py` (`_CREATABLE_NODES`), `llm/tools/schemas.py`. Never re-hardcode these sets.
+- **`create_node` guard:** rejects `EMBEDDED_TYPES`; rejects `MANAGED_TYPES` unless `internal=True` (bootstrap paths `_ensure_canvas_wiring` / `_ensure_creation_wiring`); rejects non-UUID `config.conversation_id`.
+- **Session identity (H4):** `config.kind` = `"global"` (permanent JARVIS session, set by `_ensure_canvas_wiring`) vs `"user"` (ordinary, set by `_ensure_creation_wiring`); CANVAS STATE renders `[GLOBAL]` / `[user session]`.
 
 ### Canvas Graph CRUD (`agent/canvas_graph.py`)
 - create/delete/update `CanvasNode` (label separate from `Entity`); wire/unwire with port validation; get_node with incident wires

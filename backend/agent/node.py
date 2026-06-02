@@ -10,6 +10,16 @@ class Node:
     ports: dict[str, list[str]]
     tools: list[dict]
     default_config: dict | None = None
+    # ── policy flags — single source of truth for type classification ──
+    # embedded:     lives inside another node, never a standalone canvas node
+    # ai_creatable: the AI/REST may create it directly via create_canvas_node
+    # permanent:    singleton core infrastructure — protected, internal-create only
+    # A type that is neither embedded nor ai_creatable is "managed": created only
+    # by an internal bootstrap path (input/memory/config via _ensure_canvas_wiring;
+    # session via create_conversation → _ensure_creation_wiring).
+    embedded:     bool = False
+    ai_creatable: bool = False
+    permanent:    bool = False
 
 
 registry: dict[str, Node] = {
@@ -151,6 +161,24 @@ registry: dict[str, Node] = {
         ],
     ),
 }
+
+
+# ── apply policy flags ───────────────────────────────────────────
+for _n in ("input", "memory", "config"):
+    registry[_n].permanent = True
+for _n in ("files", "logs", "usage", "workspace"):
+    registry[_n].ai_creatable = True
+for _n in ("insights", "goals", "automations", "mech"):
+    registry[_n].embedded = True
+
+# ── derived type sets (consume these everywhere — never re-hardcode) ──
+EMBEDDED_TYPES     = frozenset(n for n, nd in registry.items() if nd.embedded)
+AI_CREATABLE_TYPES = frozenset(n for n, nd in registry.items() if nd.ai_creatable)
+PERMANENT_TYPES    = frozenset(n for n, nd in registry.items() if nd.permanent)
+# managed = created only by an internal bootstrap, never directly by the AI/REST
+MANAGED_TYPES      = frozenset(
+    n for n, nd in registry.items() if not nd.embedded and not nd.ai_creatable
+)
 
 
 def get_node_type(name: str) -> Node | None:

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from redis.exceptions import RedisError as _RedisError
 from sqlalchemy import select, update
 
-from agent.node import get_node_type, registry
+from agent.node import get_node_type, registry, EMBEDDED_TYPES, MANAGED_TYPES
 from config import USE_REDIS
 from core.db import AsyncSessionLocal
 from core.neo4j_client import get_driver
@@ -21,15 +21,10 @@ _CANVAS_CACHE_TTL = 60
 
 _WRITE_KEYWORDS = frozenset({"create", "delete", "set", "merge", "remove", "detach"})
 
-# These live inside other nodes (insights=ghost card above Input; goals/automations=
-# Config info section; mech=UNIT slot in Config) — never standalone canvas nodes.
-_NON_CANVAS_TYPES = frozenset({"insights", "goals", "automations", "mech"})
-
-# Permanent infrastructure — created/healed only by the canvas bootstrap
-# (api/canvas.py:_ensure_canvas_wiring, internal=True). The AI tool and REST
-# path must never create these, or duplicate input/session/memory/config nodes
-# accumulate as orphaned, protected (undeletable) clutter.
-_PERMANENT_TYPES = frozenset({"input", "session", "memory", "config"})
+# Type classification is owned by agent/node.py (single source of truth):
+#   EMBEDDED_TYPES — live inside other nodes; never standalone canvas nodes
+#   MANAGED_TYPES  — input/session/memory/config; created only by an internal
+#                    bootstrap path, never directly by the AI tool or REST
 
 
 # ── Redis cache helpers ──────────────────────────────────────────
@@ -76,18 +71,18 @@ async def _cache_del(user_id: int) -> None:
 async def create_node(
     user_id: int, node_type: str, config: dict | None = None, internal: bool = False
 ) -> str:
-    if node_type in _NON_CANVAS_TYPES:
+    if node_type in EMBEDDED_TYPES:
         raise ValueError(
             f"'{node_type}' is not a standalone canvas node — it lives inside another node "
             f"(insights=Input ghost card; goals/automations/mech=Config). Do not create it."
         )
-    # input/session/memory/config are managed automatically by the canvas
-    # bootstrap. Only the internal _ensure_canvas_wiring path may create them.
-    if node_type in _PERMANENT_TYPES and not internal:
+    # input/session/memory/config are managed automatically — only an internal
+    # bootstrap may create them (input/memory/config via _ensure_canvas_wiring;
+    # session via create_conversation → _ensure_creation_wiring).
+    if node_type in MANAGED_TYPES and not internal:
         raise ValueError(
-            f"'{node_type}' is permanent infrastructure managed automatically — "
-            f"do not create it. The input node, the global session, memory and config "
-            f"already exist on the canvas."
+            f"'{node_type}' is managed automatically — do not create it directly. "
+            f"input, memory and config already exist; create sessions via create_conversation."
         )
     node_def = get_node_type(node_type)
     if not node_def:

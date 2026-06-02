@@ -1,3 +1,6 @@
+from agent.node import AI_CREATABLE_TYPES
+
+
 def _tool(
     name: str,
     description: str,
@@ -68,7 +71,7 @@ TOOL_SCHEMAS = [
     _tool("query_graph", "Search the user's knowledge graph for entities and relationships related to a topic, person, or concept.",
           {"query": {"type": "string", "description": "Topic, person, or concept to search for."}},
           ["query"]),
-    _tool("create_canvas_node", "Create a new node on your canvas. Node types: files, logs, usage, workspace. (input/session/memory/config are permanent; insights/goals/automations/mech are not standalone nodes.)",
+    _tool("create_canvas_node", f"Create a new node on your canvas. Node types: {', '.join(sorted(AI_CREATABLE_TYPES))}. (input/memory/config are managed automatically and sessions are created via create_conversation; insights/goals/automations/mech are not standalone nodes.)",
           {"node_type": {"type": "string", "description": "Type of node to create (see node inventory)."},
            "config": {"type": "object", "description": "Optional config for the node (e.g. workspace_id, conversation_id)."}},
           ["node_type"]),

@@ -48,9 +48,11 @@ recommended execution route (see bottom), not by id.
     2. Admin-only force-delete path: `set_protected(uid, id, False)` then `delete_node`.
   - **Cost:** audit ~5m (run now); force-delete ~30m.
 
-### H1 · Node-type policy duplicated across ≥5 places — drift risk (P2 · architecture)
+### H1 · Node-type policy duplicated across ≥5 places — drift risk (P2 · architecture) — ✅ DONE
 
-- [ ] **The same type-classification facts are hardcoded in ≥5 spots that must agree; adding a 13th node type means editing all of them.**
+- [x] **The same type-classification facts are hardcoded in ≥5 spots that must agree; adding a 13th node type means editing all of them.**
+  - **Shipped:** `agent/node.py` is now the single source of truth. The `Node` dataclass gained `embedded`/`ai_creatable`/`permanent` flags; module-level `EMBEDDED_TYPES`, `AI_CREATABLE_TYPES`, `PERMANENT_TYPES`, `MANAGED_TYPES` are derived from the registry. Consumers import them: `canvas_graph.create_node` (`EMBEDDED_TYPES`/`MANAGED_TYPES`), `api/chat/stream.py` (`AI_CREATABLE_TYPES` → `_CREATABLE_NODES`), `llm/tools/schemas.py` (dynamic `create_canvas_node` description). Locked by `tests/canvas/test_node_policy.py` (6 tests — sets partition the registry, no overlap). Adding a type now = one flag.
+  - **Note:** frontend `_CORE_NODES` stays only as a demo-node fallback; real nodes already guard off the backend `protected` flag (I3), so it is no longer a drift source.
   - **Duplicated in:**
     - `_NON_CANVAS_TYPES` — `backend/agent/canvas_graph.py:26`
     - `_PERMANENT_TYPES` — `backend/agent/canvas_graph.py` (I2)
@@ -61,9 +63,11 @@ recommended execution route (see bottom), not by id.
   - **Fix:** add flags to the `Node` dataclass in `agent/node.py` — `permanent` (input/memory/config, singleton, internal-create only), `embedded` (insights/goals/automations/mech), `ai_creatable` (files/logs/usage/workspace). Derive every set from the registry. Expose the flags in the `get_canvas_graph` node payload; frontend reads `node.data.permanent` instead of its own set.
   - **Cost:** ~1h, touches registry + 3 backend modules + 3 frontend files. Low risk **once H2 exists**.
 
-### H4 · `session` type is overloaded — global vs. ordinary (P2 · design smell)
+### H4 · `session` type is overloaded — global vs. ordinary (P2 · design smell) — ✅ DONE
 
-- [ ] **One `node_type="session"` means two things: the permanent protected global JARVIS session AND ordinary user/AI-created sessions.**
+- [x] **One `node_type="session"` means two things: the permanent protected global JARVIS session AND ordinary user/AI-created sessions.**
+  - **Shipped:** an explicit `config.kind` marker. `_ensure_canvas_wiring` writes `kind:"global"` on the JARVIS session (idempotent backfill via `update_node` each `/global` load); `_ensure_creation_wiring` tags AI/user sessions `kind:"user"`. The injected CANVAS STATE now renders `[GLOBAL]` vs `[user session]`, and the node-inventory RULE references `[GLOBAL]` explicitly — the model no longer infers global-ness from a conversation_id match. Regression test asserts `kind="user"` on the creation path.
+  - **Verified live:** both global sessions (user 1 + user 2) backfilled to `protected=true, kind=global`; ordinary sessions render as `[user session]`.
   - **Why it matters:** this conflation is exactly why I2 broke `create_conversation` — "session" could not be blanket-blocked without killing legitimate creation. Today the only distinguisher is the `protected` flag + a `conversation_id == JARVIS` match. The model also hallucinates here ("delete the session").
   - **Fix:** add an explicit marker — `config.kind: "global"|"user"` (cheaper) or a distinct `global_session` registry type. Permanence / UI / prompt rules then key off an explicit field instead of inferring identity from the conv id.
   - **Cost:** ~1h. Pairs naturally with H1 (do them together).
@@ -90,11 +94,11 @@ recommended execution route (see bottom), not by id.
 | H2 | No canvas tests (CRUD coverage) | P1 | ✅ Fixed |
 | H7 | `_ensure_creation_wiring` except dropped error cause | P2 | ✅ Fixed |
 | H5 | No force-delete for protected node + dup audit | P2 | Audit done · tool deferred (no protected dups) |
-| H1 | Node-type policy duplicated ≥5 places (drift) | P2 | Open |
-| H4 | `session` type overloaded (global vs ordinary) | P2 | Open |
+| H1 | Node-type policy duplicated ≥5 places (drift) | P2 | ✅ Fixed |
+| H4 | `session` type overloaded (global vs ordinary) | P2 | ✅ Fixed |
 | H6 | REST/tool create paths don't dedup session (+ input) | P3 | Open |
 | H3 | Reaper not periodic (only `/global`) | P3 | Open |
-| | **Open total** | | **4 open** |
+| | **Open total** | | **2 open** |
 
 > **Phase 0 audit result (2026-06-02):** no wrongly-protected duplicate core nodes →
 > H5 force-delete deferred. Cleaned: `user 99/py-test-1` junk + user 2's 3 orphan
