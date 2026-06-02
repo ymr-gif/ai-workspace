@@ -142,12 +142,15 @@ async def canvas_global(
         conv.locked_model = "reasoning"
         await db.commit()
 
-    await _ensure_canvas_wiring(current_user.id, str(conv.id))
+    await _ensure_canvas_wiring(current_user.id, str(conv.id), db)
     return {"conversation_id": str(conv.id)}
 
 
-async def _ensure_canvas_wiring(user_id: int, conversation_id: str) -> None:
-    """Create input node + session node and wire input→session if not already present."""
+async def _ensure_canvas_wiring(
+    user_id: int, conversation_id: str, db: AsyncSession | None = None
+) -> None:
+    """Create input node + global session node and wire input→session if not already
+    present. Also reaps orphaned session nodes (malformed or dead conversation_id)."""
     conv_id_str = conversation_id
 
     sessions = await find_nodes(user_id, "session")
@@ -156,7 +159,8 @@ async def _ensure_canvas_wiring(user_id: int, conversation_id: str) -> None:
         None,
     )
     if not session_node:
-        session_id = await create_node(user_id, "session", {"conversation_id": conv_id_str})
+        # internal=True: only the bootstrap may create permanent core nodes
+        session_id = await create_node(user_id, "session", {"conversation_id": conv_id_str}, internal=True)
     else:
         session_id = session_node["node_id"]
 
@@ -164,7 +168,7 @@ async def _ensure_canvas_wiring(user_id: int, conversation_id: str) -> None:
     if inputs:
         input_id = inputs[0]["node_id"]
     else:
-        input_id = await create_node(user_id, "input", {})
+        input_id = await create_node(user_id, "input", {}, internal=True)
 
     # core infrastructure — never deletable by the AI tool or REST (idempotent backfill)
     await set_protected(user_id, input_id, True)
@@ -177,3 +181,48 @@ async def _ensure_canvas_wiring(user_id: int, conversation_id: str) -> None:
     )
     if not already_wired:
         await wire_nodes(user_id, input_id, session_id, "routed_message", "message", "routes_to")
+
+    if db is not None:
+        await _reap_orphan_sessions(user_id, db, keep_node_id=session_id)
+
+
+async def _reap_orphan_sessions(user_id: int, db: AsyncSession, keep_node_id: str) -> None:
+    """Delete unprotected session nodes whose conversation_id is malformed or has no
+    matching Postgres conversation. Never touches protected nodes or the global session.
+    Self-heals canvas state on every /global load — no migration or manual cypher needed."""
+    sessions = await find_nodes(user_id, "session")
+
+    valid: dict[str, str] = {}  # conversation_id (str) -> node_id
+    for s in sessions:
+        node_id = s["node_id"]
+        if node_id == keep_node_id or s.get("protected"):
+            continue
+        conv_id = (s.get("config") or {}).get("conversation_id")
+        try:
+            uuid.UUID(str(conv_id))
+        except (ValueError, TypeError, AttributeError):
+            await _prune_node(user_id, node_id, f"malformed conversation_id {conv_id!r}")
+            continue
+        valid[str(conv_id)] = node_id
+
+    if not valid:
+        return
+
+    rows = await db.execute(
+        select(Conversation.id).where(
+            Conversation.user_id == user_id,
+            Conversation.id.in_([uuid.UUID(c) for c in valid]),
+        )
+    )
+    existing = {str(r) for r in rows.scalars().all()}
+    for conv_id, node_id in valid.items():
+        if conv_id not in existing:
+            await _prune_node(user_id, node_id, "no matching conversation")
+
+
+async def _prune_node(user_id: int, node_id: str, reason: str) -> None:
+    try:
+        await delete_node(user_id, node_id)
+        logger.info("[canvas] reaped orphan session %s user=%d (%s)", node_id, user_id, reason)
+    except ValueError:
+        pass  # protected or already gone — leave it

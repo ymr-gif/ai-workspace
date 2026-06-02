@@ -4,137 +4,65 @@ Tracker for all confirmed bugs across the stack. Check off when fixed.
 
 Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 
----
-
-## Backend Audit — 2026-06-01
-
-Scope: full `backend/` scan. pyflakes across all 164 files → only one undefined name (#B1). Remaining items found by tracing the modified canvas/creation flow.
-
-### P0 — Broken at runtime
-
-- [x] **B1 · `update_node` not imported → `update_canvas_node` tool always fails**
-  - **Files:** `backend/llm/tools/executor.py:16-19` (import block), `:93` (call site)
-  - **Root cause:** import from `agent.canvas_graph` lists `create_node, delete_node, find_nodes, wire_nodes, unwire_nodes, query_canvas, get_canvas_graph` — `update_node` is missing. `update_node` exists (`canvas_graph.py:120`) and is imported correctly in `api/canvas.py:11`, but not here.
-  - **Blast radius:** every `update_canvas_node` tool call raises `NameError: name 'update_node' is not defined`, caught by the `except` at `executor.py:149`, so the model receives `"Error: name 'update_node' is not defined"`. AI can never update a node's config/status. REST `PATCH /canvas/nodes/{id}` is unaffected.
-  - **Fix:** add `update_node` to the import block.
-
-### P1 — Silent failures / data corruption
-
-- [x] **B2 · Workspace auto-wire uses wrong port → always fails silently**
-  - **Files:** `backend/llm/tools/executor.py:353-356`, `backend/agent/node.py:87`
-  - **Root cause:** `_ensure_creation_wiring()` hardcodes `dst_port="message"` for both session and workspace. Workspace's only input port is `workspace_id` (node.py:87), not `message`. `wire_nodes()` validates ports (`canvas_graph.py:233`) and raises `ValueError` → swallowed by the bare `except` at `executor.py:357`.
-  - **Blast radius:** auto-created workspace canvas node is never wired to the input node. (Session path works — session input port is `message`.)
-  - **Fix:** pick `dst_port` by type — `"message"` for session, `"workspace_id"` for workspace (matches the system-prompt instructions in `api/chat/stream.py`).
-
-- [x] **B3 · Duplicate session/workspace canvas nodes** — kept auto-wire, removed manual create_canvas_node/wire_nodes steps from system prompt.
-  - **Files:** `backend/llm/tools/executor.py:125,147` (calls `_ensure_creation_wiring`), `:321-358`, `backend/agent/canvas_graph.py:66` (`create_node`, no dedup), `backend/api/chat/stream.py` node-inventory prompt (SESSION/WORKSPACE CREATION steps)
-  - **Root cause:** two creation paths run for one entity. The `create_conversation`/`create_workspace` tool *itself* calls `_ensure_creation_wiring()` which creates the canvas node and wires it. The system prompt *then* tells the model to also call `create_canvas_node(...)` + `wire_nodes(...)` (steps 2-3). Ordering: the executor's auto-wire runs first (model hasn't called create_canvas_node yet), so `_ensure_creation_wiring`'s dedup-by-`conversation_id` (executor.py:330-335) doesn't help — the model's later `create_canvas_node` has no dedup and makes a second node.
-  - **Blast radius:** two `session` (or `workspace`) nodes per created entity, plus a duplicate/invalid wire. Canvas clutter + confused graph state.
-  - **Fix:** pick one owner. Either drop `_ensure_creation_wiring` and let the model do steps 2-3, or keep auto-wiring and remove steps 2-3 from the prompt. Recommend keeping auto-wire (deterministic) and changing the prompt to "the session/workspace node is created and wired automatically — do not call create_canvas_node for it."
-
-- [x] **B4 · No `canvas_update` SSE after `create_conversation`/`create_workspace`**
-  - **Files:** `backend/api/chat/stream.py:44-47` (`_CANVAS_WRITE_TOOLS`), `:331`
-  - **Root cause:** `_CANVAS_WRITE_TOOLS` lists only `create_canvas_node/delete_canvas_node/update_canvas_node/wire_nodes/unwire_nodes`. But `create_conversation`/`create_workspace` mutate the canvas through `_ensure_creation_wiring`. Their `tool_result` does not match the set, so no `canvas_update` event is emitted.
-  - **Blast radius:** the auto-created node never triggers a frontend `GET /canvas/graph` re-fetch — it stays invisible until the user manually refreshes. (Masked today by B3 because the model's own `create_canvas_node` does emit the event — fix B3 and this surfaces.)
-  - **Fix:** add `create_conversation`, `create_workspace` to `_CANVAS_WRITE_TOOLS`.
-
-### P2 — Regressions / spec gaps
-
-- [x] **B5 · Token buffering kills incremental streaming** — stream tokens live again; emit `preamble_discard` SSE when a tool call follows streamed text. Frontend (`useStreamChat.js`, `canvas-sse.js`) clears the streamed preamble on that event; api layer clears its accumulator so the persisted message holds only the final answer.
-  - **Files:** `backend/llm/service/stream.py:196-211`
-  - **Root cause:** tokens are appended to `_token_buffer` inside the `async for`, and only flushed (`yield {"type": "token"}`) *after* the upstream stream fully completes. Done to discard preamble when a tool call follows (NIM signals tool calls only at end-of-stream, so buffering is the only way to know). Side effect: the final text answer no longer streams — every token is held until generation finishes, then dumped at once.
-  - **Blast radius:** time-to-first-token for any non-tool reply ≈ full generation latency. SSE streaming UX is effectively gone for normal answers.
-  - **Fix options:** (a) accept the trade-off and document it; (b) stream tokens live and instead suppress/replace preamble on the frontend when a `tool_call` event arrives; (c) only buffer when `tools` is non-None (tool loop active), stream directly otherwise.
-
-- [x] **B6 · `create_canvas_node` still accepts `insights`/`goals`/`automations`/`mech`**
-  - **Files:** `backend/agent/canvas_graph.py:66-69` (no type guard), `backend/llm/tools/schemas.py:71`, `backend/api/chat/stream.py` (`_CREATABLE_NODES` lists them)
-  - **Root cause:** the resolved Canvas Planning Gap (this file, line 21-24) says these 4 types are not standalone nodes and `create_canvas_node` "must guard against these 4 types and reject them." Not enforced: `create_node` creates any type in the registry; the tool schema description and the prompt's CREATABLE list both advertise them.
-  - **Blast radius:** model can spawn orphan `insights/goals/automations/mech` canvas nodes the UI has no real home for.
-  - **Fix:** reject these 4 in `create_node` (or in the executor), and drop them from the schema description + `_CREATABLE_NODES`.
-
-### P3 — Doc drift (code vs `backend/CLAUDE.md`)
-
-- [x] **B7 · `MAX_TOOL_ITERATIONS` changed 10 → 20**
-  - **Files:** `backend/llm/service/stream.py:15`; stale in `backend/CLAUDE.md:18,97`, root `CLAUDE.md` "Tool loop guard" row.
-- [x] **B8 · Auto-wire relation/port doc mismatch**
-  - **Files:** `backend/CLAUDE.md:146` says relation `manages`, `routed_message → message`. Code uses `relation="routes_to"`, `dst_port="message"` for session (`executor.py:355`). Workspace prompt uses `workspace_id`/`manages`. Align doc to code (and to B2 fix).
-
-### Notes (not bugs, worth a decision)
-
-- Fire-and-forget `asyncio.create_task(compress_history/update_memory/update_project_summary)` at `stream.py:369-372` — previously flagged as inconsistent with the ARQ job system; also unreferenced tasks can be GC'd mid-flight and they open their own DB sessions outside request scope. Consider enqueuing via ARQ.
-- Unused imports across ~25 files (pyflakes) — harmless but noisy; e.g. `llm/service/stream.py:11,13`, `api/chat/stream.py:16-17`, `api/chat/background.py:1` (`asyncio`). Cleanup only.
+> History note: the Backend Audit (B1–B8), JARVIS Fallback Cascade (F1–F5), and Canvas
+> Core-Node Protection (G1–G2) batches are all fixed and shipped — see git log
+> (`fde4b53`, `3e27456`, `e7839ba`). They were removed from this file once closed.
 
 ---
 
-## JARVIS Fallback Cascade & Silent Delete — 2026-06-01
+## Open — Canvas hardening follow-ups (2026-06-02)
 
-Investigated from a live JARVIS session (api logs + `tool_call_logs` + Neo4j). The JARVIS
-conversation is `locked_model="reasoning"` (70B); NIM was rate-limiting 70B (429), triggering a
-broken fallback cascade that surfaced raw tool-call JSON to the user and a delete that lied about
-success.
+Surfaced by the G1/G2 verification. None are runtime-broken; all three are hardening / cleanup.
 
-- [x] **F1 · coder fallback crashes — `'NoneType' object is not iterable`**
-  - **Files:** `backend/llm/nim.py` `call_stream` (~line 201, 227)
-  - **Root cause:** deepseek-v4-flash emits `"tool_calls": null` in stream deltas; `delta.get("tool_calls", [])` returns `None` (key present), and the inner `except` only caught `JSONDecodeError/KeyError/IndexError`, not `TypeError`. Generator died → coder never worked as a streaming fallback when tools were passed.
-  - **Fix:** `for tc in (delta.get("tool_calls") or [])`; `delta = choice.get("delta") or {}`; added `TypeError` to the except.
-  - **Verified:** live `call_stream("deepseek-v4-flash", …, CANVAS_TOOL_SCHEMAS)` now streams text, no crash.
+### I1 · Stray orphan session node on the live canvas (P2 · data, not code)
 
-- [x] **F2 · `delete_node` reports success even when nothing matched**
-  - **Files:** `backend/agent/canvas_graph.py` `delete_node`
-  - **Root cause:** ran the DELETE, `consume()`d, then logged "deleted" + returned `None` (→ "ok") unconditionally. A wrong/truncated id deleted 0 nodes but reported success — confirmed: session `66bc10c1` survived a "delete" that logged success.
-  - **Fix:** check `summary.counters.nodes_deleted == 0` → raise `ValueError("Node … not found")` (mirrors `update_node`).
-  - **Verified:** `delete_node(1, "does-not-exist")` now raises `ValueError`.
+- [x] **A hallucinated `session` node points to a non-existent conversation and renders as a dead node.**
+  - **Where:** Neo4j, `user_id = 1`. Node `9e994470-09a5-438a-bda3-e69f09968c43`,
+    `node_type = "session"`, `config.conversation_id = "d3c4b1a2-c3d4e5f6g7h8i9j0k"`.
+  - **Symptoms:**
+    - The `conversation_id` is a **malformed UUID** (`g7h8i9j0k` are not hex) — no matching row exists in Postgres `conversations`. It was invented by an 8B hallucination during the pre-F4 fallback cascade (the same class of event that the F4 fix now prevents).
+    - `protected = NULL/false` (confirmed in the G1 verification dump), so it is deletable — but nothing deletes it automatically, and it has no real conversation behind it.
+    - It clutters the JARVIS canvas and can confuse the model's node inventory (a session it can "open" that leads nowhere).
+  - **Why it persists:** there is no orphan-reaper. `_ensure_canvas_wiring` (`backend/api/canvas.py:149`) only *adds/heals* the input + global session; it never prunes sessions whose `conversation_id` has no Postgres row.
+  - **Fix (data, one-off):** delete it directly —
+    `MATCH (n:CanvasNode {user_id:1, node_id:"9e994470-09a5-438a-bda3-e69f09968c43"}) DETACH DELETE n`
+    via `docker compose exec -T neo4j cypher-shell -u neo4j -p changeme`.
+  - **Fix (shipped, durable):** `_ensure_canvas_wiring` now takes `db` and calls `_reap_orphan_sessions` (`backend/api/canvas.py`). On every `/global` load it drops any unprotected `session` node whose `conversation_id` is malformed (UUID parse fails) or has no matching `conversations` row; protected nodes and the just-ensured global session are skipped. Runs on every canvas boot — no migration, no manual cypher.
+  - **Verified live:** stray `9e994470` (conv `d3c4b1a2-…g7h8`) was reaped on the first `_ensure_canvas_wiring` run; Neo4j now holds only the 2 protected core nodes.
 
-- [x] **F3 · CANVAS STATE prompt fed truncated 8-char node ids**
-  - **Files:** `backend/api/chat/stream.py:240`
-  - **Root cause:** `n.get('node_id','?')[:8]` — model passed truncated ids to delete/update/wire → no match (compounded F2).
-  - **Fix:** render the full node id.
+### I2 · AI can still *create* duplicate core nodes (P1 · backend not enforced)
 
-- [x] **F4 · Tool turns degraded to 8B, which hallucinates tool calls as text**
-  - **Files:** `backend/llm/service/stream.py` (after `tools` is computed)
-  - **Root cause:** the model_override fallback chain (`[reasoning, coder, llama]`) let JARVIS fall to llama 8B, which emits tool-call JSON as plain content (the raw `{"name":"create_canvas_node",…}` with an invented conversation_id the user saw — `tool_call_logs` proves it never executed).
-  - **Fix:** when `tools` is non-empty, drop `llama` from the fallback chain (never empty it). Tool turns degrade only across tool-capable models (70B → coder); if all fail, the existing clean "All models failed" error fires instead of garbage.
+- [x] **`create_node` blocks the 4 embedded types but not the 4 permanent/core types — the model can spawn a second `input`/`session`/`memory`/`config` node.**
+  - **Files:**
+    - `backend/agent/canvas_graph.py:70-78` — `create_node` rejects only `_NON_CANVAS_TYPES = {"insights","goals","automations","mech"}` (`:26`). Any other registered type, including `input/session/memory/config`, is created with no dedup and no permanence check.
+    - `backend/api/chat/stream.py:147-152` — the prompt's `_PERMANENT_NODES = {"input","session","memory","config"}` is excluded from `_CREATABLE_NODES`, so the model is *told* not to create them, but this is prompt-only guidance; nothing enforces it server-side.
+    - `backend/llm/tools/executor.py` — `create_canvas_node` calls `create_node` directly, so a hallucinated tool call bypasses the prompt rule entirely.
+  - **Symptoms / blast radius:**
+    - This is exactly how the I1 orphan was born: the model emitted a `create_canvas_node(node_type="session", …)` with an invented `conversation_id`, and the backend happily created it.
+    - A duplicate `input` node has no dedup either — two input nodes would both be backfilled `protected=true` by `_ensure_canvas_wiring` and become **undeletable clutter** (G1 now blocks removing them).
+  - **Fix (shipped):** `create_node` gained `internal: bool = False` (`backend/agent/canvas_graph.py`). It rejects `_PERMANENT_TYPES = {"input","session","memory","config"}` unless `internal=True`; only `_ensure_canvas_wiring` passes `internal=True`, so the AI tool + REST path are blocked. **Bonus hardening:** `create_node` also rejects any `config.conversation_id` that fails `uuid.UUID()` parsing — stops the hallucinated-id class at the door (the exact mechanism that birthed I1).
+  - **Verified live:** AI-path `create_node` of all 4 permanent types → `ValueError("… permanent infrastructure managed automatically …")`; malformed `conversation_id` → `ValueError("Invalid conversation_id …")`; the `internal=True` bootstrap still creates/heals the global session.
 
-- [x] **F5 · No retry on 429 in streaming → instant fallback cascade**
-  - **Files:** `backend/llm/nim.py` `call_stream`
-  - **Root cause:** non-200 branch did `record_failure` + return after one attempt; a transient 70B 429 immediately cascaded.
-  - **Fix:** retry `429`/`503` with the same exponential-backoff-with-jitter budget as non-stream `call()` (`MAX_RETRIES`); also retry network errors; circuit-breaker semantics preserved on final give-up.
+### I3 · Frontend `_CORE_NODES` guard never matches real (Neo4j) nodes (P3 · cosmetic, now redundant)
 
-> External factor (not a code bug): NIM is rate-limiting the 70B reasoning model; F4/F5 make JARVIS degrade gracefully, but sustained 429s point to a NIM-side quota on `meta/llama-3.3-70b-instruct`.
-
----
-
-## Canvas Core-Node Protection — 2026-06-02
-
-Follow-on from the JARVIS fallback fixes: with coder streaming and deletes verifying, a session
-showed the AI **deleting permanent/core canvas nodes** — confirmed in live Neo4j, the global
-JARVIS session node and the input node were both removed by the model.
-
-- [x] **G1 · AI could delete core canvas nodes (input + global session)**
-  - **Files:** `backend/agent/canvas_graph.py` (`delete_node`, new `set_protected`), `backend/api/canvas.py` (`_ensure_canvas_wiring` + import)
-  - **Root cause:** the global JARVIS session is just a `node_type="session"` node (config.conversation_id == JARVIS conv), indistinguishable from user sessions; `delete_node` had no guard. The frontend `_CORE_NODES` guard keys off static demo-node string ids, which the UUID-keyed Neo4j nodes (and the AI `delete_canvas_node` tool) bypass.
-  - **Fix:** `set_protected()` marks a node `protected`; `_ensure_canvas_wiring` sets it on the input + global-session nodes every canvas boot (idempotent backfill, no migration). `delete_node` pre-checks and raises `ValueError("Cannot delete core node …")` for protected nodes — one enforcement point for both the AI tool and `DELETE /api/canvas/nodes/{id}`.
-  - **Verified live:** after `/canvas/global`, input + global session show `protected=true`; `delete_node(1, <protected id>)` raises and the node survives; a user session and a stray hallucinated session remain deletable.
-
-- [x] **G2 · Model couldn't tell the protected global session from user sessions**
-  - **Files:** `backend/api/chat/stream.py` (CANVAS STATE marker + node-inventory RULE)
-  - **Fix:** protected nodes render as `… (uuid) [CORE · protected]` in the injected canvas state (`get_canvas_graph` already returns the `protected` property), plus a rule: never delete the input node or a `[CORE · protected]` node; if only the protected global session exists, explain it is permanent.
-
-> Observed (out of scope): a stray `session` node with a hallucinated `conversation_id`
-> (`d3c4b1a2-…`) remains from an earlier model hallucination — it is unprotected and deletable.
-> Blocking AI-initiated creation of `input`/`session`/`memory`/`config` (allowing the internal
-> `_ensure_*` paths) is a recommended follow-up.
+- [x] **The UI close-button guard keys off static demo string ids, so it does nothing for UUID-backed nodes — protected nodes still show a delete (✕) button that 400s on click.**
+  - **Files (identical guard, three copies):**
+    - `frontend/public/canvas/nodes.jsx:17` — `const _CORE_NODES = new Set(['input','session','memory','config'])`; used at `:19` `const canClose = !_CORE_NODES.has(nodeId)`.
+    - `frontend/public/canvas/secondary-nodes.jsx:13` (used `:15`).
+    - `frontend/public/canvas/popup-nodes.jsx:36` (used `:38`).
+  - **Root cause:** the guard compares `nodeId` against the literal type strings `'input'/'session'/...`. Those match only the **static demo nodes**. Real nodes from Neo4j render with `nodeId = "ai-{uuid}"` (e.g. `ai-0741d809-…`), so `_CORE_NODES.has(nodeId)` is always `false` → `canClose` is always `true` → the ✕ button renders on the actual protected input + global-session nodes.
+  - **Symptoms / blast radius:**
+    - Clicking ✕ on a real protected node fires `_closeNode(nodeId)` → `DELETE /api/canvas/nodes/{id}` → backend G1 returns **400 `Cannot delete core node …`**. The node correctly survives (backend enforces), so this is **not** a data-loss bug — purely a misleading affordance + a wasted failing request.
+  - **Fix (shipped):** both `neoToRF` mappers (`Canvas.jsx`, `canvas-live.js`) now stamp `data.protected = !!n.protected` and add protected RF ids (`ai-{uuid}`) to `window.NIM_PROTECTED_IDS`. The three guards (`nodes.jsx:19`, `secondary-nodes.jsx:15`, `popup-nodes.jsx:38`) became `canClose = !_CORE_NODES.has(nodeId) && !window.NIM_PROTECTED_IDS?.has(nodeId)` — the ✕ button now hides on any backend-protected node. `_CORE_NODES` stays as the demo-node fallback.
+  - **Note:** static-bundle JS (no build step) — takes effect on next browser load of `/canvas/`; backend G1 already prevents the delete regardless, so this only removes the misleading affordance.
 
 ---
 
 ## Summary
 
-| Area | Total | Fixed | Open |
-|------|-------|-------|------|
-| Canvas Planning Gaps | 3 | 3 | 0 |
-| Documentation Inconsistencies | 9 | 9 | 0 |
-| Canvas Runtime Bugs | 1 | 1 | 0 |
-| Backend Audit 2026-06-01 | 8 | 8 | 0 |
-| JARVIS Fallback & Silent Delete | 5 | 5 | 0 |
-| Canvas Core-Node Protection | 2 | 2 | 0 |
-| **Total** | **28** | **28** | **0** |
+| ID | Issue | Priority | Status |
+|----|-------|----------|--------|
+| I1 | Stray orphan session node (`9e994470`, dead conv id) | P2 | ✅ Fixed |
+| I2 | AI can create duplicate `input/session/memory/config` nodes | P1 | ✅ Fixed |
+| I3 | Frontend `_CORE_NODES` guard dead for UUID nodes (✕ button 400s) | P3 | ✅ Fixed |
+| | **Total** | | **3 fixed · 0 open** |

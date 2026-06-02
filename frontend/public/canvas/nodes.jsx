@@ -16,7 +16,9 @@
   /* ── Node action buttons (pin + close) — top-right of every node ── */
   const _CORE_NODES = new Set(['input', 'session', 'memory', 'config']);
   function NodeControls({ nodeId, pinned }) {
-    const canClose = !_CORE_NODES.has(nodeId);
+    // demo nodes guard by type-string id; real Neo4j nodes (ai-{uuid}) guard by
+    // the backend `protected` flag tracked in NIM_PROTECTED_IDS
+    const canClose = !_CORE_NODES.has(nodeId) && !window.NIM_PROTECTED_IDS?.has(nodeId);
     const b = {
       background:'none', border:'none', cursor:'pointer',
       fontFamily:C.DISP, fontSize:10, padding:'0 2px', lineHeight:1,

@@ -25,6 +25,12 @@ _WRITE_KEYWORDS = frozenset({"create", "delete", "set", "merge", "remove", "deta
 # Config info section; mech=UNIT slot in Config) — never standalone canvas nodes.
 _NON_CANVAS_TYPES = frozenset({"insights", "goals", "automations", "mech"})
 
+# Permanent infrastructure — created/healed only by the canvas bootstrap
+# (api/canvas.py:_ensure_canvas_wiring, internal=True). The AI tool and REST
+# path must never create these, or duplicate input/session/memory/config nodes
+# accumulate as orphaned, protected (undeletable) clutter.
+_PERMANENT_TYPES = frozenset({"input", "session", "memory", "config"})
+
 
 # ── Redis cache helpers ──────────────────────────────────────────
 
@@ -67,15 +73,36 @@ async def _cache_del(user_id: int) -> None:
 # ── Node CRUD ────────────────────────────────────────────────────
 
 
-async def create_node(user_id: int, node_type: str, config: dict | None = None) -> str:
+async def create_node(
+    user_id: int, node_type: str, config: dict | None = None, internal: bool = False
+) -> str:
     if node_type in _NON_CANVAS_TYPES:
         raise ValueError(
             f"'{node_type}' is not a standalone canvas node — it lives inside another node "
             f"(insights=Input ghost card; goals/automations/mech=Config). Do not create it."
         )
+    # input/session/memory/config are managed automatically by the canvas
+    # bootstrap. Only the internal _ensure_canvas_wiring path may create them.
+    if node_type in _PERMANENT_TYPES and not internal:
+        raise ValueError(
+            f"'{node_type}' is permanent infrastructure managed automatically — "
+            f"do not create it. The input node, the global session, memory and config "
+            f"already exist on the canvas."
+        )
     node_def = get_node_type(node_type)
     if not node_def:
         raise ValueError(f"Unknown node type: {node_type}")
+
+    # Reject hallucinated/malformed conversation_id before it reaches Neo4j —
+    # a non-UUID id can never resolve to a real conversation (orphan node).
+    if config and config.get("conversation_id") is not None:
+        try:
+            uuid.UUID(str(config["conversation_id"]))
+        except (ValueError, TypeError, AttributeError):
+            raise ValueError(
+                f"Invalid conversation_id {config['conversation_id']!r}: must be a real "
+                f"conversation UUID. Create the conversation first, then reference its id."
+            )
 
     merged = dict(node_def.default_config or {})
     if config:
