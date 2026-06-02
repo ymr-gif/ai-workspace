@@ -89,6 +89,28 @@ recommended execution route (see bottom), not by id.
 
 ---
 
+## Scheduler — latent bugs found while verifying H3 (2026-06-02)
+
+Wiring the H3 reconcile into `scheduler_worker.py` surfaced **two pre-existing bugs
+that had silently broken the entire scheduler**. Each masked the next: S1 stopped
+every job from running, which is why S2 never showed. Both fixed.
+
+### S1 · APScheduler jobs never fired — `lambda: create_task()` with no loop — ✅ DONE
+
+- [x] **Every interval/cron job used `lambda: asyncio.create_task(coro())`. `AsyncIOScheduler` runs a plain sync lambda in an executor thread with no running loop → `RuntimeError("no running event loop")` on every fire. So `__sync__`, `__compact_memory__`, `__backup__` (and the new `__canvas_reconcile__`) were registered but never executed — daily compaction and backups had been dead.**
+  - **Files:** `backend/services/scheduler_worker.py` `main()`.
+  - **Fix:** pass the coroutine function directly (`run_canvas_reconcile`, `run_memory_compaction`, `run_backup`; `sync_schedules` with `args=[scheduler]`). `AsyncIOScheduler` awaits coroutine jobs on its own loop.
+  - **Commit:** `92f470b`. **Verified in-container:** a 1s-interval coroutine job fires cleanly, no event-loop error.
+
+### S2 · `sync_schedules` deleted the internal `__*__` jobs on every run — ✅ DONE
+
+- [x] **`sync_schedules` removes stale jobs via `existing - active_ids`, where `active_ids` is only `ScheduledPrompt` rows. The internal `__*__` jobs aren't DB rows, so they counted as stale — on its first fire `__sync__` removed `__backup__`, `__canvas_reconcile__`, `__compact_memory__`, and itself.** Latent until S1's fix made `sync_schedules` actually run.
+  - **Files:** `backend/services/scheduler_worker.py` `sync_schedules()`.
+  - **Fix:** skip ids matching `__*__` in the stale-removal loop.
+  - **Commit:** `565ffc9`. **Verified live:** the 13:19:10 interval sync (the fire that previously wiped everything) ended `scheduled=4` — all four internal jobs survived, zero `removed job __*__` lines. Earlier broken run logged `scheduled=0` + four removals.
+
+---
+
 ## Summary
 
 | ID | Issue | Priority | Status |
@@ -100,6 +122,8 @@ recommended execution route (see bottom), not by id.
 | H4 | `session` type overloaded (global vs ordinary) | P2 | ✅ Fixed |
 | H6 | create paths don't dedup session (+ input) | P3 | ✅ Fixed (cleanup done) |
 | H3 | Reaper not periodic (only `/global`) | P3 | ✅ Fixed |
+| S1 | APScheduler jobs never fired (no event loop) | P0 | ✅ Fixed |
+| S2 | `sync_schedules` deleted internal `__*__` jobs | P0 | ✅ Fixed |
 | | **Open total** | | **0 open** |
 
 > **Phase 0 audit result (2026-06-02):** no wrongly-protected duplicate core nodes →
