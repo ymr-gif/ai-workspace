@@ -468,7 +468,11 @@ async def find_nodes(user_id: int, node_type: str) -> list[dict]:
 
     async with driver.session() as session:
         result = await session.run(
-            "MATCH (n:CanvasNode {user_id: $uid, node_type: $type}) RETURN n",
+            # Deterministic order — oldest first (NULL created_at sorts last in
+            # ascending). Collapse keeps nodes[0]/the first protected node, so this
+            # makes "keep the original, prune newer duplicates" stable, not random.
+            "MATCH (n:CanvasNode {user_id: $uid, node_type: $type}) "
+            "RETURN n ORDER BY n.created_at, n.node_id",
             uid=user_id, type=node_type,
         )
         rows = await result.data()
