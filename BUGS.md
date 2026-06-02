@@ -72,12 +72,12 @@ recommended execution route (see bottom), not by id.
   - **Fix:** add an explicit marker — `config.kind: "global"|"user"` (cheaper) or a distinct `global_session` registry type. Permanence / UI / prompt rules then key off an explicit field instead of inferring identity from the conv id.
   - **Cost:** ~1h. Pairs naturally with H1 (do them together).
 
-### H6 · REST/tool create paths don't dedup `session` by conversation_id (P3)
+### H6 · create paths don't dedup `session`/`input` (P3) — ✅ DONE (cleanup pending)
 
-- [ ] **`POST /canvas/nodes` (`backend/api/canvas.py:59`) and the raw `create_canvas_node` tool (`backend/llm/tools/executor.py:89`) inherit the I2 type-guard but not the dedup — a valid-but-already-used `conversation_id` makes a second node for the same conversation.**
-  - **Note:** only `_ensure_creation_wiring` dedups today (`executor.py:329-335`).
-  - **Fix:** move conversation_id dedup into `create_node` itself — return the existing node id instead of creating a duplicate. Closes the last duplicate-session vector.
-  - **Cost:** ~30m.
+- [x] **`create_node` now dedups — no second node for the same logical entity.**
+  - **Shipped:** `_find_duplicate(user_id, node_type, config)` in `backend/agent/canvas_graph.py`; `create_node` returns the existing id instead of creating when a duplicate exists. Singletons (`input`/`memory`/`config`) dedup by type (preferring the protected node); `session` dedups by `conversation_id`, `workspace` by `workspace_id`. Idempotent for every caller (AI tool, REST, both bootstrap paths). Locked by 2 tests (`test_dedup_singleton_returns_existing`, `test_dedup_session_by_conversation_id`).
+  - **Verified live:** a second `create_node(1, "input")` / `create_node(1, "session", conv)` returns the existing protected id, no new node.
+  - **⚠ Cleanup pending:** user 2's pre-existing duplicates (1 extra unprotected `input`, 1 duplicate "Bug Tracking" `session`) predate this fix — dedup only prevents *new* dups. Removing them is a destructive op on another user's data; **awaiting explicit approval** (blocked by the safety classifier, correctly). H3's periodic reconcile could also auto-collapse them.
 
 ### H3 · Reaper runs only on `/global`, not periodically (P3 · belt-and-suspenders)
 
@@ -96,9 +96,9 @@ recommended execution route (see bottom), not by id.
 | H5 | No force-delete for protected node + dup audit | P2 | Audit done · tool deferred (no protected dups) |
 | H1 | Node-type policy duplicated ≥5 places (drift) | P2 | ✅ Fixed |
 | H4 | `session` type overloaded (global vs ordinary) | P2 | ✅ Fixed |
-| H6 | REST/tool create paths don't dedup session (+ input) | P3 | Open |
+| H6 | create paths don't dedup session (+ input) | P3 | ✅ Fixed (cleanup pending approval) |
 | H3 | Reaper not periodic (only `/global`) | P3 | Open |
-| | **Open total** | | **2 open** |
+| | **Open total** | | **1 open** |
 
 > **Phase 0 audit result (2026-06-02):** no wrongly-protected duplicate core nodes →
 > H5 force-delete deferred. Cleaned: `user 99/py-test-1` junk + user 2's 3 orphan

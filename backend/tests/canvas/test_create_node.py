@@ -53,5 +53,45 @@ async def test_internal_permanent_create_passes_guard(monkeypatch):
     assert "CREATE (n:CanvasNode" in captured["query"]
 
 
+async def test_dedup_singleton_returns_existing(monkeypatch):
+    """H6: creating a second input/memory/config returns the existing node id."""
+    from tests.canvas.conftest import FakeResult
+    created = {"ran": False}
+
+    def handler(query, params):
+        if query.lstrip().startswith("MATCH"):                       # find_nodes
+            return FakeResult(records=[{"n": {"node_id": "existing-input", "config": "{}"}}])
+        created["ran"] = True                                        # CREATE — must not happen
+        return FakeResult()
+
+    monkeypatch.setattr(cg, "get_driver", lambda: make_driver(handler))
+    monkeypatch.setattr(cg, "_cache_del", _noop)
+
+    node_id = await cg.create_node(1, "input", {}, internal=True)
+    assert node_id == "existing-input"
+    assert created["ran"] is False                                   # no duplicate created
+
+
+async def test_dedup_session_by_conversation_id(monkeypatch):
+    """H6: a session for an already-mapped conversation_id returns the existing node."""
+    from tests.canvas.conftest import FakeResult
+    conv = str(uuid.uuid4())
+    created = {"ran": False}
+
+    def handler(query, params):
+        if query.lstrip().startswith("MATCH"):
+            return FakeResult(records=[{"n": {"node_id": "existing-session",
+                                              "config": f'{{"conversation_id": "{conv}"}}'}}])
+        created["ran"] = True
+        return FakeResult()
+
+    monkeypatch.setattr(cg, "get_driver", lambda: make_driver(handler))
+    monkeypatch.setattr(cg, "_cache_del", _noop)
+
+    node_id = await cg.create_node(1, "session", {"conversation_id": conv}, internal=True)
+    assert node_id == "existing-session"
+    assert created["ran"] is False
+
+
 async def _noop(*a, **k):
     return None
