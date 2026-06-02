@@ -37,16 +37,15 @@ recommended execution route (see bottom), not by id.
   - **Root cause:** `except Exception:` logged a message with no exception detail, so the blocked-create `ValueError` was invisible. (The broad catch itself is intentional — a wiring failure must not break the already-committed `create_conversation` success.)
   - **Shipped:** keep the broad catch but log `type(e).__name__` + the message + `node_type`, so the real cause surfaces in `docker compose logs api`.
 
-### H5 · No escape hatch for a wrongly-protected node + no dup audit (P2 · cleanup)
+### H5 · No escape hatch for a wrongly-protected node + no dup audit (P2 · cleanup) — ✅ DONE
 
-- [ ] **`set_protected` only ever sets `true` and `delete_node` hard-refuses protected nodes — a wrongly-protected node is unremovable except by raw cypher.**
-  - **Files:** `backend/agent/canvas_graph.py` (`set_protected`, `delete_node`).
-  - **Risk:** I2 prevents *new* duplicate core nodes but does not clean any that predate it. A pre-I2 duplicate `input` would have been backfilled `protected=true` by `_ensure_canvas_wiring` → now undeletable.
-  - **Fix:**
-    1. One-time **audit query** (read-only) to learn if duplicates exist:
-       `MATCH (n:CanvasNode) WHERE n.node_type IN ['input','memory','config'] WITH n.user_id AS u, n.node_type AS t, count(*) AS c WHERE c > 1 RETURN u, t, c`
-    2. Admin-only force-delete path: `set_protected(uid, id, False)` then `delete_node`.
-  - **Cost:** audit ~5m (run now); force-delete ~30m.
+- [x] **A wrongly-protected *duplicate* core node is now self-healed by reconcile; the unprotect primitive already existed.**
+  - **Audit (Phase 0):** read-only count query found **zero** wrongly-protected duplicate cores. The force-delete admin endpoint was therefore unnecessary.
+  - **Primitive already present:** `set_protected(user_id, node_id, value=True)` takes a bool — `set_protected(uid, id, False)` unprotects. (The original "only ever sets true" premise was stale.)
+  - **Residual gap closed:** `_collapse_duplicate_nodes` could not remove a duplicate that was itself `protected=true` — `_prune_node` → `delete_node` refuses and the error was swallowed, so a pre-dedup core wrongly backfilled `protected` would stick forever. Added a `force` path to `_prune_node` (unprotect-then-delete), used only for the *extra* duplicate (the kept node is retained separately). `_reap_orphan_sessions` stays `force=False` so the legit protected global session is never force-removed.
+  - **Files:** `backend/agent/canvas_graph.py` (`_prune_node`, `_collapse_duplicate_nodes`).
+  - **Test:** `tests/canvas/test_reaper.py::test_collapse_force_deletes_both_protected_duplicate` (two protected `input` nodes → one unprotected + removed, kept node stays protected). **26 passed.**
+  - **Commit:** `4aca4b6`.
 
 ### H1 · Node-type policy duplicated across ≥5 places — drift risk (P2 · architecture) — ✅ DONE
 
@@ -118,7 +117,7 @@ every job from running, which is why S2 never showed. Both fixed.
 |----|-------|----------|--------|
 | H2 | No canvas tests (CRUD coverage) | P1 | ✅ Fixed |
 | H7 | `_ensure_creation_wiring` except dropped error cause | P2 | ✅ Fixed |
-| H5 | No force-delete for protected node + dup audit | P2 | Audit done · tool deferred (no protected dups) |
+| H5 | No force-delete for protected node + dup audit | P2 | ✅ Fixed (reconcile force-collapse) |
 | H1 | Node-type policy duplicated ≥5 places (drift) | P2 | ✅ Fixed |
 | H4 | `session` type overloaded (global vs ordinary) | P2 | ✅ Fixed |
 | H6 | create paths don't dedup session (+ input) | P3 | ✅ Fixed (cleanup done) |
