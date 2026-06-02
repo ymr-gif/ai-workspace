@@ -104,6 +104,29 @@ success.
 
 ---
 
+## Canvas Core-Node Protection — 2026-06-02
+
+Follow-on from the JARVIS fallback fixes: with coder streaming and deletes verifying, a session
+showed the AI **deleting permanent/core canvas nodes** — confirmed in live Neo4j, the global
+JARVIS session node and the input node were both removed by the model.
+
+- [x] **G1 · AI could delete core canvas nodes (input + global session)**
+  - **Files:** `backend/agent/canvas_graph.py` (`delete_node`, new `set_protected`), `backend/api/canvas.py` (`_ensure_canvas_wiring` + import)
+  - **Root cause:** the global JARVIS session is just a `node_type="session"` node (config.conversation_id == JARVIS conv), indistinguishable from user sessions; `delete_node` had no guard. The frontend `_CORE_NODES` guard keys off static demo-node string ids, which the UUID-keyed Neo4j nodes (and the AI `delete_canvas_node` tool) bypass.
+  - **Fix:** `set_protected()` marks a node `protected`; `_ensure_canvas_wiring` sets it on the input + global-session nodes every canvas boot (idempotent backfill, no migration). `delete_node` pre-checks and raises `ValueError("Cannot delete core node …")` for protected nodes — one enforcement point for both the AI tool and `DELETE /api/canvas/nodes/{id}`.
+  - **Verified live:** after `/canvas/global`, input + global session show `protected=true`; `delete_node(1, <protected id>)` raises and the node survives; a user session and a stray hallucinated session remain deletable.
+
+- [x] **G2 · Model couldn't tell the protected global session from user sessions**
+  - **Files:** `backend/api/chat/stream.py` (CANVAS STATE marker + node-inventory RULE)
+  - **Fix:** protected nodes render as `… (uuid) [CORE · protected]` in the injected canvas state (`get_canvas_graph` already returns the `protected` property), plus a rule: never delete the input node or a `[CORE · protected]` node; if only the protected global session exists, explain it is permanent.
+
+> Observed (out of scope): a stray `session` node with a hallucinated `conversation_id`
+> (`d3c4b1a2-…`) remains from an earlier model hallucination — it is unprotected and deletable.
+> Blocking AI-initiated creation of `input`/`session`/`memory`/`config` (allowing the internal
+> `_ensure_*` paths) is a recommended follow-up.
+
+---
+
 ## Summary
 
 | Area | Total | Fixed | Open |
@@ -113,4 +136,5 @@ success.
 | Canvas Runtime Bugs | 1 | 1 | 0 |
 | Backend Audit 2026-06-01 | 8 | 8 | 0 |
 | JARVIS Fallback & Silent Delete | 5 | 5 | 0 |
-| **Total** | **26** | **26** | **0** |
+| Canvas Core-Node Protection | 2 | 2 | 0 |
+| **Total** | **28** | **28** | **0** |
