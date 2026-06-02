@@ -13,6 +13,7 @@ from config import USE_REDIS
 from core.db import AsyncSessionLocal
 from core.neo4j_client import get_driver
 from core.redis_client import get_redis
+from models import Conversation
 from models.user import UserMemory
 
 logger = logging.getLogger("canvas_graph")
@@ -479,6 +480,97 @@ async def find_nodes(user_id: int, node_type: str) -> list[dict]:
         n["config"] = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
         nodes.append(n)
     return nodes
+
+
+# ── Canvas reconcile (H1/H3) — idempotent hygiene, safe to re-run ──────────
+
+
+async def list_canvas_user_ids() -> list[int]:
+    """Distinct user_ids that own any CanvasNode (for the periodic reconcile job)."""
+    driver = get_driver()
+    if not driver:
+        return []
+    async with driver.session() as session:
+        result = await session.run("MATCH (n:CanvasNode) RETURN DISTINCT n.user_id AS uid")
+        rows = await result.data()
+    return [r["uid"] for r in rows if r.get("uid") is not None]
+
+
+async def _prune_node(user_id: int, node_id: str, reason: str) -> None:
+    try:
+        await delete_node(user_id, node_id)
+        logger.info("[canvas] reconcile pruned %s user=%d (%s)", node_id, user_id, reason)
+    except ValueError:
+        pass  # protected or already gone — leave it
+
+
+async def _reap_orphan_sessions(user_id: int, db) -> None:
+    """Delete unprotected session nodes whose conversation_id is malformed or has no
+    matching Postgres conversation. Protected nodes (incl. the global session) are skipped."""
+    sessions = await find_nodes(user_id, "session")
+
+    valid: dict[str, str] = {}  # conversation_id (str) -> node_id
+    for s in sessions:
+        if s.get("protected"):
+            continue
+        conv_id = (s.get("config") or {}).get("conversation_id")
+        try:
+            uuid.UUID(str(conv_id))
+        except (ValueError, TypeError, AttributeError):
+            await _prune_node(user_id, s["node_id"], f"malformed conversation_id {conv_id!r}")
+            continue
+        valid[str(conv_id)] = s["node_id"]
+
+    if not valid:
+        return
+
+    rows = await db.execute(
+        select(Conversation.id).where(
+            Conversation.user_id == user_id,
+            Conversation.id.in_([uuid.UUID(c) for c in valid]),
+        )
+    )
+    existing = {str(r) for r in rows.scalars().all()}
+    for conv_id, node_id in valid.items():
+        if conv_id not in existing:
+            await _prune_node(user_id, node_id, "no matching conversation")
+
+
+async def _collapse_duplicate_nodes(user_id: int) -> None:
+    """Collapse duplicates the dedup guard now prevents but that may predate it:
+    singleton cores (input/memory/config) and sessions sharing a conversation_id.
+    Always keeps the protected node; never deletes a protected one (delete_node refuses)."""
+    for node_type in PERMANENT_TYPES:                         # input/memory/config
+        nodes = await find_nodes(user_id, node_type)
+        if len(nodes) <= 1:
+            continue
+        keep = next((n for n in nodes if n.get("protected")), nodes[0])["node_id"]
+        for n in nodes:
+            if n["node_id"] != keep:
+                await _prune_node(user_id, n["node_id"], f"duplicate {node_type}")
+
+    seen: dict[str, dict] = {}
+    for n in await find_nodes(user_id, "session"):
+        conv = (n.get("config") or {}).get("conversation_id")
+        if conv is None:
+            continue
+        if conv not in seen:
+            seen[conv] = n
+            continue
+        prev = seen[conv]
+        if n.get("protected") and not prev.get("protected"):
+            await _prune_node(user_id, prev["node_id"], f"duplicate session conv={conv}")
+            seen[conv] = n
+        else:
+            await _prune_node(user_id, n["node_id"], f"duplicate session conv={conv}")
+
+
+async def reconcile_canvas(user_id: int, db) -> None:
+    """Idempotent canvas hygiene: reap orphan sessions + collapse duplicates.
+    Runs on every /global load and periodically from the scheduler — self-heals
+    canvas state for all users without manual cleanup."""
+    await _reap_orphan_sessions(user_id, db)
+    await _collapse_duplicate_nodes(user_id)
 
 
 async def query_canvas(
