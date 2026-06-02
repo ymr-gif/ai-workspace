@@ -17,9 +17,9 @@ async def test_embedded_types_rejected(node_type):
 
 
 @pytest.mark.parametrize("node_type", ["input", "session", "memory", "config"])
-async def test_permanent_types_rejected_for_ai(node_type):
-    """I2: AI/REST path (internal=False) may not create permanent core nodes."""
-    with pytest.raises(ValueError, match="permanent infrastructure"):
+async def test_managed_types_rejected_for_ai(node_type):
+    """I2/H1: AI/REST path (internal=False) may not create managed core nodes."""
+    with pytest.raises(ValueError, match="managed automatically"):
         await cg.create_node(1, node_type)
 
 

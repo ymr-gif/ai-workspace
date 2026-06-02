@@ -27,3 +27,6 @@ async def test_creation_wiring_uses_internal_create(monkeypatch):
     create_mock.assert_awaited_once()
     # the critical assertion: internal=True, or I2 blocks the session create
     assert create_mock.await_args.kwargs.get("internal") is True
+    # H4: AI/user-created sessions are tagged kind="user" (not the [GLOBAL] session)
+    node_config = create_mock.await_args.args[2]
+    assert node_config.get("kind") == "user"

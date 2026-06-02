@@ -159,10 +159,16 @@ async def _ensure_canvas_wiring(
         None,
     )
     if not session_node:
-        # internal=True: only the bootstrap may create permanent core nodes
-        session_id = await create_node(user_id, "session", {"conversation_id": conv_id_str}, internal=True)
+        # internal=True: only the bootstrap may create permanent core nodes.
+        # kind="global" marks this as the permanent JARVIS session (H4) — explicit
+        # identity instead of inferring "global" from the conversation_id match.
+        session_id = await create_node(
+            user_id, "session", {"conversation_id": conv_id_str, "kind": "global"}, internal=True
+        )
     else:
         session_id = session_node["node_id"]
+        if session_node.get("config", {}).get("kind") != "global":
+            await update_node(user_id, session_id, {"kind": "global"})  # idempotent backfill
 
     inputs = await find_nodes(user_id, "input")
     if inputs:

@@ -27,7 +27,7 @@ from llm.summarizer.project import update_project_summary
 
 from agent.boot import agent_boot, format_boot_log
 from agent.canvas_graph import update_scratchpad
-from agent.node import registry as node_registry
+from agent.node import registry as node_registry, AI_CREATABLE_TYPES
 
 from .helpers import (
     _build_stream_context, _check_cost_cap, _extract_model_params,
@@ -144,13 +144,8 @@ async def chat_stream(
     # Agent boot — health check, scratchpad restore, canvas state
     boot_report = await agent_boot(current_user.id)
     boot_log = format_boot_log(boot_report)
-    _PERMANENT_NODES = {"input", "session", "memory", "config"}
-    # insights/goals/automations/mech are not standalone canvas nodes — they live inside others
-    _EMBEDDED_NODES = {"insights", "goals", "automations", "mech"}
-    _CREATABLE_NODES = [
-        n for n in node_registry
-        if n not in _PERMANENT_NODES and n not in _EMBEDDED_NODES
-    ]
+    # type classification owned by agent/node.py (single source of truth)
+    _CREATABLE_NODES = [n for n in node_registry if n in AI_CREATABLE_TYPES]
     ni_width = max(len(n) for n in node_registry) + 2
     node_inventory_lines = ["CANVAS LAYOUT:"]
     node_inventory_lines.append("")
@@ -192,7 +187,7 @@ async def chat_stream(
     node_inventory_lines.append("  - For other node types, call get_canvas_graph to get full UUIDs before wiring.")
     node_inventory_lines.append("  - CRITICAL: call tools immediately — never describe actions in text before calling them.")
     node_inventory_lines.append("  - Never call create_conversation or create_workspace unless the user explicitly asks to create a session or workspace.")
-    node_inventory_lines.append("  - Never delete the input node or any node marked [CORE · protected] — they are permanent infrastructure. If the user asks to delete 'the session' and only the protected global session exists, explain that it is permanent instead of deleting it.")
+    node_inventory_lines.append("  - Never delete the input node or any node marked [CORE · protected]/[GLOBAL] — they are permanent infrastructure. The session marked [GLOBAL] is the permanent JARVIS session; only [user session] nodes may be deleted. If the user asks to delete 'the session' and only the [GLOBAL] session exists, explain that it is permanent instead of deleting it.")
     node_inventory = "\n".join(node_inventory_lines)
 
     canvas = boot_report.canvas
@@ -239,6 +234,10 @@ async def chat_stream(
             conns = n.get("connections", [])
             conn_str = f" → {len(conns)} connections" if conns else ""
             core_str = " [CORE · protected]" if n.get("protected") else ""
+            # H4: make the global session explicit so the model never confuses it
+            # with an ordinary user session
+            if n.get("node_type") == "session":
+                core_str += " [GLOBAL]" if cfg.get("kind") == "global" else " [user session]"
             # full node_id (not truncated) — the model passes these verbatim to delete/update/wire
             canvas_lines.append(f"  {n.get('node_type', '?')}{name_str} ({n.get('node_id', '?')}){core_str}{conn_str}")
     canvas_state = "\n".join(canvas_lines)

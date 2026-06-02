@@ -333,6 +333,10 @@ async def _ensure_creation_wiring(
             ) == db_id),
             None,
         )
+        # H4: mark AI/user-created sessions as kind="user" (distinct from the
+        # permanent [GLOBAL] JARVIS session created by _ensure_canvas_wiring)
+        if node_type == "session":
+            node_config.setdefault("kind", "user")
         if node:
             node_id = node["node_id"]
         else:
