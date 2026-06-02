@@ -108,6 +108,7 @@ every job from running, which is why S2 never showed. Both fixed.
   - **Files:** `backend/services/scheduler_worker.py` `sync_schedules()`.
   - **Fix:** skip ids matching `__*__` in the stale-removal loop.
   - **Commit:** `565ffc9`. **Verified live:** the 13:19:10 interval sync (the fire that previously wiped everything) ended `scheduled=4` — all four internal jobs survived, zero `removed job __*__` lines. Earlier broken run logged `scheduled=0` + four removals.
+  - **Regression test:** `backend/tests/scheduler/test_sync_preserves_internal_jobs.py` (commit `f14cb12`) — `test_internal_jobs_survive_sync` (all four `__*__` jobs kept) + `test_stale_user_job_still_removed` (real stale user jobs still pruned). Guarded by `importorskip("apscheduler")` — skips on host, runs in the scheduler container (host has no apscheduler, container has no pytest by default). **2 passed** in-container.
 
 ---
 
