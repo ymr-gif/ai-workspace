@@ -209,24 +209,29 @@ async def main() -> None:
     scheduler = AsyncIOScheduler(timezone="UTC")
     await sync_schedules(scheduler)
 
+    # Pass coroutine functions directly — AsyncIOScheduler awaits them on its own
+    # event loop. A `lambda: asyncio.create_task(...)` wrapper runs in the executor
+    # thread with no running loop → RuntimeError("no running event loop").
+
     # Re-sync every 5 minutes to pick up new/modified/deleted schedules
     scheduler.add_job(
-        lambda: asyncio.create_task(sync_schedules(scheduler)),
+        sync_schedules,
         "interval",
         minutes = 5,
+        args    = [scheduler],
         id      = "__sync__",
     )
 
     # Daily memory compaction at 3 AM UTC
     scheduler.add_job(
-        lambda: asyncio.create_task(run_memory_compaction()),
+        run_memory_compaction,
         CronTrigger.from_crontab("0 3 * * *", timezone="UTC"),
         id = "__compact_memory__",
     )
 
     # Canvas reconcile every 6 hours — reap orphans + collapse duplicates
     scheduler.add_job(
-        lambda: asyncio.create_task(run_canvas_reconcile()),
+        run_canvas_reconcile,
         "interval",
         hours = 6,
         id    = "__canvas_reconcile__",
@@ -235,7 +240,7 @@ async def main() -> None:
     # Scheduled backup via BACKUP_SCHEDULE env (default: 2 AM UTC)
     try:
         scheduler.add_job(
-            lambda: asyncio.create_task(run_backup()),
+            run_backup,
             CronTrigger.from_crontab(BACKUP_SCHEDULE, timezone="UTC"),
             id = "__backup__",
         )
