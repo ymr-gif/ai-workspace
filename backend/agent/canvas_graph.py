@@ -496,12 +496,23 @@ async def list_canvas_user_ids() -> list[int]:
     return [r["uid"] for r in rows if r.get("uid") is not None]
 
 
-async def _prune_node(user_id: int, node_id: str, reason: str) -> None:
+async def _prune_node(
+    user_id: int, node_id: str, reason: str, force: bool = False
+) -> None:
     try:
         await delete_node(user_id, node_id)
-        logger.info("[canvas] reconcile pruned %s user=%d (%s)", node_id, user_id, reason)
     except ValueError:
-        pass  # protected or already gone — leave it
+        if not force:
+            return  # protected or already gone — leave it
+        # force: this is a *duplicate* that is itself protected (e.g. a pre-dedup
+        # core node wrongly backfilled protected=true). The kept node is retained
+        # separately, so it is safe to unprotect this extra one and remove it.
+        await set_protected(user_id, node_id, False)
+        try:
+            await delete_node(user_id, node_id)
+        except ValueError:
+            return  # already gone
+    logger.info("[canvas] reconcile pruned %s user=%d (%s)", node_id, user_id, reason)
 
 
 async def _reap_orphan_sessions(user_id: int, db) -> None:
@@ -539,7 +550,8 @@ async def _reap_orphan_sessions(user_id: int, db) -> None:
 async def _collapse_duplicate_nodes(user_id: int) -> None:
     """Collapse duplicates the dedup guard now prevents but that may predate it:
     singleton cores (input/memory/config) and sessions sharing a conversation_id.
-    Always keeps the protected node; never deletes a protected one (delete_node refuses)."""
+    Keeps one node (preferring the protected one); force-removes the extras even
+    if they are themselves protected (H5) — only ever the duplicate, never the kept."""
     for node_type in PERMANENT_TYPES:                         # input/memory/config
         nodes = await find_nodes(user_id, node_type)
         if len(nodes) <= 1:
@@ -547,7 +559,7 @@ async def _collapse_duplicate_nodes(user_id: int) -> None:
         keep = next((n for n in nodes if n.get("protected")), nodes[0])["node_id"]
         for n in nodes:
             if n["node_id"] != keep:
-                await _prune_node(user_id, n["node_id"], f"duplicate {node_type}")
+                await _prune_node(user_id, n["node_id"], f"duplicate {node_type}", force=True)
 
     seen: dict[str, dict] = {}
     for n in await find_nodes(user_id, "session"):
@@ -559,10 +571,10 @@ async def _collapse_duplicate_nodes(user_id: int) -> None:
             continue
         prev = seen[conv]
         if n.get("protected") and not prev.get("protected"):
-            await _prune_node(user_id, prev["node_id"], f"duplicate session conv={conv}")
+            await _prune_node(user_id, prev["node_id"], f"duplicate session conv={conv}", force=True)
             seen[conv] = n
         else:
-            await _prune_node(user_id, n["node_id"], f"duplicate session conv={conv}")
+            await _prune_node(user_id, n["node_id"], f"duplicate session conv={conv}", force=True)
 
 
 async def reconcile_canvas(user_id: int, db) -> None:
