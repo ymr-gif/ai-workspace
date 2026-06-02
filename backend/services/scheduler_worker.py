@@ -116,8 +116,12 @@ async def sync_schedules(scheduler: AsyncIOScheduler) -> None:
     active_ids = {str(s.id) for s in schedules}
     existing   = {job.id for job in scheduler.get_jobs()}
 
-    # Remove stale jobs
+    # Remove stale jobs — but never the internal __*__ jobs (sync/compact/
+    # canvas reconcile/backup). They are not ScheduledPrompt rows, so they are
+    # not in active_ids; without this guard sync would delete itself + the rest.
     for job_id in existing - active_ids:
+        if job_id.startswith("__") and job_id.endswith("__"):
+            continue
         scheduler.remove_job(job_id)
         logger.info("[scheduler] removed job %s", job_id)
 
