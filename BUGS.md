@@ -4,57 +4,82 @@ Tracker for all confirmed bugs across the stack. Check off when fixed.
 
 Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 
-> History note: the Backend Audit (B1–B8), JARVIS Fallback Cascade (F1–F5), and Canvas
-> Core-Node Protection (G1–G2) batches are all fixed and shipped — see git log
-> (`fde4b53`, `3e27456`, `e7839ba`). They were removed from this file once closed.
+> History note: closed batches were removed once shipped — see git log.
+> Backend Audit B1–B8 (`fde4b53`), JARVIS Fallback F1–F5 (`3e27456`),
+> Core-Node Protection G1–G2 (`e7839ba`), Canvas hardening I1–I3 (`41174a3`),
+> create_conversation auto-wiring regression fix (`abc70af`). All fixed.
 
 ---
 
-## Open — Canvas hardening follow-ups (2026-06-02)
+## Open — Canvas hardening backlog (2026-06-02)
 
-Surfaced by the G1/G2 verification. None are runtime-broken; all three are hardening / cleanup.
+Follow-ups surfaced during the I1–I3 work. None are runtime-broken today; all are
+hardening / cleanup that removes whole classes of future bugs. Ordered by the
+recommended execution route (see bottom), not by id.
 
-### I1 · Stray orphan session node on the live canvas (P2 · data, not code)
+### H2 · No canvas tests — every fix is hand-verified only (P1 · safety net) — ✅ DONE
 
-- [x] **A hallucinated `session` node points to a non-existent conversation and renders as a dead node.**
-  - **Where:** Neo4j, `user_id = 1`. Node `9e994470-09a5-438a-bda3-e69f09968c43`,
-    `node_type = "session"`, `config.conversation_id = "d3c4b1a2-c3d4e5f6g7h8i9j0k"`.
-  - **Symptoms:**
-    - The `conversation_id` is a **malformed UUID** (`g7h8i9j0k` are not hex) — no matching row exists in Postgres `conversations`. It was invented by an 8B hallucination during the pre-F4 fallback cascade (the same class of event that the F4 fix now prevents).
-    - `protected = NULL/false` (confirmed in the G1 verification dump), so it is deletable — but nothing deletes it automatically, and it has no real conversation behind it.
-    - It clutters the JARVIS canvas and can confuse the model's node inventory (a session it can "open" that leads nowhere).
-  - **Why it persists:** there is no orphan-reaper. `_ensure_canvas_wiring` (`backend/api/canvas.py:149`) only *adds/heals* the input + global session; it never prunes sessions whose `conversation_id` has no Postgres row.
-  - **Fix (data, one-off):** delete it directly —
-    `MATCH (n:CanvasNode {user_id:1, node_id:"9e994470-09a5-438a-bda3-e69f09968c43"}) DETACH DELETE n`
-    via `docker compose exec -T neo4j cypher-shell -u neo4j -p changeme`.
-  - **Fix (shipped, durable):** `_ensure_canvas_wiring` now takes `db` and calls `_reap_orphan_sessions` (`backend/api/canvas.py`). On every `/global` load it drops any unprotected `session` node whose `conversation_id` is malformed (UUID parse fails) or has no matching `conversations` row; protected nodes and the just-ensured global session are skipped. Runs on every canvas boot — no migration, no manual cypher.
-  - **Verified live:** stray `9e994470` (conv `d3c4b1a2-…g7h8`) was reaped on the first `_ensure_canvas_wiring` run; Neo4j now holds only the 2 protected core nodes.
+- [x] **Canvas CRUD has zero automated coverage; regressions reappear silently.**
+  - **Shipped:** `backend/tests/canvas/` — 17 tests, mock driver + mock PG, no live deps (`conftest.py` `FakeDriver`/`FakeResult`). Covers create_node guards (embedded/permanent/unknown/malformed-conv-id + internal-bootstrap), delete_node (protected refused / missing raises / normal deletes), `_reap_orphan_sessions` (prunes malformed+dead, skips protected+keep-id, noop when clean), and the `_ensure_creation_wiring` `internal=True` regression guard. Run: `python -m pytest tests/canvas -v` (host). **17 passed.**
+  - **Why it matters:** every fix this session (G1/G2/I1/I2/I3 + the auto-wiring regression) was verified by hand in-container. None of that survives into CI. The I2→`create_conversation` regression would have been caught instantly by one test.
+  - **Where:** new `backend/tests/canvas/` mirroring the existing mock-DB pattern (`backend/tests/retrieval/conftest.py` — `AsyncMock`, no NIM, no live Neo4j). Mock `get_driver()` + `db.execute`.
+  - **Assertions (pure logic):**
+    - `create_node` rejects each permanent type (`input/session/memory/config`) unless `internal=True`
+    - `create_node` rejects non-UUID `conversation_id`
+    - `delete_node` raises `ValueError` on a `protected` node, on a missing id
+    - `_reap_orphan_sessions` prunes malformed + dead conv ids, skips protected + the keep-id
+    - `_ensure_creation_wiring` calls `create_node(..., internal=True)` (the regression)
+  - **Cost:** ~2h. Highest durable value — it is the net under every other item here.
 
-### I2 · AI can still *create* duplicate core nodes (P1 · backend not enforced)
+### H7 · `_ensure_creation_wiring` except dropped the error cause (P2 · diagnostics) — ✅ DONE
 
-- [x] **`create_node` blocks the 4 embedded types but not the 4 permanent/core types — the model can spawn a second `input`/`session`/`memory`/`config` node.**
-  - **Files:**
-    - `backend/agent/canvas_graph.py:70-78` — `create_node` rejects only `_NON_CANVAS_TYPES = {"insights","goals","automations","mech"}` (`:26`). Any other registered type, including `input/session/memory/config`, is created with no dedup and no permanence check.
-    - `backend/api/chat/stream.py:147-152` — the prompt's `_PERMANENT_NODES = {"input","session","memory","config"}` is excluded from `_CREATABLE_NODES`, so the model is *told* not to create them, but this is prompt-only guidance; nothing enforces it server-side.
-    - `backend/llm/tools/executor.py` — `create_canvas_node` calls `create_node` directly, so a hallucinated tool call bypasses the prompt rule entirely.
-  - **Symptoms / blast radius:**
-    - This is exactly how the I1 orphan was born: the model emitted a `create_canvas_node(node_type="session", …)` with an invented `conversation_id`, and the backend happily created it.
-    - A duplicate `input` node has no dedup either — two input nodes would both be backfilled `protected=true` by `_ensure_canvas_wiring` and become **undeletable clutter** (G1 now blocks removing them).
-  - **Fix (shipped):** `create_node` gained `internal: bool = False` (`backend/agent/canvas_graph.py`). It rejects `_PERMANENT_TYPES = {"input","session","memory","config"}` unless `internal=True`; only `_ensure_canvas_wiring` passes `internal=True`, so the AI tool + REST path are blocked. **Bonus hardening:** `create_node` also rejects any `config.conversation_id` that fails `uuid.UUID()` parsing — stops the hallucinated-id class at the door (the exact mechanism that birthed I1).
-  - **Verified live:** AI-path `create_node` of all 4 permanent types → `ValueError("… permanent infrastructure managed automatically …")`; malformed `conversation_id` → `ValueError("Invalid conversation_id …")`; the `internal=True` bootstrap still creates/heals the global session.
+- [x] **`backend/llm/tools/executor.py` caught every exception but logged only a generic "auto-wire failed" — that is why the I2 regression was effectively silent.**
+  - **Root cause:** `except Exception:` logged a message with no exception detail, so the blocked-create `ValueError` was invisible. (The broad catch itself is intentional — a wiring failure must not break the already-committed `create_conversation` success.)
+  - **Shipped:** keep the broad catch but log `type(e).__name__` + the message + `node_type`, so the real cause surfaces in `docker compose logs api`.
 
-### I3 · Frontend `_CORE_NODES` guard never matches real (Neo4j) nodes (P3 · cosmetic, now redundant)
+### H5 · No escape hatch for a wrongly-protected node + no dup audit (P2 · cleanup)
 
-- [x] **The UI close-button guard keys off static demo string ids, so it does nothing for UUID-backed nodes — protected nodes still show a delete (✕) button that 400s on click.**
-  - **Files (identical guard, three copies):**
-    - `frontend/public/canvas/nodes.jsx:17` — `const _CORE_NODES = new Set(['input','session','memory','config'])`; used at `:19` `const canClose = !_CORE_NODES.has(nodeId)`.
-    - `frontend/public/canvas/secondary-nodes.jsx:13` (used `:15`).
-    - `frontend/public/canvas/popup-nodes.jsx:36` (used `:38`).
-  - **Root cause:** the guard compares `nodeId` against the literal type strings `'input'/'session'/...`. Those match only the **static demo nodes**. Real nodes from Neo4j render with `nodeId = "ai-{uuid}"` (e.g. `ai-0741d809-…`), so `_CORE_NODES.has(nodeId)` is always `false` → `canClose` is always `true` → the ✕ button renders on the actual protected input + global-session nodes.
-  - **Symptoms / blast radius:**
-    - Clicking ✕ on a real protected node fires `_closeNode(nodeId)` → `DELETE /api/canvas/nodes/{id}` → backend G1 returns **400 `Cannot delete core node …`**. The node correctly survives (backend enforces), so this is **not** a data-loss bug — purely a misleading affordance + a wasted failing request.
-  - **Fix (shipped):** both `neoToRF` mappers (`Canvas.jsx`, `canvas-live.js`) now stamp `data.protected = !!n.protected` and add protected RF ids (`ai-{uuid}`) to `window.NIM_PROTECTED_IDS`. The three guards (`nodes.jsx:19`, `secondary-nodes.jsx:15`, `popup-nodes.jsx:38`) became `canClose = !_CORE_NODES.has(nodeId) && !window.NIM_PROTECTED_IDS?.has(nodeId)` — the ✕ button now hides on any backend-protected node. `_CORE_NODES` stays as the demo-node fallback.
-  - **Note:** static-bundle JS (no build step) — takes effect on next browser load of `/canvas/`; backend G1 already prevents the delete regardless, so this only removes the misleading affordance.
+- [ ] **`set_protected` only ever sets `true` and `delete_node` hard-refuses protected nodes — a wrongly-protected node is unremovable except by raw cypher.**
+  - **Files:** `backend/agent/canvas_graph.py` (`set_protected`, `delete_node`).
+  - **Risk:** I2 prevents *new* duplicate core nodes but does not clean any that predate it. A pre-I2 duplicate `input` would have been backfilled `protected=true` by `_ensure_canvas_wiring` → now undeletable.
+  - **Fix:**
+    1. One-time **audit query** (read-only) to learn if duplicates exist:
+       `MATCH (n:CanvasNode) WHERE n.node_type IN ['input','memory','config'] WITH n.user_id AS u, n.node_type AS t, count(*) AS c WHERE c > 1 RETURN u, t, c`
+    2. Admin-only force-delete path: `set_protected(uid, id, False)` then `delete_node`.
+  - **Cost:** audit ~5m (run now); force-delete ~30m.
+
+### H1 · Node-type policy duplicated across ≥5 places — drift risk (P2 · architecture)
+
+- [ ] **The same type-classification facts are hardcoded in ≥5 spots that must agree; adding a 13th node type means editing all of them.**
+  - **Duplicated in:**
+    - `_NON_CANVAS_TYPES` — `backend/agent/canvas_graph.py:26`
+    - `_PERMANENT_TYPES` — `backend/agent/canvas_graph.py` (I2)
+    - `_PERMANENT_NODES` / `_EMBEDDED_NODES` / `_CREATABLE_NODES` — `backend/api/chat/stream.py:147-152`
+    - `_CORE_NODES` — `frontend/public/canvas/{nodes,secondary-nodes,popup-nodes}.jsx`
+    - prose list in `backend/llm/tools/schemas.py:71`
+    - the 12-type registry — `backend/agent/node.py`
+  - **Fix:** add flags to the `Node` dataclass in `agent/node.py` — `permanent` (input/memory/config, singleton, internal-create only), `embedded` (insights/goals/automations/mech), `ai_creatable` (files/logs/usage/workspace). Derive every set from the registry. Expose the flags in the `get_canvas_graph` node payload; frontend reads `node.data.permanent` instead of its own set.
+  - **Cost:** ~1h, touches registry + 3 backend modules + 3 frontend files. Low risk **once H2 exists**.
+
+### H4 · `session` type is overloaded — global vs. ordinary (P2 · design smell)
+
+- [ ] **One `node_type="session"` means two things: the permanent protected global JARVIS session AND ordinary user/AI-created sessions.**
+  - **Why it matters:** this conflation is exactly why I2 broke `create_conversation` — "session" could not be blanket-blocked without killing legitimate creation. Today the only distinguisher is the `protected` flag + a `conversation_id == JARVIS` match. The model also hallucinates here ("delete the session").
+  - **Fix:** add an explicit marker — `config.kind: "global"|"user"` (cheaper) or a distinct `global_session` registry type. Permanence / UI / prompt rules then key off an explicit field instead of inferring identity from the conv id.
+  - **Cost:** ~1h. Pairs naturally with H1 (do them together).
+
+### H6 · REST/tool create paths don't dedup `session` by conversation_id (P3)
+
+- [ ] **`POST /canvas/nodes` (`backend/api/canvas.py:59`) and the raw `create_canvas_node` tool (`backend/llm/tools/executor.py:89`) inherit the I2 type-guard but not the dedup — a valid-but-already-used `conversation_id` makes a second node for the same conversation.**
+  - **Note:** only `_ensure_creation_wiring` dedups today (`executor.py:329-335`).
+  - **Fix:** move conversation_id dedup into `create_node` itself — return the existing node id instead of creating a duplicate. Closes the last duplicate-session vector.
+  - **Cost:** ~30m.
+
+### H3 · Reaper runs only on `/global`, not periodically (P3 · belt-and-suspenders)
+
+- [ ] **`_reap_orphan_sessions` runs only when a user loads `/canvas/` (`GET /global`).** A user who never opens the canvas keeps orphans; orphans created between loads linger.
+  - **Fix:** add a reconcile pass to `backend/services/scheduler_worker.py` (APScheduler already runs daily compaction 3 AM UTC + backups). Iterate users with canvas nodes, run the same reconcile; scope to recently-active users to bound cost.
+  - **Cost:** ~1h. Lower priority — boot-path reaping covers the common case.
 
 ---
 
@@ -62,7 +87,16 @@ Surfaced by the G1/G2 verification. None are runtime-broken; all three are harde
 
 | ID | Issue | Priority | Status |
 |----|-------|----------|--------|
-| I1 | Stray orphan session node (`9e994470`, dead conv id) | P2 | ✅ Fixed |
-| I2 | AI can create duplicate `input/session/memory/config` nodes | P1 | ✅ Fixed |
-| I3 | Frontend `_CORE_NODES` guard dead for UUID nodes (✕ button 400s) | P3 | ✅ Fixed |
-| | **Total** | | **3 fixed · 0 open** |
+| H2 | No canvas tests (CRUD coverage) | P1 | ✅ Fixed |
+| H7 | `_ensure_creation_wiring` except dropped error cause | P2 | ✅ Fixed |
+| H5 | No force-delete for protected node + dup audit | P2 | Audit done · tool deferred (no protected dups) |
+| H1 | Node-type policy duplicated ≥5 places (drift) | P2 | Open |
+| H4 | `session` type overloaded (global vs ordinary) | P2 | Open |
+| H6 | REST/tool create paths don't dedup session (+ input) | P3 | Open |
+| H3 | Reaper not periodic (only `/global`) | P3 | Open |
+| | **Open total** | | **4 open** |
+
+> **Phase 0 audit result (2026-06-02):** no wrongly-protected duplicate core nodes →
+> H5 force-delete deferred. Cleaned: `user 99/py-test-1` junk + user 2's 3 orphan
+> sessions (reconcile). Remaining duplicate `input` (user 2) + duplicate live "Bug
+> Tracking" session need the **H6** code fix (widen dedup to `input` + `session`).

@@ -360,5 +360,11 @@ async def _ensure_creation_wiring(
                 user_id, input_id, node_id,
                 "routed_message", dst_port, relation,
             )
-    except Exception:
-        logger.warning("[tools] auto-wire failed user=%d id=%s", user_id, db_id)
+    except Exception as e:
+        # Broad catch: a wiring failure must never break the (already-committed)
+        # create_conversation/workspace success. But log the real cause + type —
+        # a bare "auto-wire failed" hid the I2 permanent-type-guard regression.
+        logger.warning(
+            "[tools] auto-wire failed user=%d type=%s id=%s err=%s: %s",
+            user_id, node_type, db_id, type(e).__name__, e,
+        )
