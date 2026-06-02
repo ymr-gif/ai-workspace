@@ -336,11 +336,14 @@ async def _ensure_creation_wiring(
         if node:
             node_id = node["node_id"]
         else:
-            node_id = await create_node(user_id, node_type, node_config)
+            # internal=True: trusted bootstrap — runs only after the creation guard
+            # passed and a real Postgres Conversation/Workspace row exists, so it may
+            # create the permanent session node that the AI tool path is blocked from.
+            node_id = await create_node(user_id, node_type, node_config, internal=True)
 
         inputs = await find_nodes(user_id, "input")
         if not inputs:
-            input_id = await create_node(user_id, "input", {})
+            input_id = await create_node(user_id, "input", {}, internal=True)
         else:
             input_id = inputs[0]["node_id"]
 
