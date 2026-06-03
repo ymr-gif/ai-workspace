@@ -220,7 +220,7 @@
       } catch {}
 
       console.info('[NIM LIVE] data patched in', Date.now() - startTime, 'ms', {
-        mem: !!mem, files: !!files, ws: !!ws, sessions: !!sessions,
+        mem: !!mem, files: !!files, sessions: !!sessions,
         usage: !!usage, logs: !!logs,
         aiNodes: aiGraph?.nodes?.length || 0,
         globalConv: globalConv?.conversation_id || null,

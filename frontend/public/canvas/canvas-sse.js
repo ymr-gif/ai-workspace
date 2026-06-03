@@ -30,7 +30,10 @@
   /* ── Build ChatRequest body from canvas state ────────── */
   function buildBody() {
     const text     = window.NIM_CANVAS_LAST_INPUT      || '';
-    const convId   = window.NIM_CANVAS_LAST_SESSION_ID
+    // route to the session the Input node is wired to (set by Canvas.jsx); the static
+    // global session / unwired → null → JARVIS global conversation
+    const target   = window.NIM_CANVAS_INPUT_TARGET || {};
+    const convId   = target.convId
                    || window.NIM_CANVAS_GLOBAL_CONV_ID
                    || null;
     const model    = window.NIM_CANVAS_LAST_MODEL       || null;   // null → auto
@@ -125,7 +128,7 @@
                 });
               }
               if (convId) window.NIM_CANVAS_LAST_SESSION_ID = convId;
-              /* append exchange to session history */
+              /* append exchange to the drawer (it tracks the wired session) */
               if (window.NIM_CANVAS_LAST_INPUT && fullText) {
                 window.NIM_CANVAS_CB?._appendMessages?.([
                   { role: 'user',      content: window.NIM_CANVAS_LAST_INPUT },

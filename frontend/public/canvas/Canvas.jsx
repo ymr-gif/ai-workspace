@@ -208,6 +208,10 @@
     const [menu,        setMenu]        = React.useState(null);
     const [edgeMenu,    setEdgeMenu]    = React.useState(null);
     const [memExpanded, setMemExpanded] = React.useState(false);
+    /* conversation the chat drawer follows (null → JARVIS global) + per-session thread cache */
+    const [targetConvId, setTargetConvId] = React.useState(null);
+    const shownConvRef = React.useRef(null);
+    const histCacheRef = React.useRef({});
 
     /* physics refs */
     const simRef    = React.useRef(null);
@@ -430,6 +434,47 @@
       }));
     }, [edges]);
 
+    /* publish the Input→Session routing target for canvas-sse.js buildBody().
+       Keys off the static 'input' box the user types in (and explicitly drags from):
+       if it is wired to a session that has a conversation_id, route there. The backend
+       auto-wires ai-input→session, but that is not a user "link" — only the static input's
+       edge counts. Otherwise → JARVIS global conversation. The single chat drawer then
+       follows this target (see the swap effect below). */
+    React.useEffect(() => {
+      const sessById = Object.fromEntries(nodes.filter(n => n.type === 'sessionNode').map(n => [n.id, n]));
+      const target = edges
+        .filter(e => e.source === 'input' && sessById[e.target] && sessById[e.target].data.conversation_id)
+        .map(e => sessById[e.target])[0] || null;
+      const convId = target ? target.data.conversation_id : null;
+      window.NIM_CANVAS_INPUT_TARGET = { convId };
+      setTargetConvId(convId);
+    }, [nodes, edges]);
+
+    /* drawer follows the wire: swap the 'session' node's messages to the targeted
+       conversation, caching each session's thread so re-wiring restores it. */
+    React.useEffect(() => {
+      const want = targetConvId || window.NIM_CANVAS_GLOBAL_CONV_ID || null;
+      if (!want || want === shownConvRef.current) return;
+      const prev = shownConvRef.current;
+      shownConvRef.current = want;
+      setNodes(nds => nds.map(n => {
+        if (n.id !== 'session') return n;
+        if (prev) histCacheRef.current[prev] = n.data.messages || [];   // save outgoing thread
+        return { ...n, data: { ...n.data, messages: histCacheRef.current[want] || [], streamText:'', isStreaming:false } };
+      }));
+      if (!histCacheRef.current[want]) {                                // fetch unseen thread once
+        const tok = localStorage.getItem('nim_token');
+        fetch('/api/conversations/' + want + '/messages', { headers:{ Authorization:'Bearer '+tok } })
+          .then(r => r.ok ? r.json() : [])
+          .then(msgs => {
+            const mapped = msgs.map(m => ({ role:m.role, content:m.content, model:m.model||'', total_tokens:m.total_tokens||0 }));
+            histCacheRef.current[want] = mapped;
+            setNodes(nds => nds.map(n => n.id === 'session' && shownConvRef.current === want
+              ? { ...n, data: { ...n.data, messages: mapped } } : n));
+          }).catch(() => {});
+      }
+    }, [targetConvId]);
+
     /* ── internal helpers for canvas-sse.js (Stage 5) ── */
     const streamSession = React.useCallback((text, done) => {
       setNodes(nds => nds.map(n => n.id === 'session'
@@ -441,7 +486,17 @@
     /* merge AI canvas graph delta into React Flow state */
     const patchCanvas = React.useCallback(({ nodes: neoNodes, wires }) => {
       const rfNodes = (neoNodes || []).map(neoToRF);
-      setNodes(nds => [...nds.filter(n => !n.id.startsWith('ai-')), ...rfNodes]);
+      setNodes(nds => {
+        // carry over live chat state so a graph refresh mid-conversation doesn't wipe
+        // a wired session node's streamed reply / message history
+        const prev = Object.fromEntries(nds.filter(n => n.id.startsWith('ai-')).map(n => [n.id, n.data]));
+        const merged = rfNodes.map(n => {
+          const p = prev[n.id];
+          if (!p) return n;
+          return { ...n, data: { ...n.data, messages: p.messages, streamText: p.streamText, isStreaming: p.isStreaming } };
+        });
+        return [...nds.filter(n => !n.id.startsWith('ai-')), ...merged];
+      });
       const rfEdges = (wires || []).map(w => {
         const id = 'ai-wire-' + w.src_id + '__' + w.dst_id;
         aiWireMapRef.current[id] = { src_id: w.src_id, dst_id: w.dst_id };
@@ -508,32 +563,37 @@
       }
     }, [setNodes, setEdges, patchCanvas]);
 
-    /* append messages to session node history */
+    /* append messages to the single chat drawer (the 'session' node, which follows the
+       wired session); also cache them under the currently-shown conversation */
     const appendMessages = React.useCallback((newMsgs) => {
       setNodes(nds => nds.map(n => n.id === 'session'
         ? { ...n, data: { ...n.data, messages: [...(n.data.messages || []), ...newMsgs] } }
         : n
       ));
+      const cur = shownConvRef.current;
+      if (cur) histCacheRef.current[cur] = [...(histCacheRef.current[cur] || []), ...newMsgs];
     }, [setNodes]);
 
-    /* load JARVIS conversation history after mount */
+    /* load JARVIS conversation history after mount (initial drawer = global) */
     React.useEffect(() => {
       function load() {
         const convId = window.NIM_CANVAS_GLOBAL_CONV_ID;
         if (!convId) { setTimeout(load, 150); return; }
+        // a wire may have already switched the drawer to another session — don't clobber it
+        if (shownConvRef.current && shownConvRef.current !== convId) return;
         const tok = localStorage.getItem('nim_token');
         fetch('/api/conversations/' + convId + '/messages', {
           headers: { Authorization: 'Bearer ' + tok },
         })
         .then(r => r.ok ? r.json() : null)
         .then(msgs => {
-          if (!msgs || !msgs.length) return;
-          setNodes(nds => nds.map(n => n.id === 'session' ? {
-            ...n, data: { ...n.data, messages: msgs.map(m => ({
-              role: m.role, content: m.content,
-              model: m.model || '', total_tokens: m.total_tokens || 0,
-            })) }
-          } : n));
+          if (!msgs || !msgs.length) { shownConvRef.current = shownConvRef.current || convId; return; }
+          const mapped = msgs.map(m => ({ role:m.role, content:m.content, model:m.model||'', total_tokens:m.total_tokens||0 }));
+          histCacheRef.current[convId] = mapped;
+          shownConvRef.current = shownConvRef.current || convId;
+          if (shownConvRef.current !== convId) return;
+          setNodes(nds => nds.map(n => n.id === 'session'
+            ? { ...n, data: { ...n.data, messages: mapped } } : n));
         })
         .catch(() => {});
       }

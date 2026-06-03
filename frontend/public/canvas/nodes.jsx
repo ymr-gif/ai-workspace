@@ -382,6 +382,12 @@
   function SessionNode({ data, id }) {
     const compatS = useCompatState('sessionNode');
     const { streamText='', isStreaming=false, messages=[] } = data;
+    // global = the permanent JARVIS session (kind=global) or the static demo node
+    // (no conversation_id). config is spread flat into data by neoToRF, so read data.kind.
+    const isGlobal = data.kind === 'global' || !data.conversation_id;
+    // single chat drawer lives on the static 'session' node; it follows the wired
+    // session (Canvas.jsx swaps its messages to the Input→Session target).
+    const hasChat  = id === 'session';
 
     const ns = {
       card:   { ...S.nodeCard, width:300, borderLeft:'2px solid rgba(139,92,246,0.7)', ...animStyle(data.animState) },
@@ -398,18 +404,18 @@
             animation: data.animState==='processing' ? 'pulse 0.6s ease-in-out infinite' : 'pulse 2s ease-in-out infinite' }} />
           <div>
             <div style={{ fontFamily:C.TERM, fontSize:13, color:C.FG2 }}>
-              {data.config?.conversation_id ? 'AI SESSION' : 'GLOBAL SESSION'}
+              {isGlobal ? 'GLOBAL SESSION' : 'AI SESSION'}
             </div>
             <div style={ns.label}>
-              {data.config?.conversation_id
-                ? (data.config.conversation_id.slice(0,8) + '…')
-                : 'JARVIS // PERSISTENT'}
+              {isGlobal
+                ? 'JARVIS // PERSISTENT'
+                : (data.conversation_id.slice(0,8) + '…')}
             </div>
           </div>
           <NodeControls nodeId={id} pinned={data.pinned} />
         </div>
 
-        {id === 'session' && (
+        {hasChat && (
           <SessionOutputPanel
             session={null}
             streamText={streamText}
