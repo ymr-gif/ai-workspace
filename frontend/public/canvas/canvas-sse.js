@@ -7,7 +7,7 @@
  *   • Intercept NIM_CANVAS_CB assignment via Object.defineProperty
  *   • Replace onDemoSend with real POST /api/chat/stream SSE handler
  *   • Map SSE events → canvas node animations + Session output streaming
- *   • Wire file_ids (File→Session wire) and workspace_id (Workspace→Session wire)
+ *   • Wire file_ids (File→Session wire)
  */
 (function nimCanvasSSE() {
 
@@ -33,14 +33,12 @@
     const convId   = window.NIM_CANVAS_LAST_SESSION_ID
                    || window.NIM_CANVAS_GLOBAL_CONV_ID
                    || null;
-    const wsId     = window.NIM_CANVAS_LAST_WS_ID      || null;
     const model    = window.NIM_CANVAS_LAST_MODEL       || null;   // null → auto
     const fileIds  = window.NIM_CANVAS_LAST_FILE_IDS    || [];     // 5D: file wire
     const params   = window.NIM_CANVAS_LAST_PARAMS      || {};
 
     const body = { message: text };
     if (convId)            body.conversation_id = convId;
-    if (wsId)              body.workspace_id    = wsId;
     if (model && model !== 'auto') body.model_override = model;
     if (fileIds.length)    body.file_ids        = fileIds;         // new field (5D)
     if (params.tempOn)     body.temperature     = params.temp;

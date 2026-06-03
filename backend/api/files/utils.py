@@ -20,7 +20,6 @@ def _file_dict(f: FileModel) -> dict:
         "mime_type":       f.mime_type,
         "size_bytes":      f.size_bytes,
         "status":          f.upload_status,
-        "workspace_id":    f.workspace_id or "",
         "chunk_total":     f.chunk_total,
         "chunk_embedded":  f.chunk_embedded,
         "embed_fail_count": f.embed_fail_count,

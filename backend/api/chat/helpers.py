@@ -13,7 +13,7 @@ from llm.embeddings import embed as embed_text
 from llm.router import classify_query
 from llm.retriever.policy import get_policy
 from llm.summarizer.salience import bump_fact_saliences, compute_salience, score_facts
-from models import Conversation, File, MemoryConflict, Message, User, UserGoal, UserMemory, Workspace, WorkspaceMemory
+from models import Conversation, File, MemoryConflict, Message, User, UserGoal, UserMemory
 
 from .schemas import ChatRequest
 
@@ -78,26 +78,7 @@ async def _resolve_conversation(
             raise HTTPException(status_code=404, detail="Conversation not found")
         return conv
 
-    workspace_id: uuid.UUID | None = None
-    if req.workspace_id:
-        try:
-            wid = uuid.UUID(req.workspace_id)
-            ws  = await db.get(Workspace, wid)
-            if ws and ws.user_id == current_user.id:
-                workspace_id = wid
-        except ValueError:
-            pass
-    if workspace_id is None:
-        result = await db.execute(
-            select(Workspace)
-            .where(Workspace.user_id == current_user.id, Workspace.name == "Default")
-            .limit(1)
-        )
-        default_ws = result.scalar_one_or_none()
-        if default_ws:
-            workspace_id = default_ws.id
-
-    conv = Conversation(user_id=current_user.id, title=req.message[:60].strip(), workspace_id=workspace_id)
+    conv = Conversation(user_id=current_user.id, title=req.message[:60].strip())
     db.add(conv)
     await db.flush()
     return conv
@@ -263,19 +244,6 @@ async def _build_stream_context(
         else:
             logger.warning("[file_ctx] rid=%s file_ids=%d but NO chunks retrieved", rid, len(file_ids))
 
-    workspace_memory    = ""
-    workspace_sysprompt = None
-    if conv.workspace_id:
-        ws = await db.get(Workspace, conv.workspace_id)
-        if ws:
-            workspace_sysprompt = ws.system_prompt or None
-            ws_mem_row = await db.execute(
-                select(WorkspaceMemory).where(WorkspaceMemory.workspace_id == conv.workspace_id)
-            )
-            ws_mem = ws_mem_row.scalar_one_or_none()
-            if ws_mem and ws_mem.content:
-                workspace_memory = ws_mem.content
-
     conflicted_facts: frozenset[str] = frozenset()
     if memory_sheet:
         now = datetime.now(timezone.utc)
@@ -358,8 +326,6 @@ async def _build_stream_context(
         "file_chunks":         file_chunks,
         "file_names":          file_names,
         "file_ids":            file_ids,
-        "workspace_memory":    workspace_memory,
-        "workspace_sysprompt": workspace_sysprompt,
         "graph_context":       graph_context,
         "graph_facts":         graph_facts,
         "active_goals":        active_goals,

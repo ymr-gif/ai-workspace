@@ -6,7 +6,7 @@ export const VOID = '#000', PANEL = '#0a0a0a', INSET = '#050505'
 export const FG1 = '#ffffff', FG2 = '#c8c8c8', FG3 = '#8f8f8f', FG4 = '#5a5a5a', FG5 = '#383838'
 export const LINE = '#262626', LINE2 = '#4a4a4a'
 
-export const LAYERS = { overlay: 10, panel: 11, settingsModal: 20, wsModal: 22, viewer: 50 }
+export const LAYERS = { overlay: 10, panel: 11, settingsModal: 20, viewer: 50 }
 
 const panelBase = { position:'absolute', top:0, right:0, bottom:0, background:'#070707', borderLeft:`2px solid ${RED}`, zIndex:LAYERS.panel, display:'flex', flexDirection:'column', transition:'transform 0.18s cubic-bezier(.2,.9,.1,1)' }
 
@@ -169,8 +169,7 @@ const s = {
   urlRow:        { display:'flex', gap:'0.4rem', padding:'0 1.1rem 0.7rem', borderBottom:`1px solid ${LINE}`, flexShrink:0 },
   urlInput:      { flex:1, padding:'0.35rem 0.55rem', borderRadius:0, border:`1px solid ${LINE2}`, background:'#000', color:FG1, fontFamily:TERM, fontSize:'16px', outline:'none' },
   ingestBtn:     { padding:'0.3rem 0.7rem', borderRadius:0, background:'rgba(61,255,110,0.08)', color:GRN, border:`1px solid ${GRN}`, cursor:'pointer', fontFamily:DISP, fontSize:'9px', letterSpacing:'0.06em', textTransform:'uppercase', whiteSpace:'nowrap' },
-  wsRow:         { display:'flex', gap:'0.3rem', padding:'0.5rem 1.1rem', borderBottom:`1px solid ${LINE}`, flexShrink:0, flexWrap:'wrap', alignItems:'center' },
-  wsLabel:       { fontFamily:DISP, fontSize:'9px', letterSpacing:'0.08em', textTransform:'uppercase', color:FG4, marginRight:'0.15rem' },
+  // generic pill (reused by Automations/Goals/Search/ToolLog filter rows)
   wsPill:        { padding:'0.2rem 0.5rem', borderRadius:0, border:`1px solid ${LINE2}`, background:'none', color:FG3, cursor:'pointer', fontFamily:DISP, fontSize:'9px', letterSpacing:'0.06em', textTransform:'uppercase' },
   wsPillActive:  { background:'rgba(255,34,34,0.10)', borderColor:RED, color:RED },
   fileList:      { flex:1, overflowY:'auto', padding:'0.5rem 1.1rem' },
@@ -184,11 +183,6 @@ const s = {
   fileChipsRow:  { display:'flex', gap:'0.35rem', padding:'0 1.25rem 0.4rem', flexWrap:'wrap' },
   fileChip:      { display:'flex', alignItems:'center', gap:'0.3rem', padding:'0.2rem 0.5rem', borderRadius:0, background:PANEL, border:`1px solid ${LINE2}`, fontFamily:TERM, fontSize:'15px', color:CYN },
   chipX:         { cursor:'pointer', color:FG4, fontSize:'0.85rem', lineHeight:1 },
-
-  // workspace modal / gear
-  wsGearBtn:    { background:'none', border:'none', color:FG4, cursor:'pointer', fontSize:'0.6rem', padding:'0 1px', lineHeight:1, marginLeft:'1px' },
-  wsPlusBtn:    { padding:'0.18rem 0.45rem', borderRadius:0, border:`1px dashed ${LINE2}`, background:'none', color:FG4, cursor:'pointer', fontFamily:DISP, fontSize:'9px', lineHeight:1.2 },
-  wsModal:      { position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:'420px', maxWidth:'92vw', background:'#070707', border:`1px solid ${LINE}`, zIndex:LAYERS.wsModal, display:'flex', flexDirection:'column' },
 
   // sidebar search
   sideSearchWrap:  { padding:'0.4rem 0.5rem', borderBottom:`1px solid ${LINE}`, flexShrink:0 },

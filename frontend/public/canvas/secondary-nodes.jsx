@@ -1,4 +1,4 @@
-/* NIM // CANVAS — Files + Workspace nodes. Exports: FilesNode, WorkspaceNode */
+/* NIM // CANVAS — Files node. Exports: FilesNode */
 (function () {
   const C = window.NIM_CANVAS_C;
   const S = window.NIM_CANVAS_S;
@@ -39,7 +39,6 @@
   /* ─────────────── FILES NODE ─────────────── */
   function FilesNode({ data, id }) {
     const [files, setFiles]     = React.useState(data.files || []);
-    const [wsFilter, setWsF]    = React.useState('ALL');
     const [url, setUrl]         = React.useState('');
     const [fetching, setFetch]  = React.useState(false);
 
@@ -96,18 +95,6 @@
           <NodeControls nodeId={id} pinned={data.pinned} />
         </div>
 
-        {/* Workspace filter */}
-        <div style={{ ...ns.sec, display:'flex', gap:4, flexWrap:'wrap' }}>
-          {['ALL','Research','Infra'].map(w => (
-            <button key={w} onClick={() => setWsF(w)}
-              style={{ padding:'2px 7px', border:`1px solid ${wsFilter===w?C.AMB:C.LINE2}`,
-                background: wsFilter===w?'rgba(255,176,0,0.1)':'none',
-                color: wsFilter===w?C.AMB:C.FG5, fontFamily:C.DISP, fontSize:7, cursor:'pointer', letterSpacing:'0.06em' }}>
-              {w}
-            </button>
-          ))}
-        </div>
-
         {/* File list */}
         <div style={{ maxHeight:160, overflowY:'auto' }} className="nim-scroll">
           {files.map(f => (
@@ -140,84 +127,5 @@
     );
   }
 
-  /* ─────────────── WORKSPACE NODE ─────────────── */
-  function WorkspaceNode({ data, id }) {
-    const { workspace, workspaces=[] } = data;
-    const [expanded, setExpanded] = React.useState(false);
-    const [wsIdx,    setWsIdx]    = React.useState(0);
-    const ws = workspaces[wsIdx] || workspace || {};
-    /* config.name set by AI when creating via create_canvas_node */
-    const wsName = ws.name || data.config?.name || data.label || null;
-
-    const ns = {
-      card:  { ...S.nodeCard, minWidth:240, width:'max-content', maxWidth:520,
-               borderLeft:`2px solid ${C.CYN}`, ...((window.getAnimStyle||((s)=>({})))(data.animState)) },
-      dot:   { width:8, height:8, background:C.CYN, flexShrink:0, boxShadow:`0 0 5px ${C.CYN}` },
-      desc:  { fontFamily:C.TERM, fontSize:11, color:C.FG4, lineHeight:1.4, padding:'6px 10px',
-               borderBottom:`1px solid ${C.LINE}` },
-      spWrap:{ padding:'6px 10px', borderBottom:`1px solid ${C.LINE}` },
-      spHdr: { display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer', marginBottom:4 },
-      spLbl: { fontFamily:C.DISP, fontSize:7, color:C.FG5, letterSpacing:'0.12em', textTransform:'uppercase' },
-      spTxt: { fontFamily:C.TERM, fontSize:11, color:C.FG5, lineHeight:1.4, whiteSpace:'pre-wrap' },
-      sWrap: { padding:'6px 10px', borderBottom:`1px solid ${C.LINE}` },
-      scope: { fontFamily:C.DISP, fontSize:8, color:C.CYN, letterSpacing:'0.1em', textTransform:'uppercase' },
-      pills: { display:'flex', gap:4, padding:'6px 10px', flexWrap:'wrap' },
-      pill:  (a) => ({ padding:'2px 8px', border:`1px solid ${a?C.CYN:C.LINE2}`,
-               background:a?'rgba(39,216,255,0.1)':'none', color:a?C.CYN:C.FG5,
-               fontFamily:C.DISP, fontSize:8, cursor:'pointer', letterSpacing:'0.06em' }),
-    };
-
-    return (
-      <div style={ns.card}>
-        <Handle type="target" position={Position.Left}  style={{ ...S.handle, left:-5 }} />
-
-        {/* header: WORKSPACE | name  ✕  ◉ */}
-        <div style={{ ...S.nodeHeader, borderLeft:'none', flexWrap:'nowrap' }}>
-          <span style={ns.dot} />
-          <span style={{ fontFamily:C.DISP, fontSize:9, color:C.FG5, letterSpacing:'0.12em',
-            textTransform:'uppercase', flexShrink:0 }}>WORKSPACE</span>
-          {wsName && (
-            <span style={{ fontFamily:C.DISP, fontSize:11, color:C.CYN, letterSpacing:'0.06em',
-              paddingLeft:6, whiteSpace:'nowrap' }}>| {wsName}</span>
-          )}
-          <NodeControls nodeId={id} pinned={data.pinned} />
-        </div>
-
-        {/* workspace switcher (static list only) */}
-        {workspaces.length > 1 && (
-          <div style={ns.pills}>
-            {workspaces.map((w,i) => (
-              <button key={w.id} style={ns.pill(wsIdx===i)} onClick={() => setWsIdx(i)}>{w.name}</button>
-            ))}
-          </div>
-        )}
-
-        {ws.description && <div style={ns.desc}>{ws.description}</div>}
-
-        {/* system prompt */}
-        <div style={ns.spWrap}>
-          <div style={ns.spHdr} onClick={() => setExpanded(o=>!o)}>
-            <span style={ns.spLbl}>System Prompt</span>
-            <span style={{ fontFamily:C.DISP, fontSize:8, color:C.FG5 }}>{expanded?'▲':'▼'}</span>
-          </div>
-          {expanded && <div style={ns.spTxt}>{ws.system_prompt || '(none)'}</div>}
-        </div>
-
-        {/* scope */}
-        <div style={ns.sWrap}>
-          <div style={{ fontFamily:C.DISP, fontSize:7, color:C.FG5, letterSpacing:'0.12em',
-            textTransform:'uppercase', marginBottom:4 }}>Scope</div>
-          <div style={ns.scope}>
-            {data.scopedSessions?.length > 0
-              ? `${data.scopedSessions.length} SESSION(S) WIRED`
-              : 'NO SESSIONS WIRED'}
-          </div>
-        </div>
-
-        <Handle type="source" position={Position.Right} style={{ ...S.handle, right:-5 }} />
-      </div>
-    );
-  }
-
-  Object.assign(window, { FilesNode, WorkspaceNode });
+  Object.assign(window, { FilesNode });
 })();

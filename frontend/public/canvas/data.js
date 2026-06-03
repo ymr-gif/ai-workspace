@@ -85,13 +85,6 @@ const MOCK_USAGE_CANVAS = {
   window: 'rolling 30d',
 };
 
-const MOCK_WORKSPACES = [
-  { id:'ws1', name:'Research', description:'Deep-dive research tasks and synthesis.',
-    system_prompt:'You are a research assistant focused on technical accuracy and thorough citations.' },
-  { id:'ws2', name:'Infra',    description:'Infrastructure and architecture decisions.',
-    system_prompt:'You are an expert in cloud infrastructure and backend architecture. Be concise.' },
-];
-
 const INITIAL_NODES = [
   { id:'input',     type:'inputNode',      data:{ sessions:MOCK_SESSIONS },                                                                        position:{ x:120, y:300 } },
   { id:'config',    type:'configNode',     data:{ models:MOCK_MODELS },                                                                            position:{ x:120, y:100 } },
@@ -100,13 +93,11 @@ const INITIAL_NODES = [
   { id:'files',     type:'filesNode',      data:{ files:MOCK_FILES_CANVAS },                                                                       position:{ x:780, y:300 } },
   { id:'usage',     type:'usageNode',      data:{},                                                                                                position:{ x:780, y:500 } },
   { id:'logs',      type:'logsNode',       data:{},                                                                                                position:{ x:1100,y:300 } },
-  { id:'workspace', type:'workspaceNode',  data:{ workspace:MOCK_WORKSPACES[0], workspaces:MOCK_WORKSPACES },                                      position:{ x:120, y:520 } },
 ];
 
 const INITIAL_EDGES = [
   { id:'e-in-ses',  source:'input',   target:'session',  style:{ stroke:'#555', strokeWidth:1.5 } },
   { id:'e-cfg-ses', source:'config',  target:'session',  style:{ stroke:'#555', strokeWidth:1.5 } },
-  { id:'e-ws-ses',  source:'workspace',target:'session', style:{ stroke:'#555', strokeWidth:1.5 } },
   { id:'e-ses-mem', source:'session', target:'memory',   style:{ stroke:'#555', strokeWidth:1.5 } },
   { id:'e-ses-fil', source:'session', target:'files',    style:{ stroke:'#555', strokeWidth:1.5 } },
   { id:'e-ses-use', source:'session', target:'usage',    style:{ stroke:'#555', strokeWidth:1.5 } },
@@ -120,7 +111,6 @@ const CTX_NODE_TYPES = [
   { id:'files',     label:'Files Node',     icon:'FolderOpen'    },
   { id:'logs',      label:'Logs Node',      icon:'ScrollText'    },
   { id:'usage',     label:'Usage Node',     icon:'BarChart2'     },
-  { id:'workspace', label:'Workspace Node', icon:'Layers'        },
   { id:'config',    label:'Config Node',    icon:'Settings'      },
 ];
 
@@ -189,6 +179,6 @@ const MOCK_STREAM = 'Auto-routing picks the cheapest model that clears the confi
 window.NIM_CANVAS_DATA = {
   MOCK_HW, MOCK_SESSIONS, MOCK_MEMORY, MOCK_MODELS,
   MOCK_GRAPH, MOCK_HISTORY, MOCK_MEMORY_EDIT, MOCK_STREAM,
-  MOCK_FILES_CANVAS, MOCK_LOGS_CANVAS, MOCK_USAGE_CANVAS, MOCK_WORKSPACES,
+  MOCK_FILES_CANVAS, MOCK_LOGS_CANVAS, MOCK_USAGE_CANVAS,
   buildBootLines, INITIAL_NODES, INITIAL_EDGES, CTX_NODE_TYPES, fetchHardware,
 };

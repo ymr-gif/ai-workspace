@@ -12,7 +12,6 @@ from api.admin import router as admin_router
 from api.graph import router as graph_router
 from api.compat import router as compat_router
 from api.insights import router as insights_router
-from api.workspaces import router as workspaces_router
 from api.chat import router as chat_router
 from api.conversations import router as conversations_router
 from api.files import router as files_router
@@ -123,7 +122,6 @@ app.include_router(admin_router)
 app.include_router(usage_router)
 app.include_router(templates_router)
 app.include_router(scheduled_prompts_router)
-app.include_router(workspaces_router)
 app.include_router(export_router)
 app.include_router(goals_router)
 app.include_router(search_router)

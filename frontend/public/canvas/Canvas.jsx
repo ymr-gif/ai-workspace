@@ -45,7 +45,6 @@
   const COMPAT = {
     'inputNode|sessionNode':      { ok:true,  label:'message routing' },
     'configNode|sessionNode':     { ok:true,  label:'model params'     },
-    'workspaceNode|sessionNode':  { ok:true,  label:'scoped context'   },
     'sessionNode|memoryNode':     { ok:true,  label:'read/write'       },
     'sessionNode|filesNode':      { ok:true,  label:'file context'     },
     'sessionNode|usageNode':      { ok:true,  label:'usage tracking'   },
@@ -63,7 +62,7 @@
   /* ── Smart handle routing ── */
   const HANDLE_SRC = ['s-top', 's-right', 's-bot', 's-left'];
   const HANDLE_TGT = ['t-top', 't-right', 't-bot', 't-left'];
-  const NODE_W = { inputNode:280, sessionNode:300, configNode:280, memoryNode:260, filesNode:280, workspaceNode:280, logsNode:260, usageNode:260 };
+  const NODE_W = { inputNode:280, sessionNode:300, configNode:280, memoryNode:260, filesNode:280, logsNode:260, usageNode:260 };
   const OCCUPANCY_PENALTY = 80;
 
   function getHandlePos(node, hid) {
@@ -111,7 +110,7 @@
   const _NEO_TYPE_MAP = {
     input:'inputNode', session:'sessionNode', memory:'memoryNode',
     files:'filesNode', logs:'logsNode', usage:'usageNode',
-    workspace:'workspaceNode', config:'configNode',
+    config:'configNode',
   };
   function neoToRF(n, idx) {
     const rfId = 'ai-' + n.node_id;
@@ -149,7 +148,6 @@
     memHistoryNode: window.MemoryHistoryNode,
     memGraphNode:   window.MemoryGraphNode,
     filesNode:      window.FilesNode,
-    workspaceNode:  window.WorkspaceNode,
     logsNode:       window.LogsNode,
     usageNode:      window.UsageNode,
   };
@@ -425,12 +423,9 @@
     /* wire semantic feedback — watch edges, propagate to node data */
     React.useEffect(() => {
       const hasFile = edges.some(e => e.source === 'files'     && e.target === 'session');
-      const hasWs   = edges.some(e => e.source === 'workspace' && e.target === 'session');
       setNodes(nds => nds.map(n => {
-        if (n.id === 'session')   return { ...n, data: { ...n.data, fileAttached: hasFile, wsWired: hasWs } };
+        if (n.id === 'session')   return { ...n, data: { ...n.data, fileAttached: hasFile } };
         if (n.id === 'files')     return { ...n, data: { ...n.data, wireAttached: hasFile } };
-        if (n.id === 'workspace') return { ...n, data: { ...n.data,
-          scopedSessions: hasWs ? [{ id:'session', name:'routing-strategy' }] : [] } };
         return n;
       }));
     }, [edges]);

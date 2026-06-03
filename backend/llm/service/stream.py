@@ -96,7 +96,6 @@ async def generate_stream(
     db                                  = None,
     image_b64:        str | None        = None,
     image_mime_type:  str | None        = None,
-    workspace_memory: str               = "",
     graph_context:    str               = "",
     graph_facts:      str               = "",
     active_goals:     str               = "",
@@ -173,7 +172,7 @@ async def generate_stream(
     base_messages = build_context_messages(
         memory_sheet, project_summary, retrieved_chunks, history_summary,
         history, system_prompt, file_chunks, file_names, file_ids,
-        workspace_memory=workspace_memory, graph_context=graph_context,
+        graph_context=graph_context,
         graph_facts=graph_facts, active_goals=active_goals,
         conflicted_facts=conflicted_facts, last_session=last_session,
         boot_log=boot_log, node_inventory=node_inventory, canvas_state=canvas_state,

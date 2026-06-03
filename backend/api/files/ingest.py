@@ -20,7 +20,6 @@ router = APIRouter()
 
 class IngestURLRequest(BaseModel):
     url:          str
-    workspace_id: str = ""
 
 
 @router.post("/ingest-url", status_code=201)
@@ -59,7 +58,6 @@ async def ingest_url(
         mime_type    = "text/plain",
         size_bytes   = size_bytes,
         storage_path = storage_path,
-        workspace_id = body.workspace_id.strip() or None,
         upload_status= "uploaded",
         sha256_hash  = sha256,
     )

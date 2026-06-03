@@ -6,11 +6,11 @@
 ├── config.py               — env vars loaded from ../.env via find_dotenv()
 ├── agent/                  — canvas architecture (node registry, Neo4j CRUD, boot diagnostics)
 │   ├── __init__.py
-│   ├── node.py             — Node dataclass + 12-type registry
+│   ├── node.py             — Node dataclass + 11-type registry
 │   ├── canvas_graph.py     — Neo4j CanvasNode CRUD, canvas cache, scratchpad read/write
 │   └── boot.py             — agent_boot() health checks, BootReport, format_boot_log()
-├── models/                 — ORM (23 classes: Workspace, WorkspaceMemory, Invitation, User, UserInsight, AdminAuditLog, UserMemory, MemoryConflict, UserMemoryVersion, UserBehaviorProfile, UserGoal, File, FileChunk, FileVersion, Conversation, Message, MessageEmbedding, ConversationFile, ToolCallLog, PromptTemplate, ScheduledPrompt, ScheduledPromptRun, SystemConfig)
-├── alembic/versions/       — 036 migrations; latest: 036_agent_scratchpad.py
+├── models/                 — ORM (21 classes: Invitation, User, UserInsight, AdminAuditLog, UserMemory, MemoryConflict, UserMemoryVersion, UserBehaviorProfile, UserGoal, File, FileChunk, FileVersion, Conversation, Message, MessageEmbedding, ConversationFile, ToolCallLog, PromptTemplate, ScheduledPrompt, ScheduledPromptRun, SystemConfig)
+├── alembic/versions/       — 037 migrations; latest: 037_drop_workspaces.py (removed the workspace layer)
 ├── auth/                   — JWT, bcrypt (direct, no passlib), API key fallback, invite validation
 ├── tests/
 │   └── test.py + retrieval/conftest.py + test_hybrid_eval.py — 47 tests, mock DB, no NIM
@@ -36,8 +36,7 @@
 │   │   ├── stream.py       — POST /chat/stream SSE endpoint + event_generator; status="partial" for mid-stream breaks (STREAM_INTERRUPTIONS counter); ALL_MODELS_FAILED counter; emits `canvas_update` event after any `canvas_*` tool result (frontend re-fetches GET /canvas/graph); saves `pending_question` from `ask_user` event as assistant message content; injects node_inventory with supplemental prompt instructions
 │   │   ├── helpers.py      — context build, model resolve, cost cap; auto-resolves expired MemoryConflicts (keep_a); time-based fact salience decay in ranking (not persisted)
 │   │   └── background.py   — auto-title, embed, proactive, token/cost calc; _auto_title uses atomic UPDATE...WHERE title=:default (no TOCTOU race)
-│   ├── workspaces.py       — /workspaces CRUD + memory routes
-│   ├── files/              — upload, ingest-url, search, versions, workspace assign; sha256 dedup
+│   ├── files/              — upload, ingest-url, search, versions; sha256 dedup
 │   ├── conversations/      — list (?q=), export, PATCH, delete; file attach/detach
 │   │   ├── __init__.py     — combines crud + files sub-routers
 │   │   ├── crud.py         — list, messages, PATCH, export, delete
@@ -73,17 +72,17 @@
 
 ## Key Models
 - **User**: cost_limit_usd/cost_window_days cap, api_key auth, is_active gate
-- **File**: sha256_hash dedup `(user_id, hash)`, workspace_id FK SET NULL
+- **File**: sha256_hash dedup `(user_id, hash)`
 - **Message**: content_tsv GIN for full-text search; tracks token + cost; `token_estimate` (bool, nullable) — true = character-heuristic backfill (migration 032), null = real NIM data
 - **SystemConfig**: key/value store — tracks MODEL_EMBEDDING for re-embed triggers
-- Others: 15 more in `models/` (chat, file, workspace, memory, tools, scheduled, auth); ScheduledPrompt now has `workspace_id` (UUID, FK to workspaces, nullable)
+- Others: more in `models/` (chat, file, memory, tools, scheduled, auth)
 - **UserBehaviorProfile**: one row per user, JSONB `profile` with `query_types / topic_keywords / tools_used / models_used / total_messages`; updated via ARQ `update_behavior_profile_job` post-reply; feeds `generate_user_insight()`; migration 033
 - **UserMemory**: added `agent_scratchpad` JSONB (nullable) in migration 036 — append-only merge canvas writes
 
 ---
 
 ## ChatRequest
-`message` (str, max 2000) · `conversation_id` · `workspace_id` (UUID) · `model_override`
+`message` (str, max 2000) · `conversation_id` · `model_override`
 `temperature` (0–2) · `max_tokens` (1–4096) · `top_p` (0–1) · `compare` (bool)
 `image_b64` (base64 → forces vision) · `image_mime_type`
 `file_ids` (list[str], default []) — explicit file UUIDs to attach per-request (canvas File→Session wire); merged with conversation-attached files in `helpers.py`; ownership-checked against `current_user.id` before use; triggers embedding + reasoning model (70B) same as conversation files
@@ -93,9 +92,9 @@
 ## AI Agent Tool Loop
 - Trigger: any message when `file_ids` non-empty → always forces reasoning model (70B); 8B cannot reliably use tool results
 - File tools always available when files attached (not keyword-gated); `_needs_file_tools()` no longer gates tool availability
-- Tools (20 total — 11 existing + 7 canvas + 2 creation): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph` · `create_conversation` (Postgres Conversation + returns id; AI follows with create_canvas_node type=session) · `create_workspace` (Postgres Workspace + returns id; AI follows with create_canvas_node type=workspace)
+- Tools (19 total — 11 existing + 7 canvas + 1 creation): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph` · `create_conversation` (Postgres Conversation + returns id; AI follows with create_canvas_node type=session)
 - Guards: same tool >3× → abort · MAX_TOOL_ITERATIONS=20 · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
-- **Creation guard** (`create_conversation` / `create_workspace`): 3-layer state machine in `executor.py` (`_run_creation_guard`)
+- **Creation guard** (`create_conversation`): 3-layer state machine in `executor.py` (`_run_creation_guard`)
 - `ask_user` / `write_memory` emit SSE + done → pauses loop; amber/green card in UI; `POST /api/memory/write` on user confirm; `ask_user` question persisted as assistant message content so model sees it on next turn
 - `append_to_file` for explicit write requests only; `search_in_file` preferred over `read_file` for sections
 
@@ -105,9 +104,9 @@
 
 ### Node Registry (`agent/node.py`)
 - `Node` dataclass: `name`, `label`, `ports` (input/output), `tools`, `default_config`, + policy flags `embedded` / `ai_creatable` / `permanent`
-- 12 node types: `input`, `session`, `memory`, `files`, `logs`, `usage`, `workspace`, `config`, `insights`, `goals`, `automations`, `mech`
+- 11 node types: `input`, `session`, `memory`, `files`, `logs`, `usage`, `config`, `insights`, `goals`, `automations`, `mech`
 - `registry: dict[str, Node]` and `get_node_type()` lookup
-- **Single source of truth for type classification** (H1): derived frozensets — `EMBEDDED_TYPES` (insights/goals/automations/mech), `AI_CREATABLE_TYPES` (files/logs/usage/workspace), `PERMANENT_TYPES` (input/memory/config), `MANAGED_TYPES` (input/session/memory/config — internal-create only). Consumed by `canvas_graph.create_node`, `api/chat/stream.py` (`_CREATABLE_NODES`), `llm/tools/schemas.py`. Never re-hardcode these sets.
+- **Single source of truth for type classification** (H1): derived frozensets — `EMBEDDED_TYPES` (insights/goals/automations/mech), `AI_CREATABLE_TYPES` (files/logs/usage), `PERMANENT_TYPES` (input/memory/config), `MANAGED_TYPES` (input/session/memory/config — internal-create only). Consumed by `canvas_graph.create_node`, `api/chat/stream.py` (`_CREATABLE_NODES`), `llm/tools/schemas.py`. Never re-hardcode these sets.
 - **`create_node` guard:** rejects `EMBEDDED_TYPES`; rejects `MANAGED_TYPES` unless `internal=True` (bootstrap paths `_ensure_canvas_wiring` / `_ensure_creation_wiring`); rejects non-UUID `config.conversation_id`.
 - **Session identity (H4):** `config.kind` = `"global"` (permanent JARVIS session, set by `_ensure_canvas_wiring`) vs `"user"` (ordinary, set by `_ensure_creation_wiring`); CANVAS STATE renders `[GLOBAL]` / `[user session]`.
 
@@ -118,7 +117,7 @@
 
 ## Creation Guard (`llm/tools/executor.py`)
 
-3-layer state machine preventing `create_conversation` / `create_workspace` without explicit user intent.
+3-layer state machine preventing `create_conversation` without explicit user intent.
 
 ### Layer 1 — Redis Flow State
 - Key: `creation_flow:{conv_id}`, TTL 300s
@@ -129,7 +128,7 @@
 
 ### Layer 2 — Latest Message Intent
 - Queries ONLY the most recent user message (`.limit(1)`) — not last 3
-- Matches against `_CREATION_RE`: `(create|new|make|start|set up|setup)...(session|workspace|conversation)` or reverse order
+- Matches against `_CREATION_RE`: `(create|new|make|start|set up|setup)...(session|conversation)` or reverse order
 - Skips messages matching `_NEGATION_RE` (don't create, never mind, cancel, etc.)
 - Also checks `noun in text` or generic `(create|new|make|start) (one|a|an|the|this|some)`
 - Returns `ASK_USER_PREFIX` to ask user for specs + confirmation
@@ -141,15 +140,15 @@
 - Prevented false-positive: canvas queries like "what nodes are on my canvas?" do NOT match → stays pending
 
 ### Rejection Flow
-- All 3 layers false → returns instructional rejection string (not `ASK_USER_PREFIX`): "Cannot create session/workspace: the user didn't request one."
+- All 3 layers false → returns instructional rejection string (not `ASK_USER_PREFIX`): "Cannot create session: the user didn't request one."
 - Model sees this as tool result text, can retry or move on
 - If user hasn't confirmed → returns "The user hasn't confirmed yet. Wait for their response."
 
 ### Auto-wiring
-- On successful creation, `_ensure_creation_wiring()` creates the matching canvas node (type=session/workspace) and wires it to the input node from `routed_message`. Port/relation are type-specific: session → `message` (relation `routes_to`); workspace → `workspace_id` (relation `manages`). The system prompt tells the model NOT to create/wire these nodes itself — auto-wiring owns it.
+- On successful creation, `_ensure_creation_wiring()` creates the matching session canvas node and wires it to the input node: `routed_message` → `message` (relation `routes_to`). The system prompt tells the model NOT to create/wire the node itself — auto-wiring owns it.
 
 ### Prompt Reinforcement
-- Node inventory prompt includes: "Never call create_conversation or create_workspace unless the user explicitly asks to create a session or workspace."
+- Node inventory prompt includes: "Never call create_conversation unless the user explicitly asks to create a session."
 - Rejection messages reinforce: "This tool creates real database records — only call it when the user explicitly asks."
 
 ---
@@ -167,14 +166,14 @@
 - `format_boot_log(report)`: formatted for system prompt injection
 
 ### System Prompt Injection (Step 7)
-- Boot log, node inventory (12 types), and canvas state prepended to system message on every request
+- Boot log, node inventory (11 types), and canvas state prepended to system message on every request
 - Tier 0 (never dropped by context budget allocator)
 - Combined size ~500 tokens
 
 ---
 
 ## Memory System
-Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACTIVE GOALS → WORKSPACE/PROJECT → RELEVANT CONTEXT → EARLIER IN THIS CONVERSATION → LAST SESSION → history → FILE CONTEXT → user message
+Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACTIVE GOALS → PROJECT → RELEVANT CONTEXT → EARLIER IN THIS CONVERSATION → LAST SESSION → history → FILE CONTEXT → user message
 
 - Triggers: memory update >3000 tok OR every 10 asst msgs; history compression + project summary update >4000 tok OR every 15 total msgs (all_count > 10); auto-title after 2nd msg via `asyncio.create_task`
 - Lock: `pg_advisory_xact_lock(user_id)` prevents version races

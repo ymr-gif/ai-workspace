@@ -17,7 +17,7 @@ def test_embedded_types():
 
 
 def test_ai_creatable_types():
-    assert AI_CREATABLE_TYPES == {"files", "logs", "usage", "workspace"}
+    assert AI_CREATABLE_TYPES == {"files", "logs", "usage"}
 
 
 def test_permanent_types():

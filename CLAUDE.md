@@ -3,7 +3,7 @@
 ## What This Is
 FastAPI backend routing chat messages to NVIDIA NIM models via keyword classification.
 React/Vite frontend. Docker Compose stack: Postgres + pgvector, Redis, Neo4j, Prometheus, Grafana.
-Features: SSE streaming, conversation history, multi-tier memory, pgvector RAG, file knowledge base, AI agent tool loop, model control, markdown rendering, workspace layer, invite-gated registration, conversation search + export, auto-title, graph memory (Neo4j), re-embed on MODEL_EMBEDDING change, retrieval eval harness (`tests/retrieval/test_hybrid_eval.py`), memory salience engine, context budget allocator, memory compaction, adaptive retrieval policy.
+Features: SSE streaming, conversation history, multi-tier memory, pgvector RAG, file knowledge base, AI agent tool loop, model control, markdown rendering, invite-gated registration, conversation search + export, auto-title, graph memory (Neo4j), re-embed on MODEL_EMBEDDING change, retrieval eval harness (`tests/retrieval/test_hybrid_eval.py`), memory salience engine, context budget allocator, memory compaction, adaptive retrieval policy.
 
 > Subdir details: `backend/CLAUDE.md` · `docker/CLAUDE.md` · `frontend/CLAUDE.md`
 > Commands: `COMMANDS.md` · HANDOFF workflow: `HANDOFF_PROTOCOL.md` · Bug tracker: `BUGS.md`

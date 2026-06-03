@@ -11,7 +11,7 @@ from config import JWT_EXPIRE_MINUTES, REQUIRE_INVITE
 from core.db import get_db
 from auth.schemas import Token, RegisterRequest
 from auth.security import authenticate_user, create_access_token, get_current_user, get_user, hash_password
-from models import Invitation, User, Workspace
+from models import Invitation, User
 
 logger      = logging.getLogger("auth")
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -73,9 +73,6 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
         if invite:
             invite.used_by_id = user.id
             invite.used_at    = datetime.now(timezone.utc)
-
-        # Create Default workspace for the new user
-        db.add(Workspace(user_id=user.id, name="Default"))
 
         await db.commit()
         await db.refresh(user)

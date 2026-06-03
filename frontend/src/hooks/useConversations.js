@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 
-export default function useConversations(token, sidebarWsId) {
+export default function useConversations(token) {
   const [conversations, setConversations] = useState([])
   const [activeConvId, setActiveConvId] = useState(null)
   const [messages, setMessages] = useState([])
@@ -51,13 +51,12 @@ export default function useConversations(token, sidebarWsId) {
       setSearchLoading(true)
       try {
         const qs = new URLSearchParams({ q: convSearch.trim() })
-        if (sidebarWsId) qs.set('workspace_id', sidebarWsId)
         const r = await fetch(`/api/conversations?${qs}`, { headers: authHeaders })
         if (r.ok) setSearchResults(await r.json())
       } catch { /* ignore */ } finally { setSearchLoading(false) }
     }, 350)
     return () => clearTimeout(tid)
-  }, [convSearch, sidebarWsId])
+  }, [convSearch])
 
   function newChat() { setActiveConvId(null); setMessages([]); setInput(''); setConvSysPrompt(''); setConvLockModel('') }
 
