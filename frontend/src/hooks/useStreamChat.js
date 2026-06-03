@@ -1,10 +1,10 @@
 import { MODEL_KEYS } from '../lib/chatConstants.js'
 
-export default function useStreamChat({ token, conv, modelParams, ws, mem, insights, onLogout }) {
+export default function useStreamChat({ token, conv, modelParams, mem, insights, onLogout }) {
   const authHeaders = { 'Authorization': `Bearer ${token}` }
 
   function buildBody(text) {
-    const body = { message: text, conversation_id: conv.activeConvId, workspace_id: ws.sidebarWsId }
+    const body = { message: text, conversation_id: conv.activeConvId }
     if (modelParams.selectedModel !== 'auto') body.model_override = modelParams.selectedModel
     if (modelParams.compareMode) body.compare = true
     if (modelParams.tempEnabled)   body.temperature = modelParams.temperature
@@ -89,7 +89,7 @@ export default function useStreamChat({ token, conv, modelParams, ws, mem, insig
                 conv.setConversations(prev => {
                   const exists = prev.find(c => c.id === cid)
                   if (exists) return [{ ...exists, updated_at: new Date().toISOString() }, ...prev.filter(c => c.id !== cid)]
-                  return [{ id: cid, title: text.slice(0, 60), updated_at: new Date().toISOString(), memory_enabled: true, system_prompt: '', locked_model: '', workspace_id: ws.sidebarWsId }, ...prev]
+                  return [{ id: cid, title: text.slice(0, 60), updated_at: new Date().toISOString(), memory_enabled: true, system_prompt: '', locked_model: '' }, ...prev]
                 })
               }
             } else if (event.type === 'tool_call') {

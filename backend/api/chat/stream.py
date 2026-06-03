@@ -12,7 +12,7 @@ from auth import get_current_user
 from cache import get_cached_response
 from core.db import get_db
 from llm import service
-from models import Conversation, ConversationFile, Message, User, Workspace
+from models import Conversation, ConversationFile, Message, User
 from observability import events, metrics, observability
 from observability.prom_metrics import (
     ALL_MODELS_FAILED, ERROR_COUNT, LATENCY, MODEL_LATENCY, MODEL_USAGE,
@@ -44,8 +44,8 @@ logger = logging.getLogger("chat")
 _CANVAS_WRITE_TOOLS = frozenset({
     "create_canvas_node", "delete_canvas_node", "update_canvas_node",
     "wire_nodes", "unwire_nodes",
-    # these auto-create + wire a canvas node via _ensure_creation_wiring
-    "create_conversation", "create_workspace",
+    # this auto-creates + wires a canvas node via _ensure_creation_wiring
+    "create_conversation",
 })
 
 
@@ -89,13 +89,6 @@ async def chat_stream(
                 history_tail = "\n".join(reversed(rows.scalars().all()))
             cache_model = effective_model or ""
             sys_prompt = conv.system_prompt or ""
-            if conv.workspace_id:
-                ws = await db.get(Workspace, conv.workspace_id)
-                ws_sp = ws.system_prompt if ws else None
-                if ws_sp and sys_prompt:
-                    sys_prompt = ws_sp + "\n\n" + sys_prompt
-                elif ws_sp:
-                    sys_prompt = ws_sp
             cached = await get_cached_response(
                 req.message, model=cache_model,
                 history_tail=history_tail, system_prompt=sys_prompt,
@@ -162,9 +155,9 @@ async def chat_stream(
     node_inventory_lines.append("")
 
     node_inventory_lines.append("CONFIRMATION PROTOCOL (for all creations):")
-    node_inventory_lines.append("  When user mentions wanting something new (conversation, workspace, etc.),")
+    node_inventory_lines.append("  When user mentions wanting a new conversation,")
     node_inventory_lines.append("  respond conversationally in text:")
-    node_inventory_lines.append('    "It seems you want to make a new [Session/Workspace]. What details should I use?"')
+    node_inventory_lines.append('    "It seems you want to make a new session. What details should I use?"')
     node_inventory_lines.append("  Wait for the user's reply with name/specs before creating anything.")
     node_inventory_lines.append("")
 
@@ -175,43 +168,27 @@ async def chat_stream(
     node_inventory_lines.append("  These session nodes are SEPARATE threads, not the global JARVIS session.")
     node_inventory_lines.append("")
 
-    node_inventory_lines.append("WORKSPACE CREATION (only after user confirms details):")
-    node_inventory_lines.append("  1. call create_workspace(name='<user-given name>', description='<purpose>') → get workspace_id")
-    node_inventory_lines.append("  The workspace canvas node is created AND wired to the input node automatically.")
-    node_inventory_lines.append("  Do NOT call create_canvas_node or wire_nodes for it.")
-    node_inventory_lines.append("")
-
     node_inventory_lines.append("RULES:")
     node_inventory_lines.append("  - ALWAYS ask for confirmation and specs before creating — never create silently.")
-    node_inventory_lines.append("  - create_conversation / create_workspace auto-create and wire their canvas node — never wire those yourself.")
+    node_inventory_lines.append("  - create_conversation auto-creates and wires its canvas node — never wire it yourself.")
     node_inventory_lines.append("  - For other node types, call get_canvas_graph to get full UUIDs before wiring.")
     node_inventory_lines.append("  - CRITICAL: call tools immediately — never describe actions in text before calling them.")
-    node_inventory_lines.append("  - Never call create_conversation or create_workspace unless the user explicitly asks to create a session or workspace.")
+    node_inventory_lines.append("  - Never call create_conversation unless the user explicitly asks to create a session.")
     node_inventory_lines.append("  - Never delete the input node or any node marked [CORE · protected]/[GLOBAL] — they are permanent infrastructure. The session marked [GLOBAL] is the permanent JARVIS session; only [user session] nodes may be deleted. If the user asks to delete 'the session' and only the [GLOBAL] session exists, explain that it is permanent instead of deleting it.")
     node_inventory = "\n".join(node_inventory_lines)
 
     canvas = boot_report.canvas
     canvas_lines = []
     if canvas.get("nodes"):
-        # batch-resolve workspace names and conversation titles
+        # batch-resolve conversation titles
         import uuid as _uuid_mod
-        _ws_ids, _conv_ids = [], []
+        _conv_ids = []
         for _n in canvas["nodes"]:
             _cfg = _n.get("config", {})
-            if _n.get("node_type") == "workspace" and _cfg.get("workspace_id"):
-                _ws_ids.append(_cfg["workspace_id"])
-            elif _n.get("node_type") == "session" and _cfg.get("conversation_id"):
+            if _n.get("node_type") == "session" and _cfg.get("conversation_id"):
                 _conv_ids.append(_cfg["conversation_id"])
-        _ws_names: dict = {}
         _conv_titles: dict = {}
         try:
-            if _ws_ids:
-                _r = await db.execute(
-                    select(Workspace.id, Workspace.name)
-                    .where(Workspace.id.in_([_uuid_mod.UUID(i) for i in _ws_ids]),
-                           Workspace.user_id == current_user.id)
-                )
-                _ws_names = {str(r[0]): r[1] for r in _r}
             if _conv_ids:
                 _r = await db.execute(
                     select(Conversation.id, Conversation.title)
@@ -226,9 +203,7 @@ async def chat_stream(
         for n in canvas["nodes"]:
             cfg = n.get("config", {})
             name = cfg.get("name", "")
-            if not name and n.get("node_type") == "workspace":
-                name = _ws_names.get(cfg.get("workspace_id", ""), "")
-            elif not name and n.get("node_type") == "session":
+            if not name and n.get("node_type") == "session":
                 name = _conv_titles.get(cfg.get("conversation_id", ""), "")
             name_str = f' "{name}"' if name else ""
             conns = n.get("connections", [])
@@ -242,13 +217,7 @@ async def chat_stream(
             canvas_lines.append(f"  {n.get('node_type', '?')}{name_str} ({n.get('node_id', '?')}){core_str}{conn_str}")
     canvas_state = "\n".join(canvas_lines)
 
-    # Workspace system_prompt takes precedence; merge with conv system_prompt if both set
-    ws_sysprompt  = ctx.get("workspace_sysprompt")
-    conv_sysprompt = conv.system_prompt or None
-    if ws_sysprompt and conv_sysprompt:
-        system_prompt = ws_sysprompt + "\n\n" + conv_sysprompt
-    else:
-        system_prompt = ws_sysprompt or conv_sysprompt
+    system_prompt = conv.system_prompt or None
 
     if req.compare:
         await db.commit()
@@ -256,7 +225,6 @@ async def chat_stream(
             ctx["memory_sheet"], ctx["project_summary"], ctx["retrieved"],
             ctx["history_summary"], ctx["history"],
             system_prompt, ctx["file_chunks"], ctx["file_names"], ctx["file_ids"],
-            workspace_memory=ctx.get("workspace_memory", ""),
             graph_context=ctx.get("graph_context", ""),
             graph_facts=ctx.get("graph_facts", ""),
             active_goals=ctx.get("active_goals", ""),
@@ -311,7 +279,6 @@ async def chat_stream(
                 file_ids=ctx["file_ids"], conv_id=conv.id,
                 user_id=current_user.id, db=db,
                 image_b64=req.image_b64, image_mime_type=req.image_mime_type,
-                workspace_memory=ctx.get("workspace_memory", ""),
                 graph_context=ctx.get("graph_context", ""),
                 graph_facts=ctx.get("graph_facts", ""),
                 active_goals=ctx.get("active_goals", ""),

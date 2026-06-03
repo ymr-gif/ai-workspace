@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 
-export default function useMemory(token, sidebarWsId) {
+export default function useMemory(token) {
   const [memOpen, setMemOpen] = useState(false)
   const [memTab, setMemTab] = useState('view')
   const [memData, setMemData] = useState(null)
@@ -14,11 +14,6 @@ export default function useMemory(token, sidebarWsId) {
   const [memHistory, setMemHistory] = useState([])
   const [histLoading, setHistLoading] = useState(false)
   const [diffIdx, setDiffIdx] = useState(null)
-  const [wsMemData, setWsMemData] = useState(null)
-  const [wsMemLoading, setWsMemLoading] = useState(false)
-  const [wsMemEditing, setWsMemEditing] = useState(false)
-  const [wsMemContent, setWsMemContent] = useState('')
-  const [wsMemSaving, setWsMemSaving] = useState(false)
   const [conflicts, setConflicts] = useState([])
   const [conflictsLoading, setConflictsLoading] = useState(false)
 
@@ -62,32 +57,6 @@ export default function useMemory(token, sidebarWsId) {
       .then(h => { setMemHistory(h); setDiffIdx(null) }).catch(() => {})
       .finally(() => setHistLoading(false))
   }, [memTab])
-
-  const loadWsMemory = useCallback(async (wsId) => {
-    setWsMemLoading(true)
-    try {
-      const r = await fetch(`/api/workspaces/${wsId}/memory`, { headers: authHeaders })
-      if (r.ok) setWsMemData(await r.json())
-    } catch { /* ignore */ } finally { setWsMemLoading(false) }
-  }, [token])
-
-  useEffect(() => {
-    if (!memOpen || !sidebarWsId) return
-    if (memTab !== 'workspace' && memTab !== 'view') return
-    loadWsMemory(sidebarWsId)
-  }, [memOpen, memTab, sidebarWsId])
-
-  async function saveWsMemory() {
-    if (!sidebarWsId) return
-    setWsMemSaving(true)
-    try {
-      const r = await fetch(`/api/workspaces/${sidebarWsId}/memory`, {
-        method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: wsMemContent }),
-      })
-      if (r.ok) { setWsMemData(await r.json()); setWsMemEditing(false) }
-    } catch { /* ignore */ } finally { setWsMemSaving(false) }
-  }
 
   function openEdit() { setEditContent(memData?.content || ''); setEditProj(memData?.project_summary || ''); setMemTab('edit') }
   function cancelEdit() { setMemTab('view') }
@@ -143,19 +112,12 @@ export default function useMemory(token, sidebarWsId) {
     memHistory,
     histLoading,
     diffIdx, setDiffIdx,
-    wsMemData,
-    wsMemLoading,
-    wsMemEditing, setWsMemEditing,
-    wsMemContent, setWsMemContent,
-    wsMemSaving,
     prevMemSig,
     conflicts,
     conflictsLoading,
     loadConflicts,
     resolveConflict,
     pollMemory,
-    loadWsMemory,
-    saveWsMemory,
     openEdit,
     cancelEdit,
     saveEdit,

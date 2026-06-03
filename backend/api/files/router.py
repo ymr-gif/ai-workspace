@@ -1,9 +1,8 @@
 import asyncio
 import logging
-import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, select
@@ -11,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.security import get_current_user
 from core.db import get_db
-from models import File as FileModel, FileChunk, User, Workspace
+from models import File as FileModel, FileChunk, User
 from observability.file_metrics import record_delete, record_upload
 from rate_limiter import limit
 from services.file_service import write_content
@@ -25,24 +24,12 @@ router = APIRouter()
 @router.post("/upload", status_code=201)
 async def upload_file(
     file:         UploadFile   = File(...),
-    workspace_id: str          = Form(""),
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
     _:            None         = limit(20, 60, "upload"),
 ):
     if file.size and file.size > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
-
-    validated_workspace_id = None
-    if workspace_id.strip():
-        try:
-            wid = uuid.UUID(workspace_id.strip())
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid workspace_id")
-        ws = await db.get(Workspace, wid)
-        if not ws or ws.user_id != current_user.id:
-            raise HTTPException(status_code=404, detail="Workspace not found")
-        validated_workspace_id = wid
 
     try:
         storage_path, filename, size_bytes, sha256 = await storage.save_file(file)
@@ -65,7 +52,6 @@ async def upload_file(
             mime_type    = file.content_type or "application/octet-stream",
             size_bytes   = size_bytes,
             storage_path = storage_path,
-            workspace_id = validated_workspace_id,
             upload_status= "uploaded",
             sha256_hash  = sha256,
         )
@@ -87,13 +73,10 @@ async def upload_file(
 
 @router.get("")
 async def list_files(
-    workspace_id: str | None   = None,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
 ):
     q = select(FileModel).where(FileModel.user_id == current_user.id)
-    if workspace_id:
-        q = q.where(FileModel.workspace_id == workspace_id)
     q = q.order_by(FileModel.created_at.desc()).limit(200)
     result = await db.execute(q)
     return [_file_dict(f) for f in result.scalars().all()]

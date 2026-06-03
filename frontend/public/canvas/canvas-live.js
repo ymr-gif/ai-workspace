@@ -60,25 +60,12 @@
     }));
   }
 
-  function normWorkspaces(raw) {
-    if (!raw) return null;
-    const list = Array.isArray(raw) ? raw : (raw.workspaces || []);
-    return list.map(w => ({
-      id:            w.id || w.workspace_id || String(Math.random()),
-      name:          w.name || 'Workspace',
-      description:   w.description || '',
-      system_prompt: w.system_prompt || '',
-    }));
-  }
-
   function normSessions(raw) {
     if (!raw) return null;
     const list = Array.isArray(raw) ? raw : (raw.conversations || []);
     return list.slice(0, 20).map(c => ({
       id:           c.id || c.conversation_id,
       name:         (c.title || 'untitled').slice(0, 50),
-      workspace:    c.workspace_name || null,
-      workspace_id: c.workspace_id   || null,
       lastMsg:      c.last_message   || '',
       ts: c.updated_at
         ? new Date(c.updated_at).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })
@@ -119,7 +106,7 @@
   const _NEO_TYPE_MAP = {
     input:'inputNode', session:'sessionNode', memory:'memoryNode',
     files:'filesNode', logs:'logsNode', usage:'usageNode',
-    workspace:'workspaceNode', config:'configNode',
+    config:'configNode',
   };
   function neoToRF(n, idx) {
     const rfId = 'ai-' + n.node_id;
@@ -141,15 +128,13 @@
   window.NIM_NEO_TO_RF = neoToRF;
 
   /* ── 4b. Patch INITIAL_NODES with live data ─────────── */
-  function patchNodes(D, mem, files, ws, sessions) {
+  function patchNodes(D, mem, files, sessions) {
     D.INITIAL_NODES = D.INITIAL_NODES.map(n => {
       switch (n.id) {
         case 'memory':
           return mem ? { ...n, data: { ...n.data, mem } } : n;
         case 'files':
           return files ? { ...n, data: { ...n.data, files } } : n;
-        case 'workspace':
-          return ws ? { ...n, data: { ...n.data, workspaces: ws } } : n;
         case 'session':
           return sessions ? { ...n, data: { ...n.data,
             session:        sessions[0] || n.data.session,
@@ -172,13 +157,12 @@
   Promise.allSettled([
     apiGet('/api/memory'),
     apiGet('/api/files'),
-    apiGet('/api/files/workspaces'),
     apiGet('/api/usage'),
     apiGet('/api/tool-calls?limit=50'),
     apiGet('/api/conversations'),
     apiGet('/api/canvas/graph'),
     apiGet('/api/canvas/global'),
-  ]).then(([memR, filesR, wsR, usageR, logsR, convsR, canvasR, globalR]) => {
+  ]).then(([memR, filesR, usageR, logsR, convsR, canvasR, globalR]) => {
 
     // Wait for data.js to finish defining NIM_CANVAS_DATA
     const ready = () => {
@@ -188,12 +172,11 @@
 
       const mem     = normMemory(memR.status    === 'fulfilled' ? memR.value    : null);
       const files   = normFiles(filesR.status   === 'fulfilled' ? filesR.value  : null);
-      const ws      = normWorkspaces(wsR.status === 'fulfilled' ? wsR.value     : null);
       const sessions= normSessions(convsR.status=== 'fulfilled' ? convsR.value  : null);
       const usage   = normUsage(usageR.status   === 'fulfilled' ? usageR.value  : null);
       const logs    = normLogs(logsR.status     === 'fulfilled' ? logsR.value   : null);
 
-      patchNodes(D, mem, files, ws, sessions);
+      patchNodes(D, mem, files, sessions);
       if (usage) D.MOCK_USAGE_CANVAS = usage;
       if (logs)  D.MOCK_LOGS_CANVAS  = logs;
 

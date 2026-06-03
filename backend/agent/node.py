@@ -91,18 +91,6 @@ registry: dict[str, Node] = {
             {"name": "check_cost", "description": "Check current cost balance"},
         ],
     ),
-    "workspace": Node(
-        name="workspace",
-        label="Manage workspaces",
-        ports={"input": ["workspace_id"], "output": ["config", "members"]},
-        tools=[
-            {"name": "create_workspace", "description": "Create a new workspace"},
-            {"name": "update_workspace", "description": "Update workspace settings"},
-            {"name": "delete_workspace", "description": "Delete a workspace"},
-            {"name": "get_workspace", "description": "Get workspace details"},
-            {"name": "set_active_workspace", "description": "Set the active workspace"},
-        ],
-    ),
     "config": Node(
         name="config",
         label="Change model/params/settings",
@@ -166,7 +154,7 @@ registry: dict[str, Node] = {
 # ── apply policy flags ───────────────────────────────────────────
 for _n in ("input", "memory", "config"):
     registry[_n].permanent = True
-for _n in ("files", "logs", "usage", "workspace"):
+for _n in ("files", "logs", "usage"):
     registry[_n].ai_creatable = True
 for _n in ("insights", "goals", "automations", "mech"):
     registry[_n].embedded = True

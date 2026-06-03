@@ -1,4 +1,3 @@
-from .workspace import Workspace, WorkspaceMemory
 from .auth import Invitation
 from .user import User, UserBehaviorProfile, UserGoal, UserInsight, AdminAuditLog, UserMemory, UserMemoryVersion, MemoryConflict
 from .file import File, FileChunk, FileVersion
@@ -11,5 +10,5 @@ __all__ = [
     "AdminAuditLog", "Conversation", "ConversationFile", "File", "FileChunk",
     "FileVersion", "Invitation", "MemoryConflict", "Message", "MessageEmbedding", "PromptTemplate",
     "ScheduledPrompt", "ScheduledPromptRun", "SystemConfig", "ToolCallLog",
-    "User", "UserBehaviorProfile", "UserGoal", "UserInsight", "UserMemory", "UserMemoryVersion", "Workspace", "WorkspaceMemory",
+    "User", "UserBehaviorProfile", "UserGoal", "UserInsight", "UserMemory", "UserMemoryVersion",
 ]

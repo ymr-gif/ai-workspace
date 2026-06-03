@@ -26,7 +26,6 @@ class ScheduledPrompt(Base):
     prompt:         Mapped[str]            = mapped_column(Text, nullable=False)
     cron_expr:      Mapped[str]            = mapped_column(String(100), nullable=False)
     model_override: Mapped[str | None]     = mapped_column(String(100), nullable=True)
-    workspace_id:   Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True, index=True)
     is_active:      Mapped[bool]           = mapped_column(Boolean, default=True, nullable=False)
     last_run_at:    Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     next_run_at:    Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

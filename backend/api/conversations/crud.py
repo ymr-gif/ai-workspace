@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth.security import get_current_user
 from config import MODELS
 from core.db import get_db
-from models import Conversation, Message, User, Workspace
+from models import Conversation, Message, User
 
 logger = logging.getLogger("conversations")
 router = APIRouter()
@@ -20,7 +20,6 @@ router = APIRouter()
 
 @router.get("/conversations")
 async def list_conversations(
-    workspace_id: str | None   = None,
     q:            str | None   = None,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
@@ -31,13 +30,6 @@ async def list_conversations(
         .order_by(Conversation.updated_at.desc())
         .limit(100)
     )
-
-    if workspace_id:
-        try:
-            wid = uuid.UUID(workspace_id)
-            stmt = stmt.where(Conversation.workspace_id == wid)
-        except ValueError:
-            pass
 
     if q and q.strip():
         stmt = (
@@ -57,7 +49,6 @@ async def list_conversations(
             "memory_enabled": True,
             "system_prompt":  c.system_prompt  or "",
             "locked_model":   c.locked_model   or "",
-            "workspace_id":   str(c.workspace_id) if c.workspace_id else None,
         }
         for c in convs
     ]
@@ -106,7 +97,6 @@ def _safe_filename(title: str, ext: str) -> str:
 class ConversationPatch(BaseModel):
     system_prompt: str | None = None
     locked_model:  str | None = None
-    workspace_id:  str | None = None
 
 
 @router.patch("/conversations/{conversation_id}")
@@ -137,26 +127,12 @@ async def patch_conversation(
         else:
             conv.locked_model = MODELS.get(raw, raw) if raw in MODELS or raw in MODELS.values() else None
 
-    if "workspace_id" in updated:
-        raw = (body.workspace_id or "").strip()
-        if not raw:
-            conv.workspace_id = None
-        else:
-            try:
-                wid = uuid.UUID(raw)
-                ws  = await db.get(Workspace, wid)
-                if ws and ws.user_id == current_user.id:
-                    conv.workspace_id = wid
-            except ValueError:
-                pass
-
     await db.commit()
     return {
         "ok":             True,
         "memory_enabled": True,
         "system_prompt":  conv.system_prompt  or "",
         "locked_model":   conv.locked_model   or "",
-        "workspace_id":   str(conv.workspace_id) if conv.workspace_id else None,
     }
 
 

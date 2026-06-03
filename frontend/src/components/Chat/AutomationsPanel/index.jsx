@@ -12,8 +12,7 @@ function runStatus(run) {
 
 export default function AutomationsPanel() {
   const p = usePanelProps()
-  const { autoOpen, setAutoOpen, schedules, schedulesLoading, formOpen, setFormOpen, editTarget, formName, setFormName, formPrompt, setFormPrompt, formSchedule, setFormSchedule, formModel, setFormModel, formWsId, setFormWsId, formSaving, runsMap, runsLoading, expandedId, triggeringId, loadSchedules, saveSchedule, deleteSchedule, toggleActive, triggerRun, openCreate, openEdit, toggleExpanded } = p.auto
-  const { sidebarWsList } = p.ws
+  const { autoOpen, setAutoOpen, schedules, schedulesLoading, formOpen, setFormOpen, editTarget, formName, setFormName, formPrompt, setFormPrompt, formSchedule, setFormSchedule, formModel, setFormModel, formSaving, runsMap, runsLoading, expandedId, triggeringId, loadSchedules, saveSchedule, deleteSchedule, toggleActive, triggerRun, openCreate, openEdit, toggleExpanded } = p.auto
   const [customCron, setCustomCron] = useState('')
   const selectedPreset = PRESETS.includes(formSchedule) ? formSchedule : 'custom'
 
@@ -75,16 +74,6 @@ export default function AutomationsPanel() {
               <div style={s.editLabel}>Model override (optional)</div>
               <input value={formModel} onChange={e => setFormModel(e.target.value)} placeholder="e.g. llama" style={inputStyle} />
             </div>
-            {sidebarWsList?.length > 0 && (
-              <div>
-                <div style={s.editLabel}>Workspace (optional)</div>
-                <select value={formWsId} onChange={e => setFormWsId(e.target.value)}
-                  style={{ ...inputStyle, appearance: 'auto', cursor: 'pointer' }}>
-                  <option value="">— None —</option>
-                  {sidebarWsList.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                </select>
-              </div>
-            )}
           </div>
           <div style={{ padding: '0.75rem 1.25rem', borderTop: `1px solid ${LINE}`, display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexShrink: 0 }}>
             <button onClick={() => setFormOpen(false)} style={s.cancelBtn}>Cancel</button>

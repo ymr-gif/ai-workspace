@@ -49,7 +49,6 @@ def build_context_messages(
     file_chunks:      list[str]       = (),
     file_names:       list[str]       = (),
     file_ids:         list            = (),
-    workspace_memory: str             = "",
     graph_context:    str             = "",
     graph_facts:      str             = "",
     active_goals:     str             = "",
@@ -130,9 +129,6 @@ def build_context_messages(
     if active_goals:
         messages.append({"role": "user",      "content": _format_active_goals(active_goals)})
         messages.append({"role": "assistant", "content": "Understood."})
-    if workspace_memory:
-        messages.append({"role": "user",      "content": f"[WORKSPACE STATE]\n{workspace_memory}"})
-        messages.append({"role": "assistant", "content": "Understood."})
     if project_summary:
         messages.append({"role": "user",      "content": f"[PROJECT STATE]\n{project_summary}"})
         messages.append({"role": "assistant", "content": "Understood."})
@@ -166,7 +162,7 @@ _TIER_PREFIXES = [
     (6, re.compile(r'^\[RELEVANT CONTEXT')),                          # history / RAG
     (5, re.compile(r'^\[EARLIER IN THIS CONVERSATION\]')),            # conv summary
     (4, re.compile(r'^\[GRAPH (?:CONTEXT|FACTS)\]')),                 # graph
-    (3, re.compile(r'^\[(?:WORKSPACE STATE|ACTIVE GOALS)\]')),        # workspace + goals
+    (3, re.compile(r'^\[ACTIVE GOALS\]')),                            # goals
     (2, re.compile(r'^\[PROJECT STATE\]')),                           # project
     (1, re.compile(r'^\[USER STATE\]')),                              # user state (keep)
 ]

@@ -14,9 +14,8 @@ function timeAgo(iso) {
 
 export default function MemoryPanel() {
   const p = usePanelProps()
-  const { memOpen, setMemOpen, memData, memTab, setMemTab, memLoading, memFlashed, memPending, memHistory, histLoading, diffIdx, setDiffIdx, editContent, setEditContent, editProj, setEditProj, memSaving, wsMemData, wsMemLoading, wsMemEditing, setWsMemEditing, wsMemContent, setWsMemContent, wsMemSaving, pollMemory, loadWsMemory, saveWsMemory, openEdit, cancelEdit, saveEdit, exportMemory, handleImport, conflicts, conflictsLoading, loadConflicts, resolveConflict } = p.mem
+  const { memOpen, setMemOpen, memData, memTab, setMemTab, memLoading, memFlashed, memPending, memHistory, histLoading, diffIdx, setDiffIdx, editContent, setEditContent, editProj, setEditProj, memSaving, pollMemory, openEdit, cancelEdit, saveEdit, exportMemory, handleImport, conflicts, conflictsLoading, loadConflicts, resolveConflict } = p.mem
   const { activeConvId } = p.conv
-  const { sidebarWsId } = p.ws
   const { loadGraphStats, graphLoading, graphStats, graphSample, graphSampleLoading, loadGraphSample } = p.insights
   const { hasMemory, sections, projectSections, wordCount, panelSlide, diffTarget, diffLines, importRef } = p
   const CONFLICT_BADGE = { contradiction: RED, duplicate: AMB, ambiguous: FG4 }
@@ -43,16 +42,15 @@ export default function MemoryPanel() {
       </div>
 
       <div style={s.tabBar}>
-        {['view', ...(sidebarWsId ? ['workspace'] : []), 'edit', 'history', 'graph', 'conflicts'].map(tab => (
+        {['view', 'edit', 'history', 'graph', 'conflicts'].map(tab => (
           <button key={tab} onClick={() => {
             if (tab === 'edit') openEdit()
-            else if (tab === 'workspace') { setMemTab('workspace'); loadWsMemory(sidebarWsId) }
             else if (tab === 'graph') { setMemTab('graph'); loadGraphStats(); loadGraphSample(graphLimit, graphEntityType); setSelectedNode(null) }
             else if (tab === 'conflicts') { setMemTab('conflicts'); loadConflicts() }
             else setMemTab(tab)
           }}
             style={{ ...s.tabBtn, ...(memTab === tab ? s.tabActive : {}) }}>
-            {tab === 'view' ? 'View' : tab === 'edit' ? 'Edit' : tab === 'workspace' ? 'Workspace' : tab === 'graph' ? 'Graph' : tab === 'conflicts' ? `Conflicts${conflicts.length ? ` (${conflicts.length})` : ''}` : 'History'}
+            {tab === 'view' ? 'View' : tab === 'edit' ? 'Edit' : tab === 'graph' ? 'Graph' : tab === 'conflicts' ? `Conflicts${conflicts.length ? ` (${conflicts.length})` : ''}` : 'History'}
           </button>
         ))}
       </div>
@@ -118,64 +116,7 @@ export default function MemoryPanel() {
                 ))}
               </>
             )}
-            {sidebarWsId && (
-              <>
-                <div style={s.divider}><span style={s.divLabel}>WORKSPACE</span><div style={{ flex:1, borderTop:`1px solid ${LINE}` }} /></div>
-                {wsMemLoading && <p style={s.emptyMem}>Loading…</p>}
-                {!wsMemLoading && !wsMemData?.content && <p style={s.emptyMem}>No workspace memory yet.</p>}
-                {!wsMemLoading && wsMemData?.content && (() => {
-                  const parsed = parseMemory(wsMemData.content)
-                  return parsed.length > 0
-                    ? parsed.map(sec => (
-                        <div key={sec.name} style={s.section}>
-                          <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||CYN, background: (SECTION_COLORS[sec.name]||CYN)+'18' }}>{sec.name}</span>
-                          {sec.pairs.map((p, i) => (
-                            <div key={i} style={s.kv}><span style={s.kvKey}>{p.key}</span><span style={s.kvVal}>{p.val}</span></div>
-                          ))}
-                        </div>
-                      ))
-                    : wsMemData.content.split('\n').filter(Boolean).map((line, i) => (
-                        <div key={i} style={{ background:INSET, border:`1px solid ${LINE}`, padding:'0.5rem 0.75rem', fontSize:'16px', color:FG2, lineHeight:1.5 }}>{line}</div>
-                      ))
-                })()}
-              </>
-            )}
           </>
-        )}
-        {memTab === 'workspace' && (
-          <div>
-            {wsMemLoading && <p style={s.emptyMem}>Loading…</p>}
-            {!wsMemLoading && !wsMemEditing && (
-              <>
-                {!wsMemData?.content
-                  ? <p style={s.emptyMem}>No workspace memory yet.<br /><span style={{ fontSize:'0.75rem' }}>Updates after exchanges in this workspace.</span></p>
-                  : parseMemory(wsMemData.content).map(sec => (
-                      <div key={sec.name} style={s.section}>
-                <span style={{ ...s.secLabel, color: SECTION_COLORS[sec.name]||FG3, background: (SECTION_COLORS[sec.name]||FG3)+'18' }}>{sec.name}</span>
-                        {sec.pairs.map((p, i) => (
-                          <div key={i} style={s.kv}><span style={s.kvKey}>{p.key}</span><span style={s.kvVal}>{p.val}</span></div>
-                        ))}
-                      </div>
-                    ))
-                }
-                <button onClick={() => { setWsMemContent(wsMemData?.content || ''); setWsMemEditing(true) }}
-                  style={{ ...s.actionBtn, marginTop:'0.75rem' }}>Edit</button>
-              </>
-            )}
-            {!wsMemLoading && wsMemEditing && (
-              <div>
-                <textarea value={wsMemContent} onChange={e => setWsMemContent(e.target.value)}
-                  rows={12} style={s.editArea} placeholder="[GOALS]&#10;goal: Build AI workspace" />
-                <div style={s.editBtns}>
-                  <button onClick={saveWsMemory} disabled={wsMemSaving} style={s.saveBtn}>{wsMemSaving ? 'Saving…' : 'Save'}</button>
-                  <button onClick={() => setWsMemEditing(false)} style={s.cancelBtn}>Cancel</button>
-                </div>
-              </div>
-            )}
-            {wsMemData?.updated_at && !wsMemEditing && (
-              <div style={{ fontSize:'13px', color:FG5, marginTop:'0.5rem' }}>Updated {fmtDate(wsMemData.updated_at)}</div>
-            )}
-          </div>
         )}
 
         {memTab === 'edit' && (

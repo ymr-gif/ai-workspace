@@ -17,7 +17,6 @@ class Conversation(Base):
     memory_enabled: Mapped[bool]        = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     system_prompt:  Mapped[str | None]  = mapped_column(Text, nullable=True)
     locked_model:   Mapped[str | None]  = mapped_column(String(100), nullable=True)
-    workspace_id:   Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at:     Mapped[datetime]    = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at:     Mapped[datetime]    = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

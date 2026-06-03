@@ -81,7 +81,6 @@ def _fuse(
 @router.get("/search")
 async def search_files(
     q:            str,
-    workspace_id: str | None  = None,
     top_k:        int         = 10,
     fusion_mode:  str         = "rrf",
     k_dense:      int         = 20,
@@ -105,8 +104,6 @@ async def search_files(
         FileModel.user_id == current_user.id,
         FileModel.upload_status == "ready",
     )
-    if workspace_id:
-        file_q = file_q.where(FileModel.workspace_id == workspace_id)
     file_ids = list((await db.execute(file_q)).scalars().all())
 
     if not file_ids:
