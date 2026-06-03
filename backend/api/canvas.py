@@ -46,7 +46,33 @@ async def canvas_graph(
     current_user: User         = Depends(get_current_user),
     db:           AsyncSession = Depends(get_db),
 ):
-    return await get_canvas_graph(current_user.id)
+    graph = await get_canvas_graph(current_user.id)
+
+    # Enrich session nodes with their conversation title (for the "SESSION | <name>"
+    # label). Resolved from Postgres per request so newly-created / auto-titled
+    # sessions show the current name even though the Neo4j graph is Redis-cached.
+    conv_ids = []
+    for n in graph.get("nodes", []):
+        if n.get("node_type") == "session":
+            cid = (n.get("config") or {}).get("conversation_id")
+            if cid:
+                try:
+                    conv_ids.append(uuid.UUID(str(cid)))
+                except (ValueError, TypeError):
+                    pass
+    if conv_ids:
+        rows = await db.execute(
+            select(Conversation.id, Conversation.title)
+            .where(Conversation.id.in_(conv_ids), Conversation.user_id == current_user.id)
+        )
+        titles = {str(r[0]): r[1] for r in rows}
+        for n in graph.get("nodes", []):
+            if n.get("node_type") == "session":
+                cid = (n.get("config") or {}).get("conversation_id")
+                if cid in titles:
+                    n.setdefault("config", {})["title"] = titles[cid]
+
+    return graph
 
 
 @router.post("/nodes", status_code=201)

@@ -402,9 +402,12 @@
           <span style={{ width:8, height:8, background:'rgba(139,92,246,0.9)', flexShrink:0,
             boxShadow:'0 0 6px rgba(139,92,246,0.6)',
             animation: data.animState==='processing' ? 'pulse 0.6s ease-in-out infinite' : 'pulse 2s ease-in-out infinite' }} />
-          <div>
-            <div style={{ fontFamily:C.TERM, fontSize:13, color:C.FG2 }}>
-              {isGlobal ? 'GLOBAL SESSION' : 'AI SESSION'}
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontFamily:C.TERM, fontSize:13, color:C.FG2,
+              whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:240 }}>
+              {isGlobal
+                ? 'GLOBAL SESSION'
+                : ('SESSION | ' + (data.title || (data.conversation_id.slice(0,8) + '…')))}
             </div>
             <div style={ns.label}>
               {isGlobal
