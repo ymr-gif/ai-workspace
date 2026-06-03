@@ -139,6 +139,12 @@
     const [width, setWidth] = React.useState(300);
 
     React.useEffect(() => { bottomRef.current?.scrollIntoView?.({ block:'end' }); }, [streamText, messages.length]);
+    /* clicking a session node focuses it (Canvas.jsx) and opens this drawer */
+    React.useEffect(() => {
+      const onOpen = () => setOpen(true);
+      window.addEventListener('nim-open-drawer', onOpen);
+      return () => window.removeEventListener('nim-open-drawer', onOpen);
+    }, []);
 
     /* drag-to-resize: drag the left edge of the panel */
     function onResizeDown(e) {

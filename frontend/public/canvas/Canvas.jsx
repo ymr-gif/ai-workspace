@@ -208,10 +208,11 @@
     const [menu,        setMenu]        = React.useState(null);
     const [edgeMenu,    setEdgeMenu]    = React.useState(null);
     const [memExpanded, setMemExpanded] = React.useState(false);
-    /* conversation the chat drawer follows (null → JARVIS global) + per-session thread cache */
+    /* active conversation the chat drawer + sends follow (null → JARVIS global) */
     const [targetConvId, setTargetConvId] = React.useState(null);
-    const shownConvRef = React.useRef(null);
-    const histCacheRef = React.useRef({});
+    const shownConvRef   = React.useRef(null);   // conv currently shown in the drawer
+    const histCacheRef   = React.useRef({});      // convId → cached messages[]
+    const lastWireConvRef = React.useRef(undefined); // last Input→Session wire value seen
 
     /* physics refs */
     const simRef    = React.useRef(null);
@@ -434,21 +435,38 @@
       }));
     }, [edges]);
 
-    /* publish the Input→Session routing target for canvas-sse.js buildBody().
-       Keys off the static 'input' box the user types in (and explicitly drags from):
-       if it is wired to a session that has a conversation_id, route there. The backend
-       auto-wires ai-input→session, but that is not a user "link" — only the static input's
-       edge counts. Otherwise → JARVIS global conversation. The single chat drawer then
-       follows this target (see the swap effect below). */
+    /* The active conversation (targetConvId) drives both the chat drawer and where sends
+       route. It is set two ways: by the Input→Session wire (auto) and by clicking a session
+       node (manual focus). Whichever happened last wins. */
+
+    /* adopt the wire only when it actually changes — physics re-runs this effect constantly,
+       and unconditionally setting would clobber a click-focus. Keys off the static 'input'
+       box's edge; the backend ai-input→session auto-wires don't count as a user "link". */
     React.useEffect(() => {
       const sessById = Object.fromEntries(nodes.filter(n => n.type === 'sessionNode').map(n => [n.id, n]));
-      const target = edges
+      const wired = edges
         .filter(e => e.source === 'input' && sessById[e.target] && sessById[e.target].data.conversation_id)
         .map(e => sessById[e.target])[0] || null;
-      const convId = target ? target.data.conversation_id : null;
-      window.NIM_CANVAS_INPUT_TARGET = { convId };
-      setTargetConvId(convId);
+      const wireConvId = wired ? wired.data.conversation_id : null;
+      if (wireConvId !== lastWireConvRef.current) {
+        lastWireConvRef.current = wireConvId;
+        setTargetConvId(wireConvId);
+      }
     }, [nodes, edges]);
+
+    /* publish the active conversation for canvas-sse.js buildBody() (where sends route) */
+    React.useEffect(() => {
+      window.NIM_CANVAS_INPUT_TARGET = { convId: targetConvId };
+    }, [targetConvId]);
+
+    /* click-to-focus: clicking a session node makes it the active conversation (drawer +
+       send target) and opens the drawer. global/static session → JARVIS global. */
+    const onNodeClick = React.useCallback((_, node) => {
+      if (!node || node.type !== 'sessionNode') return;
+      const cid = node.data.kind === 'global' ? null : (node.data.conversation_id || null);
+      setTargetConvId(cid);
+      window.dispatchEvent(new CustomEvent('nim-open-drawer'));
+    }, []);
 
     /* drawer follows the wire: swap the 'session' node's messages to the targeted
        conversation, caching each session's thread so re-wiring restores it. */
@@ -745,6 +763,7 @@
             onConnect={onConnect} onEdgeContextMenu={onEdgeCtx}
             onConnectStart={onConnectStart} onConnectEnd={onConnectEnd}
             onNodeDragStart={onNodeDragStart} onNodeDrag={onNodeDrag} onNodeDragStop={onNodeDragStop}
+            onNodeClick={onNodeClick}
             onNodeContextMenu={onNodeCtx}
             onPaneContextMenu={onPaneCtx} onPaneClick={onPaneClick}
             nodeTypes={NODE_TYPES}
