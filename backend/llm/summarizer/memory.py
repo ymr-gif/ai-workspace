@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import MODELS
 from core.db import AsyncSessionLocal
-from models import Conversation, Message, UserMemory, UserMemoryVersion, WorkspaceMemory
+from models import Message, UserMemory, UserMemoryVersion
 from llm.nim import call
 from .prompts import _MEMORY_SYSTEM, _NO_UPDATE
 
@@ -110,10 +110,6 @@ Update the memory sheet. Reply with the full updated sheet or {_NO_UPDATE}.\
     await db.commit()
     logger.info("[summarizer] memory updated user_id=%s", user_id)
 
-    conv = await db.get(Conversation, conversation_id)
-    if conv and conv.workspace_id:
-        await _update_workspace_memory(db, conv.workspace_id, exchanges)
-
 
 async def restructure_memory(user_id: int) -> None:
     async with AsyncSessionLocal() as db:
@@ -170,52 +166,3 @@ async def _restructure_memory(db: AsyncSession, user_id: int) -> None:
     row.updated_at = now
     await db.commit()
     logger.info("[summarizer] restructure done user_id=%s", user_id)
-
-
-async def _update_workspace_memory(db: AsyncSession, workspace_id: uuid.UUID, exchanges: str) -> None:
-    result = await db.execute(
-        select(WorkspaceMemory).where(WorkspaceMemory.workspace_id == workspace_id)
-    )
-    ws_mem  = result.scalar_one_or_none()
-    current = ws_mem.content if ws_mem and ws_mem.content else ""
-
-    prompt = f"""\
-Current workspace memory:
-{current if current else "(empty)"}
-
-New exchanges:
-{exchanges}
-
-Update the workspace memory with relevant workspace-level context. Reply with the full updated sheet or {_NO_UPDATE}.\
-"""
-
-    res = await call(
-        model      = _MODEL,
-        messages   = [
-            {"role": "system", "content": _MEMORY_SYSTEM},
-            {"role": "user",   "content": prompt},
-        ],
-        request_id = f"ws-mem-{workspace_id}",
-    )
-
-    if not res.get("ok"):
-        return
-
-    updated = (res.get("content") or "").strip()
-    if not updated or updated == _NO_UPDATE:
-        return
-
-    words = updated.split()
-    if len(words) > 500:
-        updated = " ".join(words[:500])
-
-    now = datetime.now(timezone.utc)
-    if ws_mem:
-        ws_mem.content    = updated
-        ws_mem.version   += 1
-        ws_mem.updated_at = now
-    else:
-        db.add(WorkspaceMemory(workspace_id=workspace_id, content=updated, version=1, updated_at=now))
-
-    await db.commit()
-    logger.info("[summarizer] workspace memory updated ws=%s", workspace_id)

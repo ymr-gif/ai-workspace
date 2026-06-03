@@ -5,7 +5,6 @@ import { fmtDate, parseMemory, computeDiff } from '../../lib/chatUtils.js'
 
 import useConversations from '../../hooks/useConversations.js'
 import useMemory from '../../hooks/useMemory.js'
-import useWorkspace from '../../hooks/useWorkspace.js'
 import useFiles from '../../hooks/useFiles.js'
 import useModelParams from '../../hooks/useModelParams.js'
 import useSettings from '../../hooks/useSettings.js'
@@ -23,7 +22,6 @@ import Sidebar from './Sidebar'
 import MessageList from './MessageList'
 import ModelToolbar from './ModelToolbar'
 import SettingsModal from './SettingsModal'
-import WorkspaceModal from './WorkspaceModal'
 import FilesPanel from './FilesPanel'
 import FileViewer from './FileViewer'
 import ToolLogPanel from './ToolLogPanel'
@@ -36,9 +34,8 @@ import AutomationsPanel from './AutomationsPanel'
 import GoalsPanel from './GoalsPanel'
 
 export default function Chat({ token, onLogout }) {
-  const ws = useWorkspace(token)
-  const conv = useConversations(token, ws.sidebarWsId)
-  const mem = useMemory(token, ws.sidebarWsId)
+  const conv = useConversations(token)
+  const mem = useMemory(token)
   const settings = useSettings(token, conv.activeConvId, conv.setConversations)
   const files = useFiles(token, conv.activeConvId)
   const toolLog = useToolLogs(token, conv.activeConvId)
@@ -56,7 +53,7 @@ export default function Chat({ token, onLogout }) {
 
   const authHeaders = { 'Authorization': `Bearer ${token}` }
 
-  const { send } = useStreamChat({ token, conv, modelParams, ws, mem, insights, onLogout })
+  const { send } = useStreamChat({ token, conv, modelParams, mem, insights, onLogout })
 
   function closeAllExcept(...keep) {
     const map = [
@@ -74,18 +71,12 @@ export default function Chat({ token, onLogout }) {
     }
   }
 
-  // cross-hook: sidebarWsId reset
-  useEffect(() => {
-    if (!ws.sidebarWsId && mem.memTab === 'workspace') mem.setMemTab('view')
-  }, [ws.sidebarWsId])
-
   // cross-hook: selectConv → settings
   function selectConv(id) {
     const c = conv.selectConv(id)
     if (c) {
       settings.setEditSysPrompt(c.system_prompt || '')
       settings.setEditLockModel(c.locked_model || '')
-      settings.setEditWsId(c.workspace_id || '')
     }
   }
 
@@ -109,7 +100,7 @@ export default function Chat({ token, onLogout }) {
   const diffTarget      = useMemo(() => mem.diffIdx !== null ? mem.memHistory[mem.diffIdx] : null, [mem.diffIdx, mem.memHistory])
   const diffLines       = useMemo(() => diffTarget ? computeDiff((diffTarget.content||'')+'\n'+(diffTarget.project_summary||''), (mem.memData?.content||'')+'\n'+(mem.memData?.project_summary||'')) : [], [diffTarget, mem.memData])
 
-  const ctx = { token, conv, mem, ws, settings, files, toolLog, usage, admin, insights, modelParams, search, auto, goals, hasMemory, sections, projectSections, wordCount, panelSlide, diffTarget, diffLines, importRef, selectConv, handleAcceptWrite, handleDismissWrite, fmtDate }
+  const ctx = { token, conv, mem, settings, files, toolLog, usage, admin, insights, modelParams, search, auto, goals, hasMemory, sections, projectSections, wordCount, panelSlide, diffTarget, diffLines, importRef, selectConv, handleAcceptWrite, handleDismissWrite, fmtDate }
 
   const lockedModelLabel = conv.convLockModel
     ? (MODEL_LABELS[conv.convLockModel] || conv.convLockModel)
@@ -129,7 +120,7 @@ export default function Chat({ token, onLogout }) {
     return () => clearTimeout(tid)
   }, [conv.lastSession])
 
-  const anyOpen = mem.memOpen || files.filesOpen || settings.settingsOpen || toolLog.toolLogOpen || usage.usageOpen || admin.inviteOpen || insights.insightsOpen || ws.wsModalOpen || search.searchOpen || auto.autoOpen || goals.goalsOpen
+  const anyOpen = mem.memOpen || files.filesOpen || settings.settingsOpen || toolLog.toolLogOpen || usage.usageOpen || admin.inviteOpen || insights.insightsOpen || search.searchOpen || auto.autoOpen || goals.goalsOpen
 
   return (
     <div style={s.root}>
@@ -139,9 +130,6 @@ export default function Chat({ token, onLogout }) {
         conversations={conv.conversations}
         activeConvId={conv.activeConvId}
         selectConv={selectConv}
-        sidebarWsList={ws.sidebarWsList}
-        sidebarWsId={ws.sidebarWsId}
-        setSidebarWsId={ws.setSidebarWsId}
         convSearch={conv.convSearch}
         setConvSearch={conv.setConvSearch}
         searchResults={conv.searchResults}
@@ -149,8 +137,6 @@ export default function Chat({ token, onLogout }) {
         newChat={conv.newChat}
         deleteConv={conv.deleteConv}
         exportConv={conv.exportConv}
-        openCreateWs={ws.openCreateWs}
-        openEditWs={ws.openEditWs}
       />
 
       <div style={s.chat}>
@@ -254,17 +240,15 @@ export default function Chat({ token, onLogout }) {
       </div>
 
       {anyOpen && (
-        <div style={{ ...s.overlay, zIndex: (settings.settingsOpen || ws.wsModalOpen) ? LAYERS.wsModal - 1 : LAYERS.overlay }}
+        <div style={{ ...s.overlay, zIndex: settings.settingsOpen ? LAYERS.settingsModal - 1 : LAYERS.overlay }}
           onClick={() => {
-            if (ws.wsModalOpen) ws.setWsModalOpen(false)
-            else if (settings.settingsOpen) settings.setSettingsOpen(false)
+            if (settings.settingsOpen) settings.setSettingsOpen(false)
             else closeAllExcept()
           }} />
       )}
 
       <PanelPropsCtx.Provider value={ctx}>
         <SettingsModal />
-        <WorkspaceModal />
         <FilesPanel />
         <FileViewer />
         <ToolLogPanel />

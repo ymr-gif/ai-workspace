@@ -26,8 +26,8 @@ CONFIRM_WRITE_PREFIX = "__CONFIRM_WRITE_MEMORY__:"
 # ── Creation guard constants ──────────────────────────────────────
 
 _CREATION_RE = [
-    re.compile(r"(create|new|make|start|set\s*up|setup)\s*.{0,30}\s*(session|workspace|conversation)", re.I),
-    re.compile(r"(session|workspace|conversation)\s*.{0,10}\s*(create|new)", re.I),
+    re.compile(r"(create|new|make|start|set\s*up|setup)\s*.{0,30}\s*(session|conversation)", re.I),
+    re.compile(r"(session|conversation)\s*.{0,10}\s*(create|new)", re.I),
 ]
 _NEGATION_RE = re.compile(r"don'?t\s+(create|make|add)|never\s*mind|cancel|forget\s+it|scratch\s+that", re.I)
 _CONFIRMATION_RE = re.compile(
@@ -42,10 +42,6 @@ _FLOW_STATE_CONFIRMED = "confirmed"
 _CREATION_REJECT_SESSION = (
     "Cannot create session: the user didn't request one. "
     "This tool creates real database records — only call it when the user explicitly asks to create a session."
-)
-_CREATION_REJECT_WORKSPACE = (
-    "Cannot create workspace: the user didn't request one. "
-    "Only call this tool when the user explicitly asks to create a workspace."
 )
 _CREATION_NOT_CONFIRMED = (
     "The user hasn't confirmed yet. Wait for their response before calling this tool again."
@@ -109,42 +105,16 @@ async def execute_tool(
                 from models import Conversation as _Conv
 
                 async with AsyncSessionLocal() as _db:
-                    _ws_id = None
-                    if args.get("workspace_id"):
-                        try: _ws_id = _uuid.UUID(args["workspace_id"])
-                        except ValueError: pass
                     _conv = _Conv(
                         id=_uuid.uuid4(), user_id=user_id,
                         title=args.get("title", "Session"),
-                        workspace_id=_ws_id, memory_enabled=True,
+                        memory_enabled=True,
                     )
                     _db.add(_conv)
                     await _db.commit()
                     result = str(_conv.id)
 
                 await _ensure_creation_wiring(user_id, result, "session", {"conversation_id": result})
-                await _clear_creation_flow(conv_id)
-        elif name == "create_workspace":
-            _guard = await _run_creation_guard(db, conv_id, "workspace")
-            if isinstance(_guard, str):
-                result = _guard
-            else:
-                import uuid as _uuid
-                from core.db import AsyncSessionLocal
-                from models import Workspace as _Ws
-
-                async with AsyncSessionLocal() as _db:
-                    _ws = _Ws(
-                        id=_uuid.uuid4(), user_id=user_id,
-                        name=args["name"],
-                        description=args.get("description", ""),
-                        system_prompt=args.get("system_prompt"),
-                    )
-                    _db.add(_ws)
-                    await _db.commit()
-                    result = str(_ws.id)
-
-                await _ensure_creation_wiring(user_id, result, "workspace", {"workspace_id": result})
                 await _clear_creation_flow(conv_id)
     except Exception as e:
         logger.warning("[tools] execute_tool failed name=%s err=%s", name, e)
@@ -177,14 +147,14 @@ async def execute_tool(
 async def _run_creation_guard(
     db: AsyncSession,
     conv_id: uuid.UUID,
-    create_type: str,  # "session" | "workspace"
+    create_type: str,  # "session"
 ) -> str | bool:
     """Run the 3-layer creation guard.
 
     Returns True to allow creation, or a string rejection/ASK_USER_PREFIX message.
     """
-    noun = "session" if create_type == "session" else "workspace"
-    reject = _CREATION_REJECT_SESSION if create_type == "session" else _CREATION_REJECT_WORKSPACE
+    noun = "session"
+    reject = _CREATION_REJECT_SESSION
 
     # ── Layer 1: Redis flow state ──────────────────────────────────
     state = await _get_flow_state(conv_id)
@@ -204,7 +174,7 @@ async def _run_creation_guard(
         await _set_flow_state(conv_id, _FLOW_STATE_PENDING)
         return (
             f"{ASK_USER_PREFIX}I need your confirmation to create a new {noun}. "
-            f"Please provide a {'title and any workspace' if create_type == 'session' else 'name and optional description'}."
+            f"Please provide a title."
         )
 
     return reject
@@ -213,7 +183,7 @@ async def _run_creation_guard(
 async def _user_requested_creation(
     db: AsyncSession,
     conv_id: uuid.UUID,
-    noun: str,  # "session" | "workspace"
+    noun: str,  # "session"
 ) -> bool:
     """Layer 2: check the LATEST user message for creation intent.
 
@@ -324,25 +294,23 @@ async def _ensure_creation_wiring(
     node_type: str,
     node_config: dict,
 ) -> None:
-    """Create matching canvas node + wire to input node."""
+    """Create matching session canvas node + wire to input node."""
     try:
         existing = await find_nodes(user_id, node_type)
         node = next(
-            (n for n in existing if n.get("config", {}).get(
-                "conversation_id" if node_type == "session" else "workspace_id"
-            ) == db_id),
+            (n for n in existing
+             if n.get("config", {}).get("conversation_id") == db_id),
             None,
         )
         # H4: mark AI/user-created sessions as kind="user" (distinct from the
         # permanent [GLOBAL] JARVIS session created by _ensure_canvas_wiring)
-        if node_type == "session":
-            node_config.setdefault("kind", "user")
+        node_config.setdefault("kind", "user")
         if node:
             node_id = node["node_id"]
         else:
             # internal=True: trusted bootstrap — runs only after the creation guard
-            # passed and a real Postgres Conversation/Workspace row exists, so it may
-            # create the permanent session node that the AI tool path is blocked from.
+            # passed and a real Postgres Conversation row exists, so it may create
+            # the permanent session node that the AI tool path is blocked from.
             node_id = await create_node(user_id, node_type, node_config, internal=True)
 
         inputs = await find_nodes(user_id, "input")
@@ -357,16 +325,13 @@ async def _ensure_creation_wiring(
             for w in graph["wires"]
         )
         if not already_wired:
-            # session input port = "message"; workspace input port = "workspace_id"
-            dst_port = "message" if node_type == "session" else "workspace_id"
-            relation = "routes_to" if node_type == "session" else "manages"
             await wire_nodes(
                 user_id, input_id, node_id,
-                "routed_message", dst_port, relation,
+                "routed_message", "message", "routes_to",
             )
     except Exception as e:
         # Broad catch: a wiring failure must never break the (already-committed)
-        # create_conversation/workspace success. But log the real cause + type —
+        # create_conversation success. But log the real cause + type —
         # a bare "auto-wire failed" hid the I2 permanent-type-guard regression.
         logger.warning(
             "[tools] auto-wire failed user=%d type=%s id=%s err=%s: %s",

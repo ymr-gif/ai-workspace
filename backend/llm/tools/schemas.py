@@ -73,7 +73,7 @@ TOOL_SCHEMAS = [
           ["query"]),
     _tool("create_canvas_node", f"Create a new node on your canvas. Node types: {', '.join(sorted(AI_CREATABLE_TYPES))}. (input/memory/config are managed automatically and sessions are created via create_conversation; insights/goals/automations/mech are not standalone nodes.)",
           {"node_type": {"type": "string", "description": "Type of node to create (see node inventory)."},
-           "config": {"type": "object", "description": "Optional config for the node (e.g. workspace_id, conversation_id)."}},
+           "config": {"type": "object", "description": "Optional config for the node (e.g. conversation_id)."}},
           ["node_type"]),
     _tool("delete_canvas_node", "Permanently remove a node and all its connections from your canvas.",
           {"node_id": {"type": "string", "description": "UUID of the node to delete."}},
@@ -104,25 +104,14 @@ TOOL_SCHEMAS = [
           "After creating, call create_canvas_node(type='session', config={'conversation_id': <id>}), "
           "then wire_nodes(src_id=<input node id>, dst_id=<new session id>, "
           "src_port='routed_message', dst_port='message', relation='routes_to').",
-          {"title":        {"type": "string", "description": "Short title for the conversation, provided by user."},
-           "workspace_id": {"type": "string", "description": "Optional workspace UUID to scope the conversation."}},
+          {"title":        {"type": "string", "description": "Short title for the conversation, provided by user."}},
           ["title"]),
-    _tool("create_workspace",
-          "Create a new workspace in the database. Returns the workspace_id. "
-          "Only call after user has confirmed details in conversation. "
-          "After creating, call create_canvas_node(type='workspace', config={'workspace_id': <id>}), "
-          "then wire_nodes(src_id=<input node id>, dst_id=<new workspace id>, "
-          "src_port='routed_message', dst_port='workspace_id', relation='manages').",
-          {"name":          {"type": "string", "description": "Workspace name, provided by user."},
-           "description":   {"type": "string", "description": "Optional description."},
-           "system_prompt": {"type": "string", "description": "Optional system prompt applied to all sessions in this workspace."}},
-          ["name"]),
 ]
 
 _CANVAS_TOOL_NAMES = frozenset({
     "create_canvas_node", "delete_canvas_node", "update_canvas_node",
     "wire_nodes", "unwire_nodes", "query_canvas", "get_canvas_graph",
-    "create_conversation", "create_workspace",
+    "create_conversation",
 })
 
 FILE_TOOL_SCHEMAS    = [t for t in TOOL_SCHEMAS if t["function"]["name"] not in _CANVAS_TOOL_NAMES]

@@ -36,7 +36,6 @@ def _schedule_row(s: ScheduledPrompt) -> dict:
         "prompt":         s.prompt,
         "cron_expr":      s.cron_expr,
         "model_override": s.model_override,
-        "workspace_id":   str(s.workspace_id) if s.workspace_id else None,
         "is_active":      s.is_active,
         "last_run_at":    s.last_run_at.isoformat()  if s.last_run_at  else None,
         "next_run_at":    s.next_run_at.isoformat()  if s.next_run_at  else None,
@@ -60,7 +59,6 @@ class ScheduleCreate(BaseModel):
     prompt:         str  = Field(..., min_length=1)
     schedule:       str  = Field(..., min_length=1, max_length=100, description="Cron expression or daily/weekly/monthly")
     model_override: str  | None = None
-    workspace_id:   str  | None = None
 
     @field_validator("schedule")
     @classmethod
@@ -76,7 +74,6 @@ class SchedulePatch(BaseModel):
     prompt:         str  | None = Field(None, min_length=1)
     schedule:       str  | None = Field(None, min_length=1, max_length=100, description="Cron expression or daily/weekly/monthly")
     model_override: str  | None = None
-    workspace_id:   str  | None = None
     is_active:      bool | None = None
 
     @field_validator("schedule")
@@ -96,20 +93,12 @@ async def create_schedule(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
 ):
-    wid = None
-    if body.workspace_id:
-        try:
-            wid = uuid.UUID(body.workspace_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid workspace_id")
-
     s = ScheduledPrompt(
         user_id        = current_user.id,
         name           = body.name.strip(),
         prompt         = body.prompt,
         cron_expr      = body.schedule,
         model_override = body.model_override,
-        workspace_id   = wid,
         next_run_at    = _next_run(body.schedule),
     )
     db.add(s)
@@ -176,11 +165,6 @@ async def patch_schedule(
     if "prompt"         in updated: s.prompt         = body.prompt
     if "model_override" in updated: s.model_override = body.model_override
     if "is_active"      in updated: s.is_active      = body.is_active
-    if "workspace_id"   in updated:
-        try:
-            s.workspace_id = uuid.UUID(body.workspace_id) if body.workspace_id else None
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid workspace_id")
     if "schedule" in updated:
         s.cron_expr   = body.schedule
         s.next_run_at = _next_run(body.schedule)

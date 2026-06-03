@@ -3,32 +3,13 @@ import { fmtDate } from '../../../lib/chatUtils.js'
 
 export default function Sidebar({
   conversations, activeConvId, selectConv,
-  sidebarWsList, sidebarWsId, setSidebarWsId,
   convSearch, setConvSearch,
   searchResults, searchLoading,
   newChat, deleteConv, exportConv,
-  openCreateWs, openEditWs,
 }) {
   return (
     <div style={s.sidebar}>
       <div style={s.sideTop}><button onClick={newChat} style={s.newBtn}>+ New Chat</button></div>
-
-      <div style={{ padding:'0.4rem 0.5rem', borderBottom:`1px solid ${LINE}`, display:'flex', gap:'0.25rem', flexWrap:'wrap', alignItems:'center' }}>
-        <button onClick={() => setSidebarWsId(null)}
-          style={{ ...s.wsPill, ...(sidebarWsId === null ? s.wsPillActive : {}) }}>
-          All
-        </button>
-        {sidebarWsList.map(ws => (
-          <span key={ws.id} style={{ display:'inline-flex', alignItems:'center' }}>
-            <button onClick={() => setSidebarWsId(sidebarWsId === ws.id ? null : ws.id)}
-              style={{ ...s.wsPill, ...(sidebarWsId === ws.id ? s.wsPillActive : {}) }}>
-              {ws.name}
-            </button>
-            <button onClick={e => openEditWs(ws, e)} style={s.wsGearBtn} title="Workspace settings">⚙</button>
-          </span>
-        ))}
-        <button onClick={openCreateWs} style={s.wsPlusBtn} title="New workspace">+</button>
-      </div>
 
       <div style={s.sideSearchWrap}>
         <input value={convSearch} onChange={e => setConvSearch(e.target.value)}
@@ -37,7 +18,7 @@ export default function Sidebar({
 
       <div style={s.convList}>
         {searchLoading && <p style={{ color:FG4, fontSize:'14px', textAlign:'center', padding:'0.5rem' }}>Searching…</p>}
-        {(searchResults !== null ? searchResults : conversations.filter(c => sidebarWsId === null || c.workspace_id === sidebarWsId)).map(c => (
+        {(searchResults !== null ? searchResults : conversations).map(c => (
           <div key={c.id} onClick={() => selectConv(c.id)}
             style={{ ...s.convItem, background: c.id === activeConvId ? '#121212' : 'transparent', borderLeftColor: c.id === activeConvId ? RED : 'transparent' }}>
             <div style={s.convMeta}>

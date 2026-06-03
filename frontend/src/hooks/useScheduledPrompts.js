@@ -10,7 +10,6 @@ export default function useScheduledPrompts(token) {
   const [formPrompt, setFormPrompt]           = useState('')
   const [formSchedule, setFormSchedule]       = useState('daily')
   const [formModel, setFormModel]             = useState('')
-  const [formWsId, setFormWsId]               = useState('')
   const [formSaving, setFormSaving]           = useState(false)
   const [runsMap, setRunsMap]                 = useState({})
   const [runsLoading, setRunsLoading]         = useState({})
@@ -34,7 +33,6 @@ export default function useScheduledPrompts(token) {
     try {
       const body = { name: formName, prompt: formPrompt, schedule: formSchedule }
       if (formModel) body.model_override = formModel
-      if (formWsId)  body.workspace_id   = formWsId
       const url    = editTarget ? `/api/scheduled-prompts/${editTarget.id}` : '/api/scheduled-prompts'
       const method = editTarget ? 'PATCH' : 'POST'
       const r = await fetch(url, { method, headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -79,14 +77,14 @@ export default function useScheduledPrompts(token) {
 
   function openCreate() {
     setEditTarget(null)
-    setFormName(''); setFormPrompt(''); setFormSchedule('daily'); setFormModel(''); setFormWsId('')
+    setFormName(''); setFormPrompt(''); setFormSchedule('daily'); setFormModel('')
     setFormOpen(true)
   }
 
   function openEdit(sc) {
     setEditTarget(sc)
     setFormName(sc.name); setFormPrompt(sc.prompt || ''); setFormSchedule(sc.schedule || 'daily')
-    setFormModel(sc.model_override || ''); setFormWsId(sc.workspace_id || '')
+    setFormModel(sc.model_override || '')
     setFormOpen(true)
   }
 
@@ -105,7 +103,6 @@ export default function useScheduledPrompts(token) {
     formPrompt, setFormPrompt,
     formSchedule, setFormSchedule,
     formModel, setFormModel,
-    formWsId, setFormWsId,
     formSaving,
     runsMap, runsLoading,
     expandedId, triggeringId,

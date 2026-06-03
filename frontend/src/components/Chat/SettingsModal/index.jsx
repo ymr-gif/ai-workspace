@@ -4,8 +4,7 @@ import { usePanelProps } from '../PanelPropsContext.js'
 
 export default function SettingsModal() {
   const p = usePanelProps()
-  const { settingsOpen, setSettingsOpen, editSysPrompt, setEditSysPrompt, editLockModel, setEditLockModel, editWsId, setEditWsId, saveSettings, settingsSaving } = p.settings
-  const { sidebarWsList } = p.ws
+  const { settingsOpen, setSettingsOpen, editSysPrompt, setEditSysPrompt, editLockModel, setEditLockModel, saveSettings, settingsSaving } = p.settings
   if (!settingsOpen) return null
   return (
     <div style={s.settingsModal} onClick={e => e.stopPropagation()}>
@@ -27,18 +26,6 @@ export default function SettingsModal() {
           ))}
         </div>
         {editLockModel && <div style={{ fontSize:'14px', color:FG4, marginTop:'0.4rem' }}>All messages in this conversation will use {MODEL_LABELS[MODEL_KEYS[editLockModel]] || editLockModel}.</div>}
-        {sidebarWsList.length > 0 && (
-          <>
-            <div style={{ ...s.editLabel, marginTop:'1rem' }}>Workspace</div>
-            <select value={editWsId} onChange={e => setEditWsId(e.target.value)}
-              style={{ ...s.editArea, height:'2.2rem', resize:'none', padding:'0.3rem 0.6rem', cursor:'pointer' }}>
-              <option value="">— None —</option>
-              {sidebarWsList.map(ws => (
-                <option key={ws.id} value={ws.id}>{ws.name}</option>
-              ))}
-            </select>
-          </>
-        )}
       </div>
       <div style={s.settingsFooter}>
         <button onClick={() => setSettingsOpen(false)} style={s.cancelBtn}>Cancel</button>

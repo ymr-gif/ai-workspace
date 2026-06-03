@@ -3,7 +3,7 @@ import { usePanelProps } from '../PanelPropsContext.js'
 
 export default function FilesPanel() {
   const p = usePanelProps()
-  const { filesOpen, setFilesOpen, filesTab, setFilesTab, libFiles, attachedFiles, workspaces, wsFilter, setWsFilter, fileUploading, urlIngest, setUrlIngest, urlIngesting, renameId, setRenameId, renameVal, setRenameVal, fileInputRef, attachedIds, uploadFile, ingestUrl, attachFile, detachFile, viewFile, downloadFile, deleteFile, commitRename, statusColor } = p.files
+  const { filesOpen, setFilesOpen, filesTab, setFilesTab, libFiles, attachedFiles, fileUploading, urlIngest, setUrlIngest, urlIngesting, renameId, setRenameId, renameVal, setRenameVal, fileInputRef, attachedIds, uploadFile, ingestUrl, attachFile, detachFile, viewFile, downloadFile, deleteFile, commitRename, statusColor } = p.files
   const { activeConvId } = p.conv
   return (
     <div style={{ ...s.filePanel, transform: filesOpen ? 'translateX(0)' : 'translateX(100%)' }}>
@@ -39,19 +39,6 @@ export default function FilesPanel() {
           {urlIngesting ? '…' : '⬇ Fetch'}
         </button>
       </div>
-
-      {workspaces.length > 0 && (
-        <div style={s.wsRow}>
-          <span style={s.wsLabel}>WS:</span>
-          <button onClick={() => setWsFilter('')} style={{ ...s.wsPill, ...(wsFilter === '' ? s.wsPillActive : {}) }}>All</button>
-          {workspaces.map(ws => (
-            <button key={ws.id} onClick={() => setWsFilter(ws.id === wsFilter ? '' : ws.id)}
-              style={{ ...s.wsPill, ...(wsFilter === ws.id ? s.wsPillActive : {}) }}>
-              {ws.name}
-            </button>
-          ))}
-        </div>
-      )}
 
       <div style={s.fileList}>
         {filesTab === 'library' && (

@@ -71,8 +71,8 @@ async def _cache_del(user_id: int) -> None:
 
 async def _find_duplicate(user_id: int, node_type: str, config: dict) -> str | None:
     """Return an existing node id this create would duplicate, or None.
-    Singletons (input/memory/config) dedup by type; session/workspace dedup by
-    their id key. Prefers a protected node so the core node is never the one dropped."""
+    Singletons (input/memory/config) dedup by type; session dedups by
+    conversation_id. Prefers a protected node so the core node is never the one dropped."""
     if node_type in PERMANENT_TYPES:                       # input/memory/config — singleton
         existing = await find_nodes(user_id, node_type)
         if not existing:
@@ -80,7 +80,7 @@ async def _find_duplicate(user_id: int, node_type: str, config: dict) -> str | N
         protected = next((n for n in existing if n.get("protected")), None)
         return (protected or existing[0])["node_id"]
 
-    key = "conversation_id" if node_type == "session" else "workspace_id" if node_type == "workspace" else None
+    key = "conversation_id" if node_type == "session" else None
     if key and config.get(key):
         for n in await find_nodes(user_id, node_type):
             if (n.get("config") or {}).get(key) == config[key]:
@@ -125,8 +125,7 @@ async def create_node(
 
     # H6: dedup — never create a second node for the same logical entity.
     # Returning the existing id makes create_node idempotent for singletons
-    # (input/memory/config) and id-keyed nodes (session→conversation_id,
-    # workspace→workspace_id).
+    # (input/memory/config) and id-keyed nodes (session→conversation_id).
     dup_id = await _find_duplicate(user_id, node_type, merged)
     if dup_id:
         logger.info("[canvas] dedup: %s already exists as %s user=%d", node_type, dup_id, user_id)

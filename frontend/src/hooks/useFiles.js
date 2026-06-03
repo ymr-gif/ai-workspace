@@ -6,8 +6,6 @@ export default function useFiles(token, activeConvId) {
   const [fileViewer, setFileViewer] = useState(null)
   const [libFiles, setLibFiles] = useState([])
   const [attachedFiles, setAttachedFiles] = useState([])
-  const [workspaces, setWorkspaces] = useState([])
-  const [wsFilter, setWsFilter] = useState('')
   const [fileUploading, setFileUploading] = useState(false)
   const [urlIngest, setUrlIngest] = useState('')
   const [urlIngesting, setUrlIngesting] = useState(false)
@@ -24,17 +22,9 @@ export default function useFiles(token, activeConvId) {
   const authHeaders = { 'Authorization': `Bearer ${token}` }
 
   const loadLibFiles = useCallback(async () => {
-    const qs = wsFilter ? `?workspace_id=${encodeURIComponent(wsFilter)}` : ''
     try {
-      const r = await fetch(`/api/files${qs}`, { headers: authHeaders })
+      const r = await fetch('/api/files', { headers: authHeaders })
       if (r.ok) setLibFiles(await r.json())
-    } catch { /* ignore */ }
-  }, [token, wsFilter])
-
-  const loadWorkspaces = useCallback(async () => {
-    try {
-      const r = await fetch('/api/files/workspaces', { headers: authHeaders })
-      if (r.ok) { const d = await r.json(); setWorkspaces(d.workspaces || []) }
     } catch { /* ignore */ }
   }, [token])
 
@@ -48,8 +38,8 @@ export default function useFiles(token, activeConvId) {
 
   useEffect(() => {
     if (!filesOpen) return
-    loadLibFiles(); loadWorkspaces(); loadAttachedFiles()
-  }, [filesOpen, wsFilter])
+    loadLibFiles(); loadAttachedFiles()
+  }, [filesOpen])
 
   useEffect(() => { if (activeConvId) loadAttachedFiles() }, [activeConvId])
 
@@ -59,7 +49,7 @@ export default function useFiles(token, activeConvId) {
     try {
       const fd = new FormData(); fd.append('file', file)
       const r = await fetch('/api/files/upload', { method:'POST', headers: authHeaders, body: fd })
-      if (r.ok) { await loadLibFiles(); await loadWorkspaces() }
+      if (r.ok) { await loadLibFiles() }
     } catch { /* ignore */ } finally { setFileUploading(false); e.target.value = '' }
   }
 
@@ -214,8 +204,6 @@ export default function useFiles(token, activeConvId) {
     fileViewer, setFileViewer,
     libFiles,
     attachedFiles, setAttachedFiles,
-    workspaces,
-    wsFilter, setWsFilter,
     fileUploading,
     urlIngest, setUrlIngest,
     urlIngesting,
