@@ -48,7 +48,6 @@ _CANVAS_WRITE_TOOLS = frozenset({
     "create_conversation",
 })
 
-
 @router.post("/chat/stream")
 async def chat_stream(
     req:          ChatRequest,
@@ -137,6 +136,7 @@ async def chat_stream(
     # Agent boot — health check, scratchpad restore, canvas state
     boot_report = await agent_boot(current_user.id)
     boot_log = format_boot_log(boot_report)
+
     # type classification owned by agent/node.py (single source of truth)
     _CREATABLE_NODES = [n for n in node_registry if n in AI_CREATABLE_TYPES]
     ni_width = max(len(n) for n in node_registry) + 2
@@ -148,31 +148,15 @@ async def chat_stream(
     node_inventory_lines.append("  memory   → user memory store")
     node_inventory_lines.append("  config   → model/params settings")
     node_inventory_lines.append("")
-    node_inventory_lines.append("CREATABLE nodes (create only when user explicitly asks):")
+    node_inventory_lines.append("Other node types you can add to the canvas:")
     for n_name in _CREATABLE_NODES:
         n_def = node_registry[n_name]
         node_inventory_lines.append(f"  {n_name.ljust(ni_width)}→ {n_def.label}")
     node_inventory_lines.append("")
 
-    node_inventory_lines.append("CONFIRMATION PROTOCOL (for creations):")
-    node_inventory_lines.append("  If the user's message explicitly mentions creating, starting, or setting")
-    node_inventory_lines.append("  up a new session or conversation, respond conversationally:")
-    node_inventory_lines.append('    "It seems you want to make a new session. What details should I use?"')
-    node_inventory_lines.append("  Wait for the user's reply with name/specs before calling any creation tool.")
-    node_inventory_lines.append("")
-
-    node_inventory_lines.append("SESSION CREATION (only after user confirms details):")
-    node_inventory_lines.append("  1. call create_conversation(title='<user-given title>') → get conversation_id")
-    node_inventory_lines.append("  The session canvas node is created AND wired to the input node automatically.")
-    node_inventory_lines.append("  Do NOT call create_canvas_node or wire_nodes for it.")
-    node_inventory_lines.append("  These session nodes are SEPARATE threads, not the global JARVIS session.")
-    node_inventory_lines.append("")
-
     node_inventory_lines.append("RULES:")
-    node_inventory_lines.append("  - ALWAYS ask for confirmation and specs before creating — never create silently.")
-    node_inventory_lines.append("  - create_conversation auto-creates and wires its canvas node — never wire it yourself.")
+    node_inventory_lines.append("  - You are in the JARVIS global session. Do not create sessions or nodes unless the user explicitly asks; answer normally otherwise.")
     node_inventory_lines.append("  - When tools are needed, call them rather than describing actions in text.")
-    node_inventory_lines.append("  - Never call create_conversation unless the user explicitly asks to create a session.")
     node_inventory_lines.append("  - Never delete the input node or any node marked [CORE · protected]/[GLOBAL] — they are permanent infrastructure. The session marked [GLOBAL] is the permanent JARVIS session; only [user session] nodes may be deleted. If the user asks to delete 'the session' and only the [GLOBAL] session exists, explain that it is permanent instead of deleting it.")
     node_inventory = "\n".join(node_inventory_lines)
 

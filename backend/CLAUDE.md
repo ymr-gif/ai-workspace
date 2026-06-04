@@ -93,8 +93,9 @@
 - Trigger: any message when `file_ids` non-empty → always forces reasoning model (70B); 8B cannot reliably use tool results
 - File tools always available when files attached (not keyword-gated); `_needs_file_tools()` no longer gates tool availability
 
-- Tools (19 total — 11 existing + 7 canvas + 1 creation): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph` · `create_conversation` (Postgres Conversation + returns id; AI follows with create_canvas_node type=session)
+- Tools (19 total — 11 existing + 7 canvas + 1 creation): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph` · `create_conversation` (Postgres Conversation + returns id; auto-creates+wires its session canvas node via `_ensure_creation_wiring` — AI must NOT create/wire it)
 - Guards: same tool >3× → abort (except `_READONLY_CANVAS_TOOLS` = `get_canvas_graph`, `query_canvas` — exempted, they're read-only) · MAX_TOOL_ITERATIONS=20 · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
+- **Canvas tool gating (J1, 2026-06-04):** ALL canvas tools (read + write) are withheld unless `canvas_context_active(message, conv_id)` (`executor.py`) is true — i.e. the message names a canvas object (`_CANVAS_INTENT_RE`: canvas/node/session/conversation/wire/graph…) OR a creation flow is mid-confirmation (Redis state set). Applied in `llm/service/stream.py` (`canvas_tools = []` when inactive). Without this the 70B treats every benign turn as a canvas task and loops on whatever tool is offered (gating only write tools just makes it spin on read-only). Tradeoff: canvas STATE/inventory still injected, so the model may narrate the canvas on benign turns — no loop.
 - **Creation guard** (`create_conversation`): 3-layer state machine in `executor.py` (`_run_creation_guard`)
 - `ask_user` / `write_memory` emit SSE + done → pauses loop; amber/green card in UI; `POST /api/memory/write` on user confirm; `ask_user` question persisted as assistant message content so model sees it on next turn
 - `append_to_file` for explicit write requests only; `search_in_file` preferred over `read_file` for sections
@@ -126,6 +127,7 @@
 - Set to `pending_specs` when Layer 2 detects creation intent
 - Set to `confirmed` when Layer 3 confirms user reply matches `_CONFIRMATION_RE`
 - Cleared on successful creation; degrades gracefully when Redis unavailable (falls through to Layer 2)
+- `confirmed` → allow; `pending_specs` → run Layer 3. **No** latest-message cross-check on these states — it broke the confirm turn (the "yes" message has no creation intent of its own, so re-detecting `_CREATION_RE` cleared the flow and rejected). Stale-leak prevention is now handled upstream by canvas tool gating (`canvas_context_active`) + Layer 3's affirmative-reply requirement.
 
 ### Layer 2 — Latest Message Intent
 - Queries ONLY the most recent user message (`.limit(1)`) — not last 3
@@ -148,9 +150,11 @@
 ### Auto-wiring
 - On successful creation, `_ensure_creation_wiring()` creates the matching session canvas node and wires it to the input node: `routed_message` → `message` (relation `routes_to`). The system prompt tells the model NOT to create/wire the node itself — auto-wiring owns it.
 
-### Prompt Reinforcement
-- Node inventory prompt includes: "Never call create_conversation unless the user explicitly asks to create a session."
-- Rejection messages reinforce: "This tool creates real database records — only call it when the user explicitly asks."
+### Prompt Reinforcement (J1 anti-priming, 2026-06-04 — defense-in-depth only)
+- NOTE: prompt changes alone did NOT fix J1 (the 70B looped regardless). The actual fix is canvas tool gating (see "Canvas tool gating" above). These prompt edits are kept as defense-in-depth.
+- Node inventory RULES no longer name `create_conversation` (it primed the model to call it on benign turns). Single neutral rule: "You are in the JARVIS global session. Do not create sessions or nodes unless the user explicitly asks; answer normally otherwise."
+- `create_conversation` tool description drops the old manual `create_canvas_node`/`wire_nodes` procedure (auto-wiring owns it) and says: "Only call when the user explicitly asks — never on greetings, topic suggestions, or general questions."
+- Rejection messages now tell the model to STOP retrying: "Do not call this tool again. Answer the user's message normally instead." — breaks the reject→retry→loop-guard-abort cycle.
 
 ---
 
@@ -170,9 +174,10 @@
 - Boot log, node inventory (11 types), and canvas state prepended to system message on every request
 - Tier 0 (never dropped by context budget allocator)
 - Combined size ~500 tokens
-- **Confirmation protocol** instruction at `api/chat/stream.py:158` gated by "explicitly mentions creating/starting/setting up a new session" — stops false creation framing on greetings
+- Confirmation-protocol + session-creation instruction blocks REMOVED (they primed false creation framing). See Prompt Reinforcement above.
 - No redundant "call get_canvas_graph for UUIDs" instruction — UUIDs already in `[CANVAS STATE]`
 - Tool-calling instruction softened: "When tools are needed, call them" not "CRITICAL: call tools immediately"
+
 
 ---
 

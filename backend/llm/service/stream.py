@@ -8,7 +8,7 @@ from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route, get_context_limit
 from llm.nim import call, call_stream
-from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, CANVAS_TOOL_SCHEMAS, WRITE_MEMORY_SCHEMA, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX
+from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, CANVAS_TOOL_SCHEMAS, WRITE_MEMORY_SCHEMA, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX, canvas_context_active
 
 from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, apply_context_budget
 
@@ -141,6 +141,14 @@ async def generate_stream(
 
     file_tools   = FILE_TOOL_SCHEMAS   if (file_ids and db is not None) else []
     canvas_tools = CANVAS_TOOL_SCHEMAS if (db is not None and node_inventory) else []
+
+    # Withhold ALL canvas tools unless the message references a canvas object
+    # (or a creation flow is mid-confirmation). The 70B otherwise treats every
+    # benign turn as a canvas task and loops — on write tools (create/wire/
+    # delete) or, if only read tools remain, on get_canvas_graph/query_canvas
+    # until MAX_TOOL_ITERATIONS (J1). With none offered it answers in text.
+    if canvas_tools and not await canvas_context_active(message, conv_id):
+        canvas_tools = []
 
     # write_memory: reasoning model only + user must explicitly request save (prevents 70B saving on its own initiative)
     _is_reasoning = fallback_chain[0] == MODELS["reasoning"]

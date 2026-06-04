@@ -71,7 +71,7 @@ TOOL_SCHEMAS = [
     _tool("query_graph", "Search the user's knowledge graph for entities and relationships related to a topic, person, or concept.",
           {"query": {"type": "string", "description": "Topic, person, or concept to search for."}},
           ["query"]),
-    _tool("create_canvas_node", f"Create a new node on your canvas. Node types: {', '.join(sorted(AI_CREATABLE_TYPES))}. (input/memory/config are managed automatically and sessions are created via create_conversation; insights/goals/automations/mech are not standalone nodes.)",
+    _tool("create_canvas_node", f"Create a new node on your canvas. Node types: {', '.join(sorted(AI_CREATABLE_TYPES))}. (input/memory/config/session are managed automatically — do not create them here; insights/goals/automations/mech are not standalone nodes.)",
           {"node_type": {"type": "string", "description": "Type of node to create (see node inventory)."},
            "config": {"type": "object", "description": "Optional config for the node (e.g. conversation_id)."}},
           ["node_type"]),
@@ -99,11 +99,10 @@ TOOL_SCHEMAS = [
           ["cypher"]),
     _tool("get_canvas_graph", "Return your full canvas — all active nodes and their connections."),
     _tool("create_conversation",
-          "Create a new conversation (session) in the database. Returns the conversation_id. "
-          "Only call after user has confirmed details in conversation. "
-          "After creating, call create_canvas_node(type='session', config={'conversation_id': <id>}), "
-          "then wire_nodes(src_id=<input node id>, dst_id=<new session id>, "
-          "src_port='routed_message', dst_port='message', relation='routes_to').",
+          "Create a new conversation (session). Returns the conversation_id and automatically "
+          "creates and wires its canvas node — do not create_canvas_node or wire_nodes for it. "
+          "Only call when the user explicitly asks to create a session — never on greetings, "
+          "topic suggestions, or general questions.",
           {"title":        {"type": "string", "description": "Short title for the conversation, provided by user."}},
           ["title"]),
 ]

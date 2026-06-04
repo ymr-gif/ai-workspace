@@ -41,10 +41,12 @@ _FLOW_STATE_CONFIRMED = "confirmed"
 
 _CREATION_REJECT_SESSION = (
     "Cannot create session: the user didn't request one. "
-    "This tool creates real database records — only call it when the user explicitly asks to create a session."
+    "This tool creates real database records — only call it when the user explicitly asks to create a session. "
+    "Do not call this tool again. Answer the user's message normally instead."
 )
 _CREATION_NOT_CONFIRMED = (
-    "The user hasn't confirmed yet. Wait for their response before calling this tool again."
+    "The user hasn't confirmed yet. Do not call this tool again — "
+    "answer the user's message normally and wait for their explicit confirmation."
 )
 
 
@@ -144,6 +146,33 @@ async def execute_tool(
 # ── Creation guard: 3-layer state machine ─────────────────────────
 
 
+# Canvas tools (read AND write) are withheld unless the message names a canvas
+# object. The 70B otherwise treats every benign turn as a canvas task and loops:
+# gating write tools alone just makes it spin on read-only get_canvas_graph /
+# query_canvas until MAX_TOOL_ITERATIONS (J1). With no canvas tools offered it
+# answers conversationally. "what's on my canvas?" matches → tools restored.
+_CANVAS_INTENT_RE = re.compile(
+    r"\b(canvas|nodes?|sessions?|conversations?|wires?|unwire|connect|disconnect|graph)\b",
+    re.I,
+)
+
+
+async def canvas_context_active(message: str, conv_id: uuid.UUID | None) -> bool:
+    """Should canvas tools be offered to the model this turn?
+
+    True only when the current message references a canvas object (node,
+    session, wire, …) or a creation flow is mid-confirmation (Redis state set).
+    Otherwise all canvas tools are withheld — if none are offered, the model
+    cannot loop on them and must answer in text.
+    """
+    text = message or ""
+    if _CANVAS_INTENT_RE.search(text):
+        return True
+    if conv_id is not None and await _get_flow_state(conv_id) is not None:
+        return True
+    return False
+
+
 async def _run_creation_guard(
     db: AsyncSession,
     conv_id: uuid.UUID,
@@ -163,7 +192,10 @@ async def _run_creation_guard(
         return True
 
     if state == _FLOW_STATE_PENDING:
-        # ── Layer 3: message pairing ──
+        # ── Layer 3: message pairing — the confirm turn's message is "yes",
+        # which carries no creation intent of its own; gate on the affirmative
+        # reply after the ask, NOT on re-detecting creation intent. (Canvas
+        # tool gating in the service layer prevents stale-state leaks.)
         if await _user_replied_after_ask(db, conv_id):
             await _set_flow_state(conv_id, _FLOW_STATE_CONFIRMED)
             return True
