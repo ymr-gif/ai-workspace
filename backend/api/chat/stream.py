@@ -28,6 +28,7 @@ from llm.summarizer.project import update_project_summary
 from agent.boot import agent_boot, format_boot_log
 from agent.scratchpad import update_scratchpad
 from agent.node import registry as node_registry, AI_CREATABLE_TYPES
+from llm.tools import canvas_context_active
 
 from .helpers import (
     _build_stream_context, _check_cost_cap, _extract_model_params,
@@ -199,6 +200,15 @@ async def chat_stream(
             # full node_id (not truncated) — the model passes these verbatim to delete/update/wire
             canvas_lines.append(f"  {n.get('node_type', '?')}{name_str} ({n.get('node_id', '?')}){core_str}{conn_str}")
     canvas_state = "\n".join(canvas_lines)
+
+    # Gate canvas prompt injection by intent (J1): on benign turns the 70B
+    # narrates the canvas instead of answering. Withhold the node inventory +
+    # CANVAS STATE blocks unless the message references the canvas (or a
+    # creation flow is mid-confirmation). Mirrors the tool gating in the service
+    # layer — empty node_inventory also drops canvas tools there.
+    if not await canvas_context_active(req.message, conv.id):
+        node_inventory = ""
+        canvas_state = ""
 
     system_prompt = conv.system_prompt or None
 
