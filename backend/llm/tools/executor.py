@@ -268,7 +268,16 @@ async def _user_replied_after_ask(
         if m.role == "assistant" and "I need your confirmation" in (m.content or ""):
             found_ask = True
         elif found_ask and m.role == "user":
-            return bool(_CONFIRMATION_RE.search(m.content or ""))
+            reply = (m.content or "").strip()
+            # The ask requests a title, so the user replies with the title (e.g.
+            # "ProjectX") — NOT a yes/no word. Any non-empty, non-negation,
+            # non-question reply after the ask IS the confirmation. The '?' guard
+            # keeps unrelated questions ("what nodes are on my canvas?") pending.
+            if not reply or _NEGATION_RE.search(reply):
+                return False
+            if _CONFIRMATION_RE.search(reply):
+                return True
+            return not reply.endswith("?")
 
     return False
 
