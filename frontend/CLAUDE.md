@@ -78,10 +78,16 @@
 
 ### Canvas — JARVIS Global AI
 - `GET /api/canvas/global` — returns-or-creates the JARVIS conversation (`title="JARVIS"`) for the user; called by `canvas-live.js` at boot; result stored as `window.NIM_CANVAS_GLOBAL_CONV_ID`
-- InputNode has no session dropdown — sends to global conv by default via `NIM_CANVAS_GLOBAL_CONV_ID` fallback in `buildBody()`; shows `JARVIS // GLOBAL` static label
-- SessionNode is simplified — no session picker, no LIST button; shows `GLOBAL SESSION / JARVIS // PERSISTENT` for the primary node; AI-created session nodes show `AI SESSION / <uuid prefix>`
-- AI tool `create_conversation` creates a real Postgres record, then AI follows with `create_canvas_node` to visualize; `canvas_update` SSE triggers `_patch` to show new nodes
-- All messages from Input node always route to JARVIS global conversation; `NIM_CANVAS_LAST_SESSION_ID` can override (used by AI-created session nodes in future)
+- **Session node labels** (`SessionNode` in `nodes.jsx`): `data.kind` (spread flat from the backend node `config` by `neoToRF`) is the global/user discriminator — `kind==='global'` (or no `conversation_id`) → `GLOBAL SESSION / JARVIS // PERSISTENT`; otherwise → **`SESSION | <title>`** (the conversation's auto-title from `/api/canvas/graph`, enriched server-side in `api/canvas.py`; falls back to the id prefix when untitled), with the `conversation_id` prefix as the subtitle.
+- **Single global card:** the backend `kind==='global'` session node (and its wires) is filtered out of the graph mapping in `canvas-live.js` + `Canvas.jsx` `patchCanvas` — the static demo `session` node (id `session`) represents global and hosts the chat drawer.
+- AI tool `create_conversation` creates a real Postgres record (auto-titled after the 2nd message), then `_ensure_creation_wiring` auto-creates + wires the `kind="user"` session node; `canvas_update` SSE triggers `_patch` to show new nodes.
+
+### Canvas — Session chat: routing + the chat drawer
+- **One chat drawer** = `SessionOutputPanel` (`nodes.jsx`), a `ReactDOM.createPortal` right-edge drawer (collapsed `‹` tab) rendered only by the static `session` node. There is NO in-node chat and NO conversation-list sidebar in the canvas.
+- **Active conversation** (`targetConvId` in `Canvas.jsx`) drives both what the drawer shows AND where sends route (`window.NIM_CANVAS_INPUT_TARGET.convId`, read by `buildBody()`). Set two ways, last-wins:
+  - **Input→Session wire** — dragging the static `input` box to a session node routes there; the wire effect only adopts a change (guarded by `lastWireConvRef`) so physics re-runs don't clobber a click.
+  - **Click-to-focus** — `onNodeClick` on a session node makes it active and dispatches `nim-open-drawer` (the drawer opens). Clicking the global/JARVIS node → global.
+- The drawer **follows the active conversation**: a swap effect saves the outgoing session's thread and loads the targeted one (`histCacheRef` per-conversation cache; fetched once from `/api/conversations/{id}/messages`). Streaming + `appendMessages` target the static `session` node.
 
 ### Canvas — Backend Bridge (Neo4j ↔ React Flow)
 - `GET /api/canvas/graph` → `{"nodes": [...], "wires": [...]}` — fetched by `canvas-live.js` at boot and by `canvas-sse.js` on `canvas_update` events

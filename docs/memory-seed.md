@@ -45,11 +45,11 @@ Remember this.
 ```
 The memory system I built has several layers, injected in this order:
 
-1. System message (workspace + conversation prompts)
+1. System message (conversation prompt + file rules)
 2. Graph context from Neo4j (entity/relation context, limit 50, min score 0.5)
 3. Graph facts from keyword expansion
 4. User memory sheet — top 20 facts by salience
-5. Workspace and project state
+5. Active goals and project state
 6. Retrieved chunks from pgvector (hybrid BM25 + vector fusion)
 7. History summary
 8. Last 10 messages

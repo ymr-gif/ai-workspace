@@ -54,16 +54,16 @@ Last updated: 2026-05-31 (P0 + P1 complete; P2 in progress — #12, #13, #14, #1
 | Full data export (`GET /api/export/full` ZIP stream) | ✅ |
 | AI agent tool loop (18 tools: 11 existing + 7 canvas) | ✅ |
 | Pattern detection + proactive triggers (`detect_recurring_patterns()`; 7-day dedup; ARQ enqueue with hint) | ✅ |
-| Global autonomous agent canvas — Neo4j-backed node system (12 node types, typed ports, WIRED_TO relationships, agent scratchpad, boot diagnostics) | ✅ |
+| Global autonomous agent canvas — Neo4j-backed node system (11 node types, typed ports, WIRED_TO relationships, agent scratchpad, boot diagnostics, per-session chat drawer) | ✅ |
 | Autonomous memory writing (write_memory tool, user-confirm green card) | ✅ |
 | User preference extraction (ARQ job every 50 msgs; `[PREFERENCES]` in UserMemory) | ✅ |
 | Behavioral pattern tracker (`UserBehaviorProfile` JSONB; ARQ job every reply; feeds insight generation) | ✅ |
 | Memory version history + diff view (History tab in Memory panel) | ✅ |
 | Cross-session continuity summary (`[LAST SESSION]` tier-8 block; `done.last_session`; "Welcome back" banner) | ✅ |
 | Proactive suggestions + insight generation (ARQ background; behavior-aware) | ✅ |
-| User-defined scheduled agents (AutomationsPanel; CRUD + run history; workspace + cron support) | ✅ |
+| User-defined scheduled agents (AutomationsPanel; CRUD + run history; cron support) | ✅ |
 | Scheduled backup (APScheduler daily cron; `BACKUP_SCHEDULE` env var) | ✅ |
-| Workspace layer (isolated system prompts + workspace memory; localStorage persistence) | ✅ |
+| ~~Workspace layer~~ — **removed** (collapsed to sessions only; migration 037) | ⌫ |
 | Multi-tenant user isolation (all data scoped per user_id) | ✅ |
 | Cost caps + rolling window billing per user | ✅ |
 | Invite-gated registration, role-based access | ✅ |
@@ -206,12 +206,12 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 ~~- Frontend: new Automations panel (schedule picker, prompt editor, history)~~
 
 #### ~~Goal / Task Tracker~~ ✅
-~~`UserGoal` model: title, description, status (active/completed/paused), linked conversation IDs. AI references active goals as `[ACTIVE GOALS]` context block (new tier between USER STATE and WORKSPACE STATE). User manages via Goals panel.~~
+~~`UserGoal` model: title, description, status (active/completed/paused), linked conversation IDs. AI references active goals as `[ACTIVE GOALS]` context block (new tier between USER STATE and PROJECT STATE). User manages via Goals panel.~~
 ~~- Backend: new model + `api/goals.py`~~
 ~~- Frontend: Goals panel sidebar tab~~
 
 #### ~~Global Autonomous Agent Canvas~~ ✅ (NEW-2026-05-31)
-~~Neo4j-backed canvas graph giving the AI a structured self-model of its workspace. 12 typed node types with input/output ports. `WIRED_TO` relationships with port validation. Agent scratchpad (`UserMemory.agent_scratchpad` JSONB) for cross-session context. Boot diagnostics on agent init (model health + canvas restore). 7 new tools: `create_canvas_node`, `delete_canvas_node`, `update_canvas_node`, `wire_nodes`, `unwire_nodes`, `query_canvas`, `get_canvas_graph`.~~
+~~Neo4j-backed canvas graph giving the AI a structured self-model of its environment. 11 typed node types with input/output ports. `WIRED_TO` relationships with port validation. Agent scratchpad (`UserMemory.agent_scratchpad` JSONB) for cross-session context. Boot diagnostics on agent init (model health + canvas restore). 7 new tools: `create_canvas_node`, `delete_canvas_node`, `update_canvas_node`, `wire_nodes`, `unwire_nodes`, `query_canvas`, `get_canvas_graph`.~~
 ~~- Backend: `backend/agent/` (node.py, canvas_graph.py, boot.py) · `backend/core/neo4j_client.py` (+1 index) · `backend/models/user.py` (+agent_scratchpad) · `backend/alembic/versions/036_agent_scratchpad.py` · `backend/llm/tools/schemas.py` (+7 schemas) · `backend/llm/tools/executor.py` (+7 dispatch branches) · `backend/llm/service/context.py` (boot + registry injection) · `backend/api/chat/helpers.py` (boot call + scratchpad save)~~
 ~~- Zero conflicts: distinct Neo4j label (`CanvasNode` vs `Entity`), prefixes on all tool names (`canvas_*`), separate Redis cache key (`canvas:{uid}`), append-only to UserMemory~~
 
@@ -280,7 +280,7 @@ P2 — following sprint
   ~~12. User-Defined Scheduled Agents   ScheduledPrompt already exists, low lift~~ ✅
    ~~13. Goal / Task Tracker             new model + UI, medium effort~~ ✅
    ~~14. Pattern Detection + Triggers    builds on Behavioral Profile~~ ✅
-   ~~15. Global Autonomous Agent Canvas  Neo4j-based node system; 12 node types; typed ports; agent scratchpad; boot diagnostics; 7 new canvas tools~~ ✅ (NEW-2026-05-31)
+   ~~15. Global Autonomous Agent Canvas  Neo4j-based node system; 11 node types; typed ports; agent scratchpad; boot diagnostics; 7 new canvas tools~~ ✅ (NEW-2026-05-31)
    16. Web Search Tool                 gated by env var, isolated
    17. Daily/Weekly Digest             scheduler already wired
 

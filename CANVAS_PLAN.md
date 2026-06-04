@@ -1,7 +1,31 @@
 # NIM // CANVAS — Build Plan
-> Jarvis-style node-graph workspace for the NIM AI Gateway.
-> This is the living build checklist. Tick boxes as stages complete.
-> Also serves as handoff context for Claude Code (Stage 5).
+> Jarvis-style node-graph canvas for the NIM AI Gateway.
+> This is the original build checklist (all 5 stages complete). Some of it is now
+> historical — see **Current State** below for what's actually true today.
+
+---
+
+## ⚠ Current State (supersedes this plan where they differ)
+
+The canvas shipped, then evolved. Authoritative deltas vs. the checklist below:
+
+- **Workspace layer removed** (migration 037 — collapsed to sessions only). There is **no Workspace
+  node**, no `workspace_id`, no `/api/workspaces`. The registry is **11 node types**:
+  `input, session, memory, files, logs, usage, config, insights, goals, automations, mech`.
+- **Session node label** = **`SESSION | <title>`** (the conversation's auto-title, enriched onto
+  `/api/canvas/graph` by `api/canvas.py`). The permanent JARVIS session shows
+  `GLOBAL SESSION / JARVIS // PERSISTENT`. Global vs user is keyed off `config.kind`
+  (`global`/`user`), not a `conversation_id` presence check.
+- **Per-session chat:** the chat is a single right-edge drawer (`SessionOutputPanel`, a portal on
+  the static `session` node) that **follows the active conversation**. The active conversation is
+  set by (a) the **Input→Session wire** and (b) **clicking a session node** (click-to-focus; opens
+  the drawer). Whichever happened last wins; both display and send-routing follow it.
+- **Single global card:** the backend `kind="global"` session node is filtered out of the canvas
+  render (the static `session` node represents global). No duplicate global card.
+- **Core-node protection:** `input` + the global session are `protected`; the AI tool / REST can't
+  delete them. Sessions dedup + reconcile (orphan reaping) run periodically.
+
+Everything below documents the original design; treat the bullets above as current truth.
 
 ---
 
@@ -38,7 +62,7 @@ NIM AI Gateway backend (`ymr-gif/ai-workspace`, frontend at `/frontend`).
 **Lucide** (CDN) — replaces all emoji. No emoji anywhere in the UI.
 Key mappings:
 - Memory → `Brain` · Files → `FolderOpen` · Logs → `ScrollText`
-- Usage → `BarChart2` · Workspace → `Layers` · Config → `Settings`
+- Usage → `BarChart2` · Config → `Settings`
 - Input → `Terminal` · Session → `MessageSquare` · Add node → `Plus`
 
 ### Wire system
@@ -49,16 +73,15 @@ Key mappings:
 | User-drawn | `#808080` dashed 1px, appears while dragging |
 | Handles | Small squares on node edges (not circles) |
 
-### Node inventory (fixed core, extensible workspace)
+### Node inventory (core types)  *(Workspace row removed — see Current State)*
 | Node | Type | Behavior |
 |------|------|----------|
-| Input | Singleton | Draggable, session pill, insight ghost card slot |
-| Session | Multi (pull from list) | Floating output panel, 2 recent + expandable |
+| Input | Singleton | Draggable, wire/click routes to a session |
+| Session | Multi | One per conversation; the static node hosts the chat drawer |
 | Memory | Singleton | Radial child nodes: Edit / History / Graph |
 | Files | Singleton | File library + attach |
 | Logs | Singleton | Click → popup |
 | Usage | Singleton | Click → popup |
-| Workspace | Extensible | Can add multiple instances |
 | Config | Singleton | Model/params/mech slot |
 
 > **Note:** Backend node registry also defines `insights`, `goals`, `automations`, `mech` as types — these are **not standalone canvas nodes**. They live inside their respective nodes (insights = ghost card above Input; goals/automations = Config node info section; mech = UNIT slot in Config). `create_canvas_node` calls with these types must be rejected by a backend guard.
@@ -66,19 +89,15 @@ Key mappings:
 ### Entry flow
 `Boot (PC hardware stats + canvas lines)` → `Canvas` (no menu)
 
-### Session targeting (Input node)
-- Auto-targets last-interacted session
-- Inline pill shows current session name
-- Click pill → compact inline switcher
-- Optional: draw wire Input → Session to pin explicitly
+### Session targeting (Input node)  *(see Current State for shipped behavior)*
+- Active conversation = the **Input→Session wire** target, or a **clicked** session node (last wins)
+- Default (unwired) → JARVIS global conversation
+- Send routing + the chat drawer both follow the active conversation
 
 ### Conversation history
-- Each session = one **Session node** on canvas
-- Pull-to-canvas: drag from expandable session list
-- Session node shows: name, workspace label, last message preview, timestamp
-- 2 most-recent sessions shown in node by default
-- Corner expand button → floating panel (full session list, scrollable)
-- Output panel (floating, labeled): appears when session is active, shows message feed
+- Each session = one **Session node** on canvas; label `SESSION | <title>`
+- Output: one right-edge chat drawer (`SessionOutputPanel`) that follows the active session,
+  with per-conversation history cached + fetched from `/api/conversations/{id}/messages`
 
 ### Memory branching (radial, real canvas nodes)
 - Click Memory → 3 child nodes spawn radially from parent
@@ -122,7 +141,6 @@ ui_kits/nim-canvas/
 │   ├── FilesNode.jsx
 │   ├── LogsNode.jsx
 │   ├── UsageNode.jsx
-│   ├── WorkspaceNode.jsx
 │   └── ConfigNode.jsx
 ├── panels/
 │   ├── SessionOutputPanel.jsx   — floating message feed
@@ -178,14 +196,10 @@ Response JSON:
 | Wire connection | Backend effect |
 |-----------------|----------------|
 | File → Session | adds `file_ids: list[str]` to ChatRequest (new field); backend merges with conversation-attached files |
-| Workspace → Session | sets `workspace_id` in ChatRequest |
+| Input → Session | routes the message to that session's conversation (the drawer follows it) |
 | Memory → Session | visual only — memory always-on, no API param |
 
-### Backend note: extensible Workspace nodes
-Multiple Workspace node instances on canvas each bind to a `workspace_id`.
-Data available via existing `GET /api/workspaces`. No new backend work needed
-unless per-node workspace memory injection is required (already supported via
-`workspace_id` in ChatRequest).
+### ~~Backend note: extensible Workspace nodes~~  *(REMOVED — workspace layer dropped, migration 037)*
 
 ---
 
@@ -239,7 +253,7 @@ unless per-node workspace memory injection is required (already supported via
 - [x] Scrollbars: 4px, `#4a4a4a` thumb, `#ff2222` on hover
 - [x] Right-click context menu skeleton (shows node type list, non-functional, visual only)
   - Header: "ADD NODE" (Chakra Petch 9px uppercase, `#5a5a5a`)
-  - Items with Lucide icons: Input, Session, Memory, Files, Logs, Usage, Workspace, Config
+  - Items with Lucide icons: Input, Session, Memory, Files, Logs, Usage, Config
   - Hover state: red text + `rgba(255,34,34,.08)` bg
   - No border radius, ULTRAKILL styled, dismisses on Escape/click outside
 
@@ -271,8 +285,7 @@ unless per-node workspace memory injection is required (already supported via
 
 #### 2B — Session node
 - [x] Card dimensions: ~300px wide
-- [x] Header: Lucide `MessageSquare` + session name (JetBrains Mono 13px)
-  - [x] Workspace label (Chakra Petch 8px, `#5a5a5a`, below name)
+- [x] Header: `SESSION | <title>` (JetBrains Mono 13px), conversation_id prefix below
 - [x] Last message preview: JetBrains Mono 12px, `#8f8f8f`, truncated 2 lines
 - [x] Timestamp: Chakra Petch 8px, `#5a5a5a`, right-aligned
 - [x] "LAST INTERACTED" label (Chakra Petch 8px, `#383838`, uppercase)
@@ -280,17 +293,17 @@ unless per-node workspace memory injection is required (already supported via
 - [x] Corner expand button (Lucide `ChevronDown`, `#5a5a5a`) → floating session list panel
   - [x] Floating panel: `#0a0a0a` bg, `1px #4a4a4a` border, positioned near node
   - [x] Scrollable list of all sessions (JetBrains Mono 13px)
-  - [x] Each row: session name + workspace label + timestamp
+  - [x] Each row: session name + timestamp
   - [x] Click row → pull that session onto canvas as new Session node
   - [x] Close button (X, `#5a5a5a`)
 - [x] Status dot: 6px square, idle `#4a4a4a`, active violet `rgba(139,92,246,0.8)` + pulse
 - [x] Floating output panel (mock, non-functional in this stage):
   - [x] `position: fixed`, top-right area, `~400px` wide, `~500px` tall
-  - [x] Header: session name + workspace label + Lucide `X` close
+  - [x] Header: session name + Lucide `X` close
   - [x] Message feed area (placeholder "No messages yet")
   - [x] Input wire connection point (left handle, square)
 - [x] Input handle: left edge (receives from Input node)
-- [x] Output handle: right edge (to Memory, Files, Workspace nodes)
+- [x] Output handle: right edge (to Memory, Files nodes)
 
 #### 2C — Config node
 - [x] Card dimensions: ~280px wide
@@ -395,7 +408,6 @@ unless per-node workspace memory injection is required (already supported via
 - [x] URL ingest input: JetBrains Mono 12px, placeholder "https://... ingest URL"
 - [x] Fetch button: green border `#3dff6e` + green text, Chakra Petch 9px
 - [x] Upload button: cyan border `#27d8ff` + cyan text
-- [x] Workspace filter pills (Chakra Petch 8px, square)
 - [x] Connection handle: output (right, wire to Session = attach to chat)
 - [x] Click attached wire File→Session: visual indicator that file is scoped to that session
 
@@ -420,14 +432,7 @@ unless per-node workspace memory injection is required (already supported via
   - [x] Request count + avg/req
 - [x] Close on click outside
 
-#### 4D — Workspace node
-- [x] Header: Lucide `Layers` + workspace name (JetBrains Mono 13px)
-- [x] Workspace description (JetBrains Mono 12px, `#8f8f8f`, 2 line clamp)
-- [x] System prompt preview (collapsed, click to expand, JetBrains Mono 12px)
-- [x] "SCOPE" label + indicator: shows which sessions are wired to this workspace
-- [x] Add instance button (right-click context menu → "Add Workspace node" → new instance)
-- [x] Backend note: each instance binds to a `workspace_id` from `GET /api/workspaces`
-- [x] Connection handle: output (right, wire to Session = scope that chat)
+#### ~~4D — Workspace node~~  *(REMOVED — workspace layer dropped, migration 037)*
 
 #### 4E — Insight ghost card
 - [x] Positioned: 8px above Input node, same width, floating (`position: absolute`)
@@ -460,7 +465,6 @@ unless per-node workspace memory injection is required (already supported via
 - [x] Wire tooltip on hover: "SOURCE NODE → TARGET NODE" (JetBrains Mono 11px, `#5a5a5a`)
 - [x] Visual feedback for semantic connections:
   - [x] File → Session: Files node gets "ATTACHED" badge (Chakra Petch 8px, green)
-  - [x] Workspace → Session: Session node gets workspace scope pill
   - [x] Memory → Session: Memory status dot turns violet (context injection ON indicator)
 
 ---
@@ -485,7 +489,6 @@ Note: This stage is for Claude Code to implement in the real `frontend/` codebas
 - [x] Files node ingest: `POST /api/files/ingest-url`
 - [x] Usage node: `GET /api/usage` → real token/cost stats
 - [x] Logs node: `GET /api/tool-logs` → real tool call history
-- [x] Workspace node: `GET /api/workspaces` → real workspace list
 - [x] Session list: `GET /api/conversations` → real conversation list
 
 #### 5C — Real-time SSE → node animations
@@ -502,7 +505,7 @@ Note: This stage is for Claude Code to implement in the real `frontend/` codebas
 
 #### 5D — Wire → API params
 - [x] File → Session wire: adds `file_ids: list[str]` to ChatRequest — files are global, recalled when prompted; backend merges with conversation-attached files; requires new `file_ids` field in `api/chat/schemas.py`
-- [x] Workspace → Session wire: sets `workspace_id` in ChatRequest
+- [x] Input → Session wire: routes the message to that session's conversation (drawer follows it)
 - [x] Memory → Session wire: **visual indicator only** — memory is always-on, no toggle, no API param; wire just shows the persistent memory connection
 
 #### 5E — Auth

@@ -104,32 +104,30 @@ backend/
 │   ├── user.py              — User, UserInsight, AdminAuditLog, UserMemory, UserMemoryVersion
 │   ├── chat.py              — Conversation, Message, MessageEmbedding, ConversationFile
 │   ├── file.py              — File, FileChunk, FileVersion
-│   ├── workspace.py         — Workspace, WorkspaceMemory
 │   ├── tools.py             — ToolCallLog
 │   ├── prompts_scheduled.py — PromptTemplate, ScheduledPrompt, ScheduledPromptRun
 │   ├── auth.py              — Invitation
 │   └── system.py            — SystemConfig
 ├── agent/                   — autonomous canvas: Node registry, Neo4j canvas CRUD, boot diagnostics
-│   ├── node.py              — Node dataclass + 12-type registry (input/session/memory/files/…)
+│   ├── node.py              — Node dataclass + 11-type registry (input/session/memory/files/…)
 │   ├── canvas_graph.py      — create/delete/update/wire/unwire/query/get canvas; scratchpad CRUD; Redis cache
 │   └── boot.py              — _check_health() diagnostics + BootReport + format_boot_log()
-├── alembic/versions/        — 036 migrations; latest: 036_agent_scratchpad.py
+├── alembic/versions/        — 037 migrations; latest: 037_drop_workspaces.py (removed the workspace layer)
 ├── auth/                    — JWT, bcrypt (direct), API key fallback, invite validation
 ├── llm/
 │   ├── service/             — context build, context budget allocator, SSE stream + tool loop
 │   ├── nim.py               — NIM API call; accumulates tool_call deltas
-│   ├── tools/               — 17 tool schemas (10 existing + 7 canvas) + execute_tool()
+│   ├── tools/               — 18 tool schemas (10 existing + 7 canvas + create_conversation) + execute_tool()
 │   ├── graph_memory.py      — Neo4j extraction (70B) + query_by_keywords
 │   ├── router.py            — keyword classify(), model route(), get_context_limit()
 │   ├── circuit_breaker.py   — threshold=5, cooldown=90s, Redis-persisted
 │   ├── embeddings.py        — embed(text, input_type) → list[float]; timeout=15s
 │   ├── retriever/           — hybrid vector+BM25 fusion (RRF|weighted)
-│   ├── summarizer/          — memory compression, compaction, preference extraction, workspace memory
+│   ├── summarizer/          — memory compression, compaction, preference extraction
 │   └── agency.py            — proactive suggestions + behavior-aware insight generation (ARQ)
 ├── api/
 │   ├── chat/                — POST /chat/stream SSE endpoint; POST /chat non-streaming
-│   ├── workspaces.py        — /workspaces CRUD + memory routes
-│   ├── files/               — upload, ingest-url, search, versions, workspace assign
+│   ├── files/               — upload, ingest-url, search, versions
 │   ├── conversations/       — list(?q=), export, PATCH, delete, file attach/detach
 │   ├── admin/               — require_role("admin"); users, cost-limit, audit-log, env mgmt
 │   ├── graph.py             — /graph/stats, /health, /sample, /prune
@@ -155,7 +153,7 @@ backend/
 - **UserMemory** — `content` text, `salience` float (1.0 default), `confidence` float, `fact_saliences` JSONB (per-line scores), `version` int, `agent_scratchpad` JSONB (agent notes, cross-session context)
 - **UserMemoryVersion** — snapshot on every compaction; History tab source
 - **UserBehaviorProfile** — one row per user, `profile` JSONB: `query_types / topic_keywords / tools_used / models_used / total_messages`; migration 033
-- **Conversation** — `title`, `locked_model`, `workspace_id`, `updated_at` (timezone-aware)
+- **Conversation** — `title` (auto-titled after 2nd msg), `locked_model`, `system_prompt`, `updated_at` (timezone-aware)
 - **Message** — `content_tsv` GIN for full-text search; `token_estimate` bool (null = real NIM data, true = character heuristic backfill from migration 032)
 - **File** — SHA256 dedup `(user_id, hash)`, `upload_status`: `uploaded|processing|ready|partial|failed|error`
 - **MemoryConflict** — `fact_a/fact_b/conflict_type/resolution/expires_at`; auto-resolves `keep_a` after 7 days
@@ -164,9 +162,9 @@ backend/
 
 ## ChatRequest Fields
 
-`message` (str, max 2000) · `conversation_id` · `workspace_id` (UUID) · `model_override`
+`message` (str, max 2000) · `conversation_id` · `model_override`
 `temperature` (0–2) · `max_tokens` (1–4096) · `top_p` (0–1) · `compare` (bool)
-`image_b64` (base64 → forces vision) · `image_mime_type`
+`image_b64` (base64 → forces vision) · `image_mime_type` · `file_ids` (list[str])
 
 ---
 
@@ -176,11 +174,11 @@ backend/
 
 | Tier | Block | Drop order |
 |------|-------|-----------|
-| — | system message (workspace + conv sysprompt + file rules) | never |
+| — | system message (conv sysprompt + file rules) | never |
 | — | [GRAPH CONTEXT] Neo4j entity/relation context | low |
 | — | [GRAPH FACTS] keyword-triggered neighborhood expansion | low |
 | — | [USER STATE] top-20 facts by salience (conflicted suppressed) | low |
-| — | [WORKSPACE STATE] · [PROJECT STATE] | low |
+| — | [PROJECT STATE] | low |
 | — | [RELEVANT CONTEXT FROM EARLIER] cosine top-K RAG | medium |
 | — | [EARLIER IN THIS CONVERSATION] history summary | medium |
 | 8 | [LAST SESSION] last conv title + elapsed time (new conv only) | first to drop |
@@ -287,19 +285,18 @@ frontend/src/
 ├── components/
 │   ├── Chat.jsx             — orchestrator; 400+ lines; imports all hooks + sub-components
 │   └── chat/
-│       ├── Sidebar.jsx      — conversation list, workspace filter pills, search
+│       ├── Sidebar.jsx      — conversation list, search
 │       ├── MessageList.jsx  — message rendering; last session banner; markdown; tool calls
 │       ├── ModelToolbar.jsx — model pills, compare mode, params modal, settings modal
-│       ├── MemoryPanel.jsx  — tabs: View / Workspace / Edit / History / Graph
+│       ├── MemoryPanel.jsx  — tabs: View / Edit / History / Graph / Conflicts
 │       ├── FilesPanel.jsx   — Library + Attached tabs; SSE processing status
 │       ├── FileViewer.jsx   — View / Edit / Versions tabs
 │       ├── ToolLogPanel.jsx — per-call tool log, filter by conv
 │       ├── UsagePanel.jsx   — aggregate token/cost stats
 │       ├── InsightsPanel.jsx — unread badge, mark-read, delete
-│       ├── InvitePanel.jsx  — admin invite token management
-│       └── WorkspaceModal.jsx — create/edit workspace
-└── hooks/                   — 14 hooks (useConversations, useMemory, useWorkspace,
-                               useFiles, useModelParams, useSettings, useToolLogs,
+│       └── InvitePanel.jsx  — admin invite token management
+└── hooks/                   — 13 hooks (useConversations, useMemory, useFiles,
+                               useModelParams, useSettings, useToolLogs,
                                useUsage, useAdmin, useInsights, useSearch,
                                useScheduledPrompts, useGoals, useStreamChat)
 ```
@@ -312,7 +309,6 @@ frontend/src/
 - **Proactive suggestion:** indigo card on `{type:"proactive"}` SSE; clears on next send
 - **ask_user card:** amber "NEEDS CLARIFICATION"; reply resumes with full context
 - **confirm_write_memory card:** green "MEMORY SUGGESTION"; Accept → `POST /api/memory/write`; Dismiss → null
-- **Workspace filter:** `localStorage` key `nim_sidebar_ws_id`; validated on mount, cleared if stale
 - **All fetch calls use `/api/` prefix** — bare paths bypass proxy and 404 silently
 
 ---
@@ -374,10 +370,10 @@ frontend/src/
 11. ✅ Scheduled Backup — `run_backup()` in `scheduler_worker.py`; `BACKUP_SCHEDULE` env var (default `0 2 * * *`)
 
 ### P2 — Autonomous Agency (in progress)
-12. ✅ User-Defined Scheduled Agents — `AutomationsPanel.jsx`; `useScheduledPrompts.js`; full CRUD + run history; workspace + cron alias support; migration 034
+12. ✅ User-Defined Scheduled Agents — `AutomationsPanel.jsx`; `useScheduledPrompts.js`; full CRUD + run history; cron alias support; migration 034
 13. ✅ Goal / Task Tracker — `UserGoal` model; `[ACTIVE GOALS]` context block (tier 3); `GoalsPanel.jsx` + `useGoals.js`; migration 035
 14. ✅ Pattern Detection + Proactive Triggers — `detect_recurring_patterns()`; 7-day dedup guard; ARQ enqueue with hint; `agency.py` merged + hint kwarg
-15. ✅ Global Autonomous Agent Canvas (NEW-2026-05-31) — Neo4j-backed node graph; 12 typed node types with input/output ports; `WIRED_TO` relationships with port validation; `agent_scratchpad` JSONB for cross-session context; boot diagnostics on agent init; 7 new canvas tools; zero collisions with existing Entity labels/tools/endpoints
+15. ✅ Global Autonomous Agent Canvas (NEW-2026-05-31) — Neo4j-backed node graph; 11 typed node types with input/output ports; `WIRED_TO` relationships with port validation; `agent_scratchpad` JSONB for cross-session context; boot diagnostics on agent init; 7 new canvas tools; per-session chat drawer (Input→Session wire + click-to-focus); zero collisions with existing Entity labels/tools/endpoints
 16. Web Search Tool — `WEB_SEARCH_ENABLED` + `WEB_SEARCH_BACKEND` env vars
 17. Daily/Weekly Digest
 
@@ -412,7 +408,7 @@ Live webpage ingestion · External integrations (Drive, Notion, GitHub) · Image
 
 The AI maintains a **Neo4j-backed canvas** — a structured self-model of its workspace with typed nodes and wired connections:
 
-- **12 node types:** input, session, memory, files, logs, usage, workspace, config, insights, goals, automations, mech
+- **11 node types:** input, session, memory, files, logs, usage, config, insights, goals, automations, mech
 - **Typed ports:** each node defines input/output ports (e.g., `session.input: [message]`, `session.output: [response, metadata]`)
 - **WIRED_TO relationships:** `(src)-[:WIRED_TO {src_port, dst_port, relation}]->(dst)` with port type validation
 - **Agent scratchpad:** `UserMemory.agent_scratchpad` JSONB — agent persists context, goals, and decisions across sessions
