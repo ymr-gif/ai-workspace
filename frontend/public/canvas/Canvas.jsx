@@ -503,7 +503,11 @@
 
     /* merge AI canvas graph delta into React Flow state */
     const patchCanvas = React.useCallback(({ nodes: neoNodes, wires }) => {
-      const rfNodes = (neoNodes || []).map(neoToRF);
+      // hide the backend global session node — the static 'session' node represents it
+      const hidden = new Set((neoNodes || [])
+        .filter(n => n.node_type === 'session' && (n.config || {}).kind === 'global')
+        .map(n => n.node_id));
+      const rfNodes = (neoNodes || []).filter(n => !hidden.has(n.node_id)).map(neoToRF);
       setNodes(nds => {
         // carry over live chat state so a graph refresh mid-conversation doesn't wipe
         // a wired session node's streamed reply / message history
@@ -515,12 +519,14 @@
         });
         return [...nds.filter(n => !n.id.startsWith('ai-')), ...merged];
       });
-      const rfEdges = (wires || []).map(w => {
-        const id = 'ai-wire-' + w.src_id + '__' + w.dst_id;
-        aiWireMapRef.current[id] = { src_id: w.src_id, dst_id: w.dst_id };
-        return { id, source:'ai-'+w.src_id, target:'ai-'+w.dst_id,
-          style:{ stroke:'rgba(61,255,110,0.6)', strokeWidth:1.5 } };
-      });
+      const rfEdges = (wires || [])
+        .filter(w => !hidden.has(w.src_id) && !hidden.has(w.dst_id))
+        .map(w => {
+          const id = 'ai-wire-' + w.src_id + '__' + w.dst_id;
+          aiWireMapRef.current[id] = { src_id: w.src_id, dst_id: w.dst_id };
+          return { id, source:'ai-'+w.src_id, target:'ai-'+w.dst_id,
+            style:{ stroke:'rgba(61,255,110,0.6)', strokeWidth:1.5 } };
+        });
       setEdges(eds => [...eds.filter(e => !e.id.startsWith('ai-wire-')), ...rfEdges]);
     }, [setNodes, setEdges]);
 

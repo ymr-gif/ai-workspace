@@ -183,14 +183,21 @@
       /* overlay AI canvas nodes from Neo4j */
       const aiGraph = canvasR.status === 'fulfilled' ? canvasR.value : null;
       if (aiGraph && aiGraph.nodes && aiGraph.nodes.length) {
-        const rfNodes = aiGraph.nodes.map(neoToRF);
+        // hide the backend global session node — the static 'session' node already
+        // represents the global session (and hosts the chat drawer)
+        const hidden = new Set(aiGraph.nodes
+          .filter(n => n.node_type === 'session' && (n.config || {}).kind === 'global')
+          .map(n => n.node_id));
+        const rfNodes = aiGraph.nodes.filter(n => !hidden.has(n.node_id)).map(neoToRF);
         D.INITIAL_NODES = D.INITIAL_NODES.concat(rfNodes);
-        const rfEdges = (aiGraph.wires || []).map(w => ({
-          id:     'ai-wire-' + w.src_id + '__' + w.dst_id,
-          source: 'ai-' + w.src_id,
-          target: 'ai-' + w.dst_id,
-          style:  { stroke: 'rgba(61,255,110,0.6)', strokeWidth: 1.5 },
-        }));
+        const rfEdges = (aiGraph.wires || [])
+          .filter(w => !hidden.has(w.src_id) && !hidden.has(w.dst_id))
+          .map(w => ({
+            id:     'ai-wire-' + w.src_id + '__' + w.dst_id,
+            source: 'ai-' + w.src_id,
+            target: 'ai-' + w.dst_id,
+            style:  { stroke: 'rgba(61,255,110,0.6)', strokeWidth: 1.5 },
+          }));
         if (rfEdges.length) D.INITIAL_EDGES = D.INITIAL_EDGES.concat(rfEdges);
       }
 
