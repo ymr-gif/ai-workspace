@@ -26,6 +26,9 @@
     setTimeout(() => setAnim(id, 'done'), 800);
     setTimeout(() => setAnim(id, 'idle'), 1800);
   }
+  function streamTools(tools) {
+    window.NIM_CANVAS_CB?._streamTools?.(tools);
+  }
 
   /* ── Build ChatRequest body from canvas state ────────── */
   function buildBody() {
@@ -64,8 +67,9 @@
     setTimeout(() => setAnim('memory',  'processing'), 400);
     setTimeout(() => setAnim('session', 'processing'), 600);
 
-    let fullText = '';
-    let convId   = null;
+    let fullText  = '';
+    let toolCalls = [];
+    let convId    = null;
 
     try {
       const res = await fetch('/api/chat/stream', {
@@ -110,6 +114,8 @@
             case 'preamble_discard':
               /* streamed text was pre-tool preamble — drop it, real answer follows */
               fullText = '';
+              toolCalls = [];
+              streamTools([]);
               streamToSession('', false);
               break;
 
@@ -133,9 +139,12 @@
                 window.NIM_CANVAS_CB?._appendMessages?.([
                   { role: 'user',      content: window.NIM_CANVAS_LAST_INPUT },
                   { role: 'assistant', content: fullText,
+                    toolCalls: toolCalls,
                     model: event.model || '', total_tokens: event.total_tokens || 0 },
                 ]);
               }
+              toolCalls = [];
+              streamTools([]);
               /* done flash on all nodes */
               ['input','config','memory','session'].forEach((id, k) =>
                 setTimeout(() => setAnim(id, 'done'), k * 80)
@@ -148,12 +157,19 @@
               break;
 
             case 'tool_call':
+              toolCalls.push({ name: event.name, args: event.args, result: null });
+              streamTools([...toolCalls]);
               pulseNode('logs');
               break;
 
-            case 'tool_result':
-              /* logs node already pulsed */
+            case 'tool_result': {
+              if (toolCalls.length > 0) {
+                var idx = toolCalls.length - 1;
+                toolCalls[idx] = { ...toolCalls[idx], result: event.content };
+                streamTools([...toolCalls]);
+              }
               break;
+            }
 
             case 'confirm_write_memory':
               pulseNode('memory');
@@ -181,6 +197,8 @@
 
             case 'error':
               streamToSession('[ERROR] ' + (event.message || 'Unknown error'), true);
+              toolCalls = [];
+              streamTools([]);
               setAnim('session', 'error');
               setTimeout(() => setAnim('session', 'idle'), 2500);
               break;
@@ -189,6 +207,8 @@
       }
     } catch (err) {
       streamToSession('[NETWORK ERROR] ' + err.message, true);
+      toolCalls = [];
+      streamTools([]);
       setAnim('session', 'error');
       setTimeout(() => setAnim('session', 'idle'), 2500);
     }
@@ -209,6 +229,7 @@
         /* expose internal helpers so realSend can call back into React state */
         _setNodeAnim:       val._setNodeAnim       || null,
         _streamSession:     val._streamSession     || null,
+        _streamTools:       val._streamTools       || null,
         _updateSessionMeta: val._updateSessionMeta || null,
         _patch:             val._patch             || null,
         _appendMessages:    val._appendMessages    || null,

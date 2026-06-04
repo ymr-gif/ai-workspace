@@ -478,7 +478,7 @@
       setNodes(nds => nds.map(n => {
         if (n.id !== 'session') return n;
         if (prev) histCacheRef.current[prev] = n.data.messages || [];   // save outgoing thread
-        return { ...n, data: { ...n.data, messages: histCacheRef.current[want] || [], streamText:'', isStreaming:false } };
+        return { ...n, data: { ...n.data, messages: histCacheRef.current[want] || [], streamText:'', isStreaming:false, toolCalls:[] } };
       }));
       if (!histCacheRef.current[want]) {                                // fetch unseen thread once
         const tok = localStorage.getItem('nim_token');
@@ -501,6 +501,13 @@
       ));
     }, [setNodes]);
 
+    const streamTools = React.useCallback((tools) => {
+      setNodes(nds => nds.map(n => n.id === 'session'
+        ? { ...n, data: { ...n.data, toolCalls: tools } }
+        : n
+      ));
+    }, [setNodes]);
+
     /* merge AI canvas graph delta into React Flow state */
     const patchCanvas = React.useCallback(({ nodes: neoNodes, wires }) => {
       // hide the backend global session node — the static 'session' node represents it
@@ -515,7 +522,7 @@
         const merged = rfNodes.map(n => {
           const p = prev[n.id];
           if (!p) return n;
-          return { ...n, data: { ...n.data, messages: p.messages, streamText: p.streamText, isStreaming: p.isStreaming } };
+          return { ...n, data: { ...n.data, messages: p.messages, streamText: p.streamText, isStreaming: p.isStreaming, toolCalls: p.toolCalls } };
         });
         return [...nds.filter(n => !n.id.startsWith('ai-')), ...merged];
       });
@@ -628,14 +635,16 @@
     React.useEffect(() => {
       window.NIM_CANVAS_CB = {
         onMemExpand, onRemoveBranch, onDemoSend, onAutoArrange,
-        _setNodeAnim:    setNodeAnim,
-        _streamSession:  streamSession,
-        _patch:          patchCanvas,
-        _pinNode:        pinNode,
-        _closeNode:      closeNode,
-        _appendMessages: appendMessages,
+        _setNodeAnim:      setNodeAnim,
+        _streamSession:    streamSession,
+        _streamTools:      streamTools,
+        _updateSessionMeta: null,     /* placeholder — canvas-sse.js calls it via optional chaining */
+        _patch:            patchCanvas,
+        _pinNode:          pinNode,
+        _closeNode:        closeNode,
+        _appendMessages:   appendMessages,
       };
-    }, [onMemExpand, onRemoveBranch, onDemoSend, onAutoArrange, setNodeAnim, streamSession, patchCanvas, pinNode, closeNode, appendMessages]);
+    }, [onMemExpand, onRemoveBranch, onDemoSend, onAutoArrange, setNodeAnim, streamSession, streamTools, patchCanvas, pinNode, closeNode, appendMessages]);
 
     /* ARRANGE — reheat simulation (Obsidian-style: let physics settle organically) */
     const onAutoArrange = React.useCallback(() => {

@@ -6,15 +6,16 @@ import uuid
 from datetime import datetime, timezone
 
 from redis.exceptions import RedisError as _RedisError
-from sqlalchemy import select, update
 
-from agent.node import get_node_type, registry, EMBEDDED_TYPES, MANAGED_TYPES, PERMANENT_TYPES
+from agent.node import (
+    EMBEDDED_TYPES,
+    MANAGED_TYPES,
+    PERMANENT_TYPES,
+    get_node_type,
+)
 from config import USE_REDIS
-from core.db import AsyncSessionLocal
 from core.neo4j_client import get_driver
 from core.redis_client import get_redis
-from models import Conversation
-from models.user import UserMemory
 
 logger = logging.getLogger("canvas_graph")
 
@@ -22,10 +23,25 @@ _CANVAS_CACHE_TTL = 60
 
 _WRITE_KEYWORDS = frozenset({"create", "delete", "set", "merge", "remove", "detach"})
 
-# Type classification is owned by agent/node.py (single source of truth):
-#   EMBEDDED_TYPES — live inside other nodes; never standalone canvas nodes
-#   MANAGED_TYPES  — input/session/memory/config; created only by an internal
-#                    bootstrap path, never directly by the AI tool or REST
+
+# ── helpers ───────────────────────────────────────────────────────
+
+
+def _ensure_driver():
+    driver = get_driver()
+    if not driver:
+        raise RuntimeError("Neo4j driver not available")
+    return driver
+
+
+def _deserialize_node(row_data: dict) -> dict:
+    node = dict(row_data)
+    cfg = node.get("config")
+    node["config"] = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
+    node_def = get_node_type(node.get("node_type", ""))
+    if node_def:
+        node["ports"] = node_def.ports
+    return node
 
 
 # ── Redis cache helpers ──────────────────────────────────────────
@@ -70,10 +86,7 @@ async def _cache_del(user_id: int) -> None:
 
 
 async def _find_duplicate(user_id: int, node_type: str, config: dict) -> str | None:
-    """Return an existing node id this create would duplicate, or None.
-    Singletons (input/memory/config) dedup by type; session dedups by
-    conversation_id. Prefers a protected node so the core node is never the one dropped."""
-    if node_type in PERMANENT_TYPES:                       # input/memory/config — singleton
+    if node_type in PERMANENT_TYPES:
         existing = await find_nodes(user_id, node_type)
         if not existing:
             return None
@@ -96,9 +109,6 @@ async def create_node(
             f"'{node_type}' is not a standalone canvas node — it lives inside another node "
             f"(insights=Input ghost card; goals/automations/mech=Config). Do not create it."
         )
-    # input/session/memory/config are managed automatically — only an internal
-    # bootstrap may create them (input/memory/config via _ensure_canvas_wiring;
-    # session via create_conversation → _ensure_creation_wiring).
     if node_type in MANAGED_TYPES and not internal:
         raise ValueError(
             f"'{node_type}' is managed automatically — do not create it directly. "
@@ -108,8 +118,6 @@ async def create_node(
     if not node_def:
         raise ValueError(f"Unknown node type: {node_type}")
 
-    # Reject hallucinated/malformed conversation_id before it reaches Neo4j —
-    # a non-UUID id can never resolve to a real conversation (orphan node).
     if config and config.get("conversation_id") is not None:
         try:
             uuid.UUID(str(config["conversation_id"]))
@@ -123,9 +131,6 @@ async def create_node(
     if config:
         merged.update(config)
 
-    # H6: dedup — never create a second node for the same logical entity.
-    # Returning the existing id makes create_node idempotent for singletons
-    # (input/memory/config) and id-keyed nodes (session→conversation_id).
     dup_id = await _find_duplicate(user_id, node_type, merged)
     if dup_id:
         logger.info("[canvas] dedup: %s already exists as %s user=%d", node_type, dup_id, user_id)
@@ -134,10 +139,7 @@ async def create_node(
     node_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
 
-    driver = get_driver()
-    if not driver:
-        raise RuntimeError("Neo4j driver not available")
-
+    driver = _ensure_driver()
     async with driver.session() as session:
         result = await session.run(
             "CREATE (n:CanvasNode {"
@@ -159,12 +161,8 @@ async def create_node(
 
 
 async def delete_node(user_id: int, node_id: str) -> None:
-    driver = get_driver()
-    if not driver:
-        raise RuntimeError("Neo4j driver not available")
-
+    driver = _ensure_driver()
     async with driver.session() as session:
-        # existence + protection check before deleting
         chk = await session.run(
             "MATCH (n:CanvasNode {user_id: $uid, node_id: $nid}) "
             "RETURN coalesce(n.protected, false) AS protected",
@@ -187,7 +185,6 @@ async def delete_node(user_id: int, node_id: str) -> None:
         )
         summary = await result.consume()
         if summary.counters.nodes_deleted == 0:
-            # no match (e.g. wrong/truncated id) — surface instead of reporting success
             raise ValueError(f"Node {node_id} not found")
 
     await _cache_del(user_id)
@@ -195,7 +192,6 @@ async def delete_node(user_id: int, node_id: str) -> None:
 
 
 async def set_protected(user_id: int, node_id: str, value: bool = True) -> None:
-    """Mark a canvas node as protected (core infrastructure — undeletable). Idempotent."""
     driver = get_driver()
     if not driver:
         return
@@ -211,19 +207,15 @@ async def set_protected(user_id: int, node_id: str, value: bool = True) -> None:
 async def update_node(
     user_id: int, node_id: str, config: dict | None = None, status: str | None = None
 ) -> None:
-    driver = get_driver()
-    if not driver:
-        raise RuntimeError("Neo4j driver not available")
-
-    sets = []
-    params: dict = {"uid": user_id, "nid": node_id}
-
     if not config and not status:
         return
 
+    driver = _ensure_driver()
+    sets = []
+    params: dict = {"uid": user_id, "nid": node_id}
+
     async with driver.session() as session:
         if config is not None:
-            # fetch current config JSON, merge in Python, write back
             read_r = await session.run(
                 "MATCH (n:CanvasNode {user_id: $uid, node_id: $nid}) RETURN n.config AS cfg",
                 uid=user_id, nid=node_id,
@@ -281,9 +273,7 @@ async def find_wire(
 async def wire_nodes(
     user_id: int, src_id: str, dst_id: str, src_port: str, dst_port: str, relation: str
 ) -> None:
-    driver = get_driver()
-    if not driver:
-        raise RuntimeError("Neo4j driver not available")
+    driver = _ensure_driver()
 
     existing = await find_wire(user_id, src_id, src_port, dst_id, dst_port)
     if existing:
@@ -345,10 +335,7 @@ async def wire_nodes(
 
 
 async def unwire_nodes(user_id: int, src_id: str, dst_id: str) -> None:
-    driver = get_driver()
-    if not driver:
-        raise RuntimeError("Neo4j driver not available")
-
+    driver = _ensure_driver()
     async with driver.session() as session:
         result = await session.run(
             "MATCH (s:CanvasNode {user_id: $uid, node_id: $src_id}) "
@@ -368,10 +355,7 @@ async def unwire_nodes(user_id: int, src_id: str, dst_id: str) -> None:
 
 
 async def get_node(user_id: int, node_id: str) -> dict | None:
-    driver = get_driver()
-    if not driver:
-        raise RuntimeError("Neo4j driver not available")
-
+    driver = _ensure_driver()
     async with driver.session() as session:
         result = await session.run(
             "MATCH (n:CanvasNode {user_id: $uid, node_id: $nid}) "
@@ -386,15 +370,12 @@ async def get_node(user_id: int, node_id: str) -> dict | None:
         if not row:
             return None
 
-        node = dict(row["n"])
-        cfg = node.get("config")
-        node["config"] = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
+        node = _deserialize_node(row["n"])
         node["outgoing"] = [c for c in row["outgoing"] if c.get("target_id") is not None]
         node["incoming"] = [c for c in row["incoming"] if c.get("source_id") is not None]
 
         node_def = get_node_type(node.get("node_type", ""))
         if node_def:
-            node["ports"] = node_def.ports
             node["available_tools"] = [t["name"] for t in node_def.tools]
 
         return node
@@ -423,12 +404,7 @@ async def get_canvas_graph(user_id: int) -> dict:
     seen_wires: set[tuple[str, str]] = set()
 
     for row in rows:
-        node_data = dict(row["n"])
-        cfg = node_data.get("config")
-        node_data["config"] = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
-        node_def = get_node_type(node_data.get("node_type", ""))
-        if node_def:
-            node_data["ports"] = node_def.ports
+        node_data = _deserialize_node(row["n"])
 
         conns = [c for c in row["connections"] if c.get("target_id") is not None]
         node_data["connections"] = [
@@ -467,125 +443,16 @@ async def find_nodes(user_id: int, node_type: str) -> list[dict]:
 
     async with driver.session() as session:
         result = await session.run(
-            # Deterministic order — oldest first (NULL created_at sorts last in
-            # ascending). Collapse keeps nodes[0]/the first protected node, so this
-            # makes "keep the original, prune newer duplicates" stable, not random.
             "MATCH (n:CanvasNode {user_id: $uid, node_type: $type}) "
             "RETURN n ORDER BY n.created_at, n.node_id",
             uid=user_id, type=node_type,
         )
         rows = await result.data()
 
-    nodes = []
-    for row in rows:
-        n = dict(row["n"])
-        cfg = n.get("config")
-        n["config"] = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
-        nodes.append(n)
-    return nodes
+    return [_deserialize_node(row["n"]) for row in rows]
 
 
-# ── Canvas reconcile (H1/H3) — idempotent hygiene, safe to re-run ──────────
-
-
-async def list_canvas_user_ids() -> list[int]:
-    """Distinct user_ids that own any CanvasNode (for the periodic reconcile job)."""
-    driver = get_driver()
-    if not driver:
-        return []
-    async with driver.session() as session:
-        result = await session.run("MATCH (n:CanvasNode) RETURN DISTINCT n.user_id AS uid")
-        rows = await result.data()
-    return [r["uid"] for r in rows if r.get("uid") is not None]
-
-
-async def _prune_node(
-    user_id: int, node_id: str, reason: str, force: bool = False
-) -> None:
-    try:
-        await delete_node(user_id, node_id)
-    except ValueError:
-        if not force:
-            return  # protected or already gone — leave it
-        # force: this is a *duplicate* that is itself protected (e.g. a pre-dedup
-        # core node wrongly backfilled protected=true). The kept node is retained
-        # separately, so it is safe to unprotect this extra one and remove it.
-        await set_protected(user_id, node_id, False)
-        try:
-            await delete_node(user_id, node_id)
-        except ValueError:
-            return  # already gone
-    logger.info("[canvas] reconcile pruned %s user=%d (%s)", node_id, user_id, reason)
-
-
-async def _reap_orphan_sessions(user_id: int, db) -> None:
-    """Delete unprotected session nodes whose conversation_id is malformed or has no
-    matching Postgres conversation. Protected nodes (incl. the global session) are skipped."""
-    sessions = await find_nodes(user_id, "session")
-
-    valid: dict[str, str] = {}  # conversation_id (str) -> node_id
-    for s in sessions:
-        if s.get("protected"):
-            continue
-        conv_id = (s.get("config") or {}).get("conversation_id")
-        try:
-            uuid.UUID(str(conv_id))
-        except (ValueError, TypeError, AttributeError):
-            await _prune_node(user_id, s["node_id"], f"malformed conversation_id {conv_id!r}")
-            continue
-        valid[str(conv_id)] = s["node_id"]
-
-    if not valid:
-        return
-
-    rows = await db.execute(
-        select(Conversation.id).where(
-            Conversation.user_id == user_id,
-            Conversation.id.in_([uuid.UUID(c) for c in valid]),
-        )
-    )
-    existing = {str(r) for r in rows.scalars().all()}
-    for conv_id, node_id in valid.items():
-        if conv_id not in existing:
-            await _prune_node(user_id, node_id, "no matching conversation")
-
-
-async def _collapse_duplicate_nodes(user_id: int) -> None:
-    """Collapse duplicates the dedup guard now prevents but that may predate it:
-    singleton cores (input/memory/config) and sessions sharing a conversation_id.
-    Keeps one node (preferring the protected one); force-removes the extras even
-    if they are themselves protected (H5) — only ever the duplicate, never the kept."""
-    for node_type in PERMANENT_TYPES:                         # input/memory/config
-        nodes = await find_nodes(user_id, node_type)
-        if len(nodes) <= 1:
-            continue
-        keep = next((n for n in nodes if n.get("protected")), nodes[0])["node_id"]
-        for n in nodes:
-            if n["node_id"] != keep:
-                await _prune_node(user_id, n["node_id"], f"duplicate {node_type}", force=True)
-
-    seen: dict[str, dict] = {}
-    for n in await find_nodes(user_id, "session"):
-        conv = (n.get("config") or {}).get("conversation_id")
-        if conv is None:
-            continue
-        if conv not in seen:
-            seen[conv] = n
-            continue
-        prev = seen[conv]
-        if n.get("protected") and not prev.get("protected"):
-            await _prune_node(user_id, prev["node_id"], f"duplicate session conv={conv}", force=True)
-            seen[conv] = n
-        else:
-            await _prune_node(user_id, n["node_id"], f"duplicate session conv={conv}", force=True)
-
-
-async def reconcile_canvas(user_id: int, db) -> None:
-    """Idempotent canvas hygiene: reap orphan sessions + collapse duplicates.
-    Runs on every /global load and periodically from the scheduler — self-heals
-    canvas state for all users without manual cleanup."""
-    await _reap_orphan_sessions(user_id, db)
-    await _collapse_duplicate_nodes(user_id)
+# ── Raw query (read-only) ────────────────────────────────────────
 
 
 async def query_canvas(
@@ -611,30 +478,3 @@ async def query_canvas(
     async with driver.session() as session:
         result = await session.run(cypher, **query_params)
         return await result.data()
-
-
-# ── Scratchpad ───────────────────────────────────────────────────
-
-
-async def get_scratchpad(user_id: int) -> dict:
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(UserMemory.agent_scratchpad).where(UserMemory.user_id == user_id)
-        )
-        val = result.scalar()
-        return val or {}
-
-
-async def update_scratchpad(user_id: int, scratchpad: dict) -> None:
-    async with AsyncSessionLocal() as db:
-        existing = await db.execute(
-            select(UserMemory.agent_scratchpad).where(UserMemory.user_id == user_id)
-        )
-        current = existing.scalar() or {}
-        merged = {**current, **scratchpad}
-        await db.execute(
-            update(UserMemory)
-            .where(UserMemory.user_id == user_id)
-            .values(agent_scratchpad=merged)
-        )
-        await db.commit()

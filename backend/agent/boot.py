@@ -12,7 +12,8 @@ from core.db import AsyncSessionLocal
 from core.neo4j_client import get_health as neo4j_health
 from core.redis_client import get_redis
 
-from agent.canvas_graph import get_canvas_graph, get_scratchpad
+from agent.canvas_graph import get_canvas_graph
+from agent.scratchpad import get_scratchpad
 
 logger = logging.getLogger("boot")
 

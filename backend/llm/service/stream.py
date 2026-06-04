@@ -13,6 +13,7 @@ from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, CANVAS_TOOL_SCHEMAS, WRIT
 from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, apply_context_budget
 
 MAX_TOOL_ITERATIONS = 20
+_READONLY_CANVAS_TOOLS = frozenset({"get_canvas_graph", "query_canvas"})
 
 logger = logging.getLogger("service")
 
@@ -140,6 +141,7 @@ async def generate_stream(
 
     file_tools   = FILE_TOOL_SCHEMAS   if (file_ids and db is not None) else []
     canvas_tools = CANVAS_TOOL_SCHEMAS if (db is not None and node_inventory) else []
+
     # write_memory: reasoning model only + user must explicitly request save (prevents 70B saving on its own initiative)
     _is_reasoning = fallback_chain[0] == MODELS["reasoning"]
     mem_tools = [WRITE_MEMORY_SCHEMA] if (db is not None and _is_reasoning and _needs_memory_tool(message)) else []
@@ -238,7 +240,7 @@ async def generate_stream(
                         args = {}
 
                     tool_call_counts[fn_name] = tool_call_counts.get(fn_name, 0) + 1
-                    if tool_call_counts[fn_name] > 3:
+                    if tool_call_counts[fn_name] > 3 and fn_name not in _READONLY_CANVAS_TOOLS:
                         logger.warning("[service] tool_loop_guard: %s called %d times, aborting", fn_name, tool_call_counts[fn_name])
                         yield {"type": "error", "message": f"Tool loop detected: {fn_name} called too many times"}
                         return

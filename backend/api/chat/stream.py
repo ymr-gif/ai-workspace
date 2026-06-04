@@ -26,7 +26,7 @@ from llm.summarizer.memory import update_memory
 from llm.summarizer.project import update_project_summary
 
 from agent.boot import agent_boot, format_boot_log
-from agent.canvas_graph import update_scratchpad
+from agent.scratchpad import update_scratchpad
 from agent.node import registry as node_registry, AI_CREATABLE_TYPES
 
 from .helpers import (
@@ -154,11 +154,11 @@ async def chat_stream(
         node_inventory_lines.append(f"  {n_name.ljust(ni_width)}→ {n_def.label}")
     node_inventory_lines.append("")
 
-    node_inventory_lines.append("CONFIRMATION PROTOCOL (for all creations):")
-    node_inventory_lines.append("  When user mentions wanting a new conversation,")
-    node_inventory_lines.append("  respond conversationally in text:")
+    node_inventory_lines.append("CONFIRMATION PROTOCOL (for creations):")
+    node_inventory_lines.append("  If the user's message explicitly mentions creating, starting, or setting")
+    node_inventory_lines.append("  up a new session or conversation, respond conversationally:")
     node_inventory_lines.append('    "It seems you want to make a new session. What details should I use?"')
-    node_inventory_lines.append("  Wait for the user's reply with name/specs before creating anything.")
+    node_inventory_lines.append("  Wait for the user's reply with name/specs before calling any creation tool.")
     node_inventory_lines.append("")
 
     node_inventory_lines.append("SESSION CREATION (only after user confirms details):")
@@ -171,8 +171,7 @@ async def chat_stream(
     node_inventory_lines.append("RULES:")
     node_inventory_lines.append("  - ALWAYS ask for confirmation and specs before creating — never create silently.")
     node_inventory_lines.append("  - create_conversation auto-creates and wires its canvas node — never wire it yourself.")
-    node_inventory_lines.append("  - For other node types, call get_canvas_graph to get full UUIDs before wiring.")
-    node_inventory_lines.append("  - CRITICAL: call tools immediately — never describe actions in text before calling them.")
+    node_inventory_lines.append("  - When tools are needed, call them rather than describing actions in text.")
     node_inventory_lines.append("  - Never call create_conversation unless the user explicitly asks to create a session.")
     node_inventory_lines.append("  - Never delete the input node or any node marked [CORE · protected]/[GLOBAL] — they are permanent infrastructure. The session marked [GLOBAL] is the permanent JARVIS session; only [user session] nodes may be deleted. If the user asks to delete 'the session' and only the [GLOBAL] session exists, explain that it is permanent instead of deleting it.")
     node_inventory = "\n".join(node_inventory_lines)

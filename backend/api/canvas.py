@@ -7,9 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.canvas_graph import (
-    create_node, delete_node, find_nodes, set_protected, reconcile_canvas,
+    create_node, delete_node, find_nodes, set_protected,
     get_canvas_graph, unwire_nodes, update_node, wire_nodes,
 )
+from agent.reconcile import reconcile_canvas
 from auth.security import get_current_user
 from core.db import get_db
 from models import Conversation, User

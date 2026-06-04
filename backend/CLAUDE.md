@@ -92,8 +92,9 @@
 ## AI Agent Tool Loop
 - Trigger: any message when `file_ids` non-empty → always forces reasoning model (70B); 8B cannot reliably use tool results
 - File tools always available when files attached (not keyword-gated); `_needs_file_tools()` no longer gates tool availability
+
 - Tools (19 total — 11 existing + 7 canvas + 1 creation): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph` · `create_conversation` (Postgres Conversation + returns id; AI follows with create_canvas_node type=session)
-- Guards: same tool >3× → abort · MAX_TOOL_ITERATIONS=20 · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
+- Guards: same tool >3× → abort (except `_READONLY_CANVAS_TOOLS` = `get_canvas_graph`, `query_canvas` — exempted, they're read-only) · MAX_TOOL_ITERATIONS=20 · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
 - **Creation guard** (`create_conversation`): 3-layer state machine in `executor.py` (`_run_creation_guard`)
 - `ask_user` / `write_memory` emit SSE + done → pauses loop; amber/green card in UI; `POST /api/memory/write` on user confirm; `ask_user` question persisted as assistant message content so model sees it on next turn
 - `append_to_file` for explicit write requests only; `search_in_file` preferred over `read_file` for sections
@@ -169,6 +170,9 @@
 - Boot log, node inventory (11 types), and canvas state prepended to system message on every request
 - Tier 0 (never dropped by context budget allocator)
 - Combined size ~500 tokens
+- **Confirmation protocol** instruction at `api/chat/stream.py:158` gated by "explicitly mentions creating/starting/setting up a new session" — stops false creation framing on greetings
+- No redundant "call get_canvas_graph for UUIDs" instruction — UUIDs already in `[CANVAS STATE]`
+- Tool-calling instruction softened: "When tools are needed, call them" not "CRITICAL: call tools immediately"
 
 ---
 

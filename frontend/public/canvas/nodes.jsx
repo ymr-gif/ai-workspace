@@ -5,6 +5,25 @@
   const S = window.NIM_CANVAS_S;
   const { Handle, Position } = window.ReactFlow;
 
+  /* ── Inject animation keyframes once ── */
+  (function() {
+    var id = 'nim-canvas-tool-kf';
+    if (document.getElementById(id)) return;
+    var s = document.createElement('style');
+    s.id = id;
+    s.textContent = [
+      '@keyframes nim-progress {',
+      '  0% { transform: translateX(-100%); }',
+      '  100% { transform: translateX(400%); }',
+      '}',
+      '@keyframes nim-dot-pulse {',
+      '  0%, 100% { opacity: 0.3; }',
+      '  50% { opacity: 1; }',
+      '}',
+    ].join('\n');
+    document.head.appendChild(s);
+  })();
+
   function animStyle(state) {
     if (state === 'activating') return { boxShadow:'0 0 0 1px rgba(255,34,34,0.8), 0 0 14px rgba(255,34,34,0.25)' };
     if (state === 'processing') return { boxShadow:'0 0 0 1px rgba(139,92,246,0.8), 0 0 14px rgba(139,92,246,0.25)' };
@@ -132,11 +151,13 @@
     return html;
   }
 
-  function SessionOutputPanel({ session, streamText, isStreaming, messages = [] }) {
-    const bottomRef  = React.useRef(null);
-    const dragRef    = React.useRef(null);
-    const [open,  setOpen]  = React.useState(false);
-    const [width, setWidth] = React.useState(300);
+  function SessionOutputPanel({ session, streamText, isStreaming, messages = [], toolCalls = [] }) {
+    const bottomRef    = React.useRef(null);
+    const dragRef      = React.useRef(null);
+    const [open,  setOpen]    = React.useState(false);
+    const [width, setWidth]   = React.useState(300);
+    const [expTool, setExpTool] = React.useState(null);      // expanded tool index
+    const [toolOpen, setToolOpen] = React.useState(true);    // tool card collapse
 
     React.useEffect(() => { bottomRef.current?.scrollIntoView?.({ block:'end' }); }, [streamText, messages.length]);
     /* clicking a session node focuses it (Canvas.jsx) and opens this drawer */
@@ -165,6 +186,91 @@
 
     const hasContent = streamText && streamText.length > 0;
     const VIO = 'rgba(139,92,246,0.75)';
+    var liveTools = toolCalls.length > 0;
+
+    /* ── Tool card style (NodePopup match) ── */
+    var toolCard = {
+      background:'#0c0c0c', border:'1px solid #4a4a4a',
+      borderLeft:'2px solid '+C.RED,
+      boxShadow:'4px 4px 0 #000', fontFamily:C.TERM,
+      marginBottom:8, overflow:'hidden',
+    };
+    var toolHdr = {
+      display:'flex', justifyContent:'space-between', alignItems:'center',
+      padding:'5px 8px', borderBottom:'1px solid '+C.LINE,
+      cursor:'pointer', userSelect:'none',
+    };
+    var toolHdrTxt = {
+      fontFamily:C.DISP, fontSize:7, color:C.RED,
+      letterSpacing:'0.12em', textTransform:'uppercase',
+    };
+    var toolRow = {
+      padding:'5px 8px', borderBottom:'1px solid '+C.LINE,
+      fontFamily:C.TERM, fontSize:10,
+    };
+    var toolName = {
+      fontFamily:C.DISP, fontSize:8, color:C.CYN,
+      letterSpacing:'0.06em', textTransform:'uppercase',
+    };
+    var toolStatus = {
+      fontFamily:C.DISP, fontSize:7, letterSpacing:'0.08em',
+      textTransform:'uppercase',
+    };
+    var toolArgs = {
+      fontFamily:C.TERM, fontSize:9, color:C.FG5, marginTop:2,
+      wordBreak:'break-all', cursor:'pointer',
+    };
+    var toolResult = {
+      fontFamily:C.TERM, fontSize:9, color:C.FG4, marginTop:2,
+      whiteSpace:'pre-wrap', wordBreak:'break-word',
+      maxHeight:80, overflowY:'auto',
+    };
+
+    function renderToolCalls(tcs) {
+      return (
+        <div style={toolCard}>
+          <div style={toolHdr} onClick={function(){setToolOpen(function(o){return !o})}}>
+            <span style={toolHdrTxt}>TOOL CALLS</span>
+            <span style={{fontFamily:C.DISP,fontSize:7,color:C.FG5}}>
+              {toolOpen ? '[-]' : '[+]'}
+            </span>
+          </div>
+          {toolOpen && tcs.map(function(tc, i){
+            var running = tc.result == null;
+            return (
+              <div key={i} style={toolRow}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:running?0:2}}>
+                  <span style={toolName}>· {tc.name}</span>
+                  <span style={{...toolStatus, color:running?C.AMB:C.FG5}}>
+                    {running ? '···' : <span style={{cursor:'pointer'}} onClick={function(){setExpTool(expTool===i?null:i)}}>
+                      {expTool===i?'▲':'▼'} done
+                    </span>}
+                  </span>
+                </div>
+                {!running && expTool === i && tc.result != null && (
+                  <div style={toolResult}>{tc.result}</div>
+                )}
+                {!running && expTool !== i && tc.args && (
+                  <div style={toolArgs} title="click to view args"
+                    onClick={function() {
+                      var next = expTool === i ? null : i;
+                      setExpTool(next);
+                    }}>
+                    args: {'{...}'}
+                  </div>
+                )}
+                {!running && expTool === i && tc.args && (
+                  <div style={toolArgs}
+                    onClick={function(){setExpTool(null)}}>
+                    args: {JSON.stringify(tc.args)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
 
     return ReactDOM.createPortal(
       <div style={{
@@ -233,7 +339,21 @@
 
             {/* body */}
             <div style={{ flex:1, overflowY:'auto', padding:'10px 14px' }} className="nim-scroll">
-              {messages.length === 0 && !hasContent
+              {/* ── progress bar ── */}
+              {isStreaming && (liveTools || !hasContent) && (
+                <div style={{
+                  width:'100%', height:2, background:C.LINE, marginBottom:8,
+                  overflow:'hidden', position:'relative',
+                }}>
+                  <div style={{
+                    position:'absolute', top:0, left:0, height:'100%', width:'30%',
+                    background:C.RED, boxShadow:'0 0 4px '+C.RED,
+                    animation:'nim-progress 1.2s ease-in-out infinite',
+                  }} />
+                </div>
+              )}
+
+              {messages.length === 0 && !hasContent && !liveTools
                 ? <div style={{ display:'flex', alignItems:'center', justifyContent:'center',
                     minHeight:60, fontFamily:C.TERM, fontSize:12, color:C.FG5 }}>
                     — no messages yet —
@@ -251,10 +371,14 @@
                           {m.role !== 'user' && m.total_tokens > 0 &&
                             <span style={{ color:C.FG5, marginLeft:6 }}>{m.total_tokens} tok</span>}
                         </div>
+                        {/* historical tool calls */}
+                        {m.toolCalls && m.toolCalls.length > 0 && renderToolCalls(m.toolCalls)}
                         <div style={{ fontFamily:C.TERM, fontSize:11, color:C.FG3, lineHeight:1.5 }}
                           dangerouslySetInnerHTML={{ __html: nimMdSimple(m.content) }} />
                       </div>
                     ))}
+                    {/* live tool calls (current turn) */}
+                    {liveTools && renderToolCalls(toolCalls)}
                     {/* live stream (current turn) */}
                     {hasContent && (
                       <div>
@@ -387,7 +511,7 @@
   /* ─────────────── SESSION NODE ─────────────── */
   function SessionNode({ data, id }) {
     const compatS = useCompatState('sessionNode');
-    const { streamText='', isStreaming=false, messages=[] } = data;
+    const { streamText='', isStreaming=false, messages=[], toolCalls=[] } = data;
     // global = the permanent JARVIS session (kind=global) or the static demo node
     // (no conversation_id). config is spread flat into data by neoToRF, so read data.kind.
     const isGlobal = data.kind === 'global' || !data.conversation_id;
@@ -430,6 +554,7 @@
             streamText={streamText}
             isStreaming={isStreaming}
             messages={messages}
+            toolCalls={toolCalls}
           />
         )}
       </div>

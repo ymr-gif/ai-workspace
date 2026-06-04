@@ -13,7 +13,7 @@ from croniter import croniter
 from sqlalchemy import select
 
 import llm.client as llm_client
-from agent.canvas_graph import list_canvas_user_ids, reconcile_canvas
+from agent.reconcile import list_canvas_user_ids, reconcile_canvas
 from config import BACKUP_SCHEDULE, MODELS, REQUEST_TIMEOUT
 from core.db import AsyncSessionLocal, init_db
 from core.logger import setup_logging
