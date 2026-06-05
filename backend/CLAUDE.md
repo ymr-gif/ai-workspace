@@ -114,7 +114,7 @@
 
 ### Canvas Graph CRUD (`agent/canvas_graph.py`)
 - create/delete/update `CanvasNode` (label separate from `Entity`); wire/unwire with port validation; get_node with incident wires
-- get_canvas_graph (Redis `canvas:{uid}` TTL 60s); read-only `query_canvas` (write keyword guard); scratchpad R/W via SQLAlchemy `UserMemory.agent_scratchpad` (append-only merge)
+- get_canvas_graph (Redis `canvas:{uid}` TTL 60s); read-only `query_canvas` — write-keyword guard (`_WRITE_RE`, whole-query word-boundary scan, case-insensitive), auto-scopes every bare `(n:CanvasNode)` with `{user_id: $uid}` (`_BARE_CANVAS_NODE_RE`), then rejects any `:CanvasNode` binding not carrying `{user_id: $uid}` (`_UNSCOPED_CANVAS_RE`) → blocks cross-tenant reads (multi-binding leak, literal `{user_id: 999}`, hostile WHERE); scratchpad R/W via SQLAlchemy `UserMemory.agent_scratchpad` (append-only merge)
 - All ops scoped to `CanvasNode` / `agent_scratchpad` / `canvas:` prefix — never touch `Entity`, `UserMemory.content`, or `graph:*` keys
 
 ## Creation Guard (`llm/tools/executor.py`)

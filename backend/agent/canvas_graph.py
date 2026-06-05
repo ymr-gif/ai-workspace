@@ -30,9 +30,17 @@ _WRITE_RE = re.compile(r"\b(" + "|".join(sorted(_WRITE_KEYWORDS)) + r")\b", re.I
 
 # Auto-scope the common omission: a bare `(var:CanvasNode)` node pattern with no
 # property map. The 70B frequently forgets the `{user_id: $uid}` filter; inject
-# it into the first such pattern. Complex queries (already-propertied labels,
-# multi-pattern WHERE filters) fall through to the instructive error.
+# it into EVERY such pattern (no count limit — a multi-binding query must not
+# leave a second binding unscoped).
 _BARE_CANVAS_NODE_RE = re.compile(r"\(\s*(\w*)\s*:CanvasNode\s*\)")
+
+# After auto-scoping, every `:CanvasNode` binding MUST be filtered by
+# `{user_id: $uid}` (extra props allowed after it). This matches a `:CanvasNode`
+# NOT immediately followed by that scoped map — i.e. an unscoped repeat, a
+# multi-label node, or a literal cross-user filter like `{user_id: 999}`. Its
+# presence ⇒ reject the query, preventing cross-tenant reads via query_canvas.
+# (`\s*` lives inside the lookahead so greedy backtracking can't false-pass.)
+_UNSCOPED_CANVAS_RE = re.compile(r":CanvasNode(?!\s*\{\s*user_id:\s*\$uid\b)")
 
 
 # ── helpers ───────────────────────────────────────────────────────
@@ -473,23 +481,27 @@ async def query_canvas(
     if _wm:
         raise ValueError(f"Write operation '{_wm.group(1).upper()}' not allowed in query_canvas (read-only)")
 
-    if "$uid" not in cypher:
-        # Auto-scope the simple case: inject {user_id: $uid} into the first bare
-        # (var:CanvasNode) pattern. If nothing matches (complex/ambiguous query),
-        # fall through to the instructive error rather than guess.
-        rewritten = _BARE_CANVAS_NODE_RE.sub(r"(\1:CanvasNode {user_id: $uid})", cypher, count=1)
-        if rewritten != cypher:
-            logger.info("[canvas] query_canvas auto-scoped user=%d", user_id)
-            cypher = rewritten
-        else:
-            raise ValueError(
-                "Cypher query must scope to the current user. Use a bare "
-                "MATCH (n:CanvasNode) RETURN n (auto-scoped) or write "
-                "{user_id: $uid} explicitly, e.g. MATCH (n:CanvasNode {user_id: $uid}) RETURN n"
-            )
-
     if ":CanvasNode" not in cypher:
         raise ValueError("Cypher query must scope to :CanvasNode nodes (e.g. MATCH (n:CanvasNode {user_id: $uid}))")
+
+    # Auto-scope EVERY bare (var:CanvasNode) pattern with {user_id: $uid} — no
+    # count limit, so a multi-binding query can't leave a second binding open.
+    scoped = _BARE_CANVAS_NODE_RE.sub(r"(\1:CanvasNode {user_id: $uid})", cypher)
+    if scoped != cypher:
+        logger.info("[canvas] query_canvas auto-scoped user=%d", user_id)
+        cypher = scoped
+
+    # Enforce per-tenant scoping on EVERY :CanvasNode binding. Rejects unscoped
+    # repeats, multi-label nodes, and literal cross-user filters ({user_id: 999})
+    # — the substitution alone is not sufficient (it can't fix a non-bare
+    # pattern). This is the actual cross-tenant guard; scoping the node pattern
+    # is authoritative (a later WHERE cannot widen it).
+    if _UNSCOPED_CANVAS_RE.search(cypher):
+        raise ValueError(
+            "Every (:CanvasNode) pattern must be scoped with {user_id: $uid}. "
+            "Use a bare MATCH (n:CanvasNode) RETURN n (auto-scoped) or write "
+            "{user_id: $uid} explicitly. Cross-user filters are not allowed."
+        )
 
     driver = get_driver()
     if not driver:
