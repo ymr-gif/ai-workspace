@@ -117,11 +117,14 @@ async def agent_boot(user_id: int) -> BootReport:
     )
 
 
-def format_boot_log(report: BootReport) -> str:
+def format_boot_log(report: BootReport, include_canvas: bool = True) -> str:
     lines = ["=== AGENT BOOT LOG ==="]
     for model, ok in report.health.items():
         lines.append(f"> {model.upper()} ... {'OK' if ok else 'FAIL'}")
-    lines.append(f"> CANVAS: {report.node_summary}")
+    # Canvas count is gated on benign turns (J1) — otherwise the 70B narrates
+    # "you have N nodes" instead of answering. Caller passes include_canvas.
+    if include_canvas:
+        lines.append(f"> CANVAS: {report.node_summary}")
     if report.scratchpad:
         lines.append(f"> LAST CONTEXT: {report.scratchpad.get('summary', 'restored')}")
     lines.append("=== STANDBY ===")

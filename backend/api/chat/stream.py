@@ -134,9 +134,15 @@ async def chat_stream(
 
     ctx = await _build_stream_context(req, conv, current_user, db, rid)
 
+    # Canvas intent gate (J1) — drives ALL canvas prompt injection this turn.
+    # Computed once: gates boot CANVAS line, last_session, node inventory, and
+    # CANVAS STATE. On benign turns nothing canvas-flavored reaches the model.
+    canvas_active = await canvas_context_active(req.message, conv.id)
+
     # Agent boot — health check, scratchpad restore, canvas state
     boot_report = await agent_boot(current_user.id)
-    boot_log = format_boot_log(boot_report)
+    boot_log = format_boot_log(boot_report, include_canvas=canvas_active)
+    last_session = ctx.get("last_session", "") if canvas_active else ""
 
     # type classification owned by agent/node.py (single source of truth)
     _CREATABLE_NODES = [n for n in node_registry if n in AI_CREATABLE_TYPES]
@@ -206,7 +212,7 @@ async def chat_stream(
     # CANVAS STATE blocks unless the message references the canvas (or a
     # creation flow is mid-confirmation). Mirrors the tool gating in the service
     # layer — empty node_inventory also drops canvas tools there.
-    if not await canvas_context_active(req.message, conv.id):
+    if not canvas_active:
         node_inventory = ""
         canvas_state = ""
 
@@ -222,7 +228,7 @@ async def chat_stream(
             graph_facts=ctx.get("graph_facts", ""),
             active_goals=ctx.get("active_goals", ""),
             conflicted_facts=ctx.get("conflicted_facts", frozenset()),
-            last_session=ctx.get("last_session", ""),
+            last_session=last_session,
             boot_log=boot_log, node_inventory=node_inventory, canvas_state=canvas_state,
         )
         t_cmp = metrics.record_request_start()
@@ -277,7 +283,7 @@ async def chat_stream(
                 active_goals=ctx.get("active_goals", ""),
                 conflicted_facts=ctx.get("conflicted_facts", frozenset()),
                 fact_saliences=ctx.get("fact_saliences", {}),
-                last_session=ctx.get("last_session", ""),
+                last_session=last_session,
                 boot_log=boot_log, node_inventory=node_inventory, canvas_state=canvas_state,
             ):
                 if event["type"] == "token":
