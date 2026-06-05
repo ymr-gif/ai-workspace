@@ -202,11 +202,12 @@ async def _run_creation_guard(
         return True
 
     if state == _FLOW_STATE_PENDING:
-        # ── Layer 3: message pairing — the confirm turn's message is "yes",
-        # which carries no creation intent of its own; gate on the affirmative
-        # reply after the ask, NOT on re-detecting creation intent. (Canvas
-        # tool gating in the service layer prevents stale-state leaks.)
-        if await _user_replied_after_ask(db, conv_id):
+        # ── Layer 3: confirm turn. The `pending` flow state already proves we
+        # asked, and ask_user ends that turn — so the LATEST user message is
+        # necessarily the post-ask reply. Check it directly instead of scanning
+        # a short message window for a literal ask string (which breaks when the
+        # confirmation arrives several turns later and the ask scrolls out).
+        if await _user_confirmed_latest(db, conv_id):
             await _set_flow_state(conv_id, _FLOW_STATE_CONFIRMED)
             return True
         return _CREATION_NOT_CONFIRMED
@@ -254,42 +255,39 @@ async def _user_requested_creation(
     return False
 
 
-async def _user_replied_after_ask(
+async def _user_confirmed_latest(
     db: AsyncSession,
     conv_id: uuid.UUID,
 ) -> bool:
-    """Layer 3: check if user confirmed after the last ask_user assistant msg.
+    """Layer 3: is the latest user message a confirmation of the pending ask?
 
-    The reply must contain affirmative intent — not just any message.
+    Only called when the Redis flow state is already `pending` — which proves
+    we asked and (since ask_user ends the turn) means the latest user message is
+    the post-ask reply. The ask requests a title, so the reply is usually the
+    title itself (e.g. "ProjectX"), not a yes/no word. Treat any non-empty,
+    non-negation, non-question reply (or an explicit affirmative) as confirmation.
+    The '?' guard keeps unrelated questions ("what nodes are on my canvas?")
+    pending instead of auto-confirming.
     """
     try:
         result = await db.execute(
             select(Message)
-            .where(Message.conversation_id == conv_id)
+            .where(Message.conversation_id == conv_id, Message.role == "user")
             .order_by(Message.created_at.desc())
-            .limit(4)
+            .limit(1)
         )
-        messages = list(reversed(result.scalars().all()))
+        msg = result.scalars().first()
     except Exception:
         return False
 
-    found_ask = False
-    for m in messages:
-        if m.role == "assistant" and "I need your confirmation" in (m.content or ""):
-            found_ask = True
-        elif found_ask and m.role == "user":
-            reply = (m.content or "").strip()
-            # The ask requests a title, so the user replies with the title (e.g.
-            # "ProjectX") — NOT a yes/no word. Any non-empty, non-negation,
-            # non-question reply after the ask IS the confirmation. The '?' guard
-            # keeps unrelated questions ("what nodes are on my canvas?") pending.
-            if not reply or _NEGATION_RE.search(reply):
-                return False
-            if _CONFIRMATION_RE.search(reply):
-                return True
-            return not reply.endswith("?")
-
-    return False
+    if msg is None:
+        return False
+    reply = (msg.content or "").strip()
+    if not reply or _NEGATION_RE.search(reply):
+        return False
+    if _CONFIRMATION_RE.search(reply):
+        return True
+    return not reply.endswith("?")
 
 
 async def _get_flow_state(conv_id: uuid.UUID) -> str | None:

@@ -11,6 +11,20 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 
 ---
 
+## Fixed — Creation confirm stuck across multi-turn (2026-06-05)
+
+### J3 · [x] create_conversation never confirms when the reply arrives several turns after the ask
+
+- **Symptom:** user asked "make a new session", got the confirmation ask, then over several turns re-asked / gave the title twice / said "yes" — every `create_conversation` rejected with "The user hasn't confirmed yet." No session created, so nothing rendered on the canvas (chatlog ~06:55–06:56). The model eventually narrated the tool call as raw JSON text out of confusion.
+
+- **Root cause:** Layer 3 (`_user_replied_after_ask`) located the ask by scanning only the **last 4 messages** for the literal assistant string `"I need your confirmation"`. When confirmation arrived several turns later, the original ask had **scrolled out** of that window and the model's re-asks said "Please confirm"/"provide a title" (not the literal string) → `found_ask` never became True → permanent rejection while the Redis flow state sat at `pending` (300s TTL).
+
+- **Fix:** the `pending` flow state already proves we asked (and `ask_user` ends that turn), so the **latest user message is necessarily the post-ask reply**. Replaced the window scan with `_user_confirmed_latest(db, conv_id)` — checks the latest user message directly: non-empty + non-negation + non-question (or explicit affirmative) ⇒ confirm. Robust to multi-turn delay; `?`-ending replies stay pending.
+
+- **Verification:** live (70B, global) reproduced the exact 5-turn sequence → session created once at the title turn (`fdf2584a…` "TEST"), canvas session node auto-wired (`kind=user`), no duplicates; `?`-ending re-ask correctly stayed pending. New tests `tests/canvas/test_creation_guard_confirm.py` (5) lock Layer 3 — the guard had **zero** test coverage before, which is why it regressed twice (J1 follow-up, then J3). 71/71 canvas+retrieval.
+
+---
+
 ## Fixed — Canvas tool robustness J2 (2026-06-05)
 
 ### J2 · [x] Bulk-delete loop-guard false trips + query_canvas brittleness + lost aborted turns
