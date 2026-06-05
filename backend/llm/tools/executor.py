@@ -23,6 +23,19 @@ logger = logging.getLogger("tools")
 ASK_USER_PREFIX = "__ASK_USER__:"
 CONFIRM_WRITE_PREFIX = "__CONFIRM_WRITE_MEMORY__:"
 
+# Permanent UI panels the user sees on the canvas but which are NOT graph nodes
+# (frontend-only static nodes — data.js INITIAL_NODES). get_canvas_graph (Neo4j)
+# only returns input + session, so the AI was blind to these. Appended to the
+# tool result (model-only — the frontend /api/canvas/graph endpoint is untouched)
+# so the AI can describe the full visible canvas.
+_CANVAS_UI_PANELS = [
+    {"id": "memory", "kind": "ui_panel", "label": "User memory store (facts, salience, project state)"},
+    {"id": "config", "kind": "ui_panel", "label": "Model & generation settings (model lock, temperature, tokens)"},
+    {"id": "files",  "kind": "ui_panel", "label": "File knowledge base (uploaded docs, RAG attachments)"},
+    {"id": "usage",  "kind": "ui_panel", "label": "Token usage & cost"},
+    {"id": "logs",   "kind": "ui_panel", "label": "Activity / tool-call logs"},
+]
+
 # ── Creation guard constants ──────────────────────────────────────
 
 _CREATION_RE = [
@@ -107,6 +120,12 @@ async def execute_tool(
             result = await query_canvas(user_id, args["cypher"])
         elif name == "get_canvas_graph":
             result = await get_canvas_graph(user_id)
+            # Enrich with the permanent UI panels (memory/config/files/usage/logs)
+            # so the AI can describe the FULL visible canvas, not just the two
+            # Neo4j graph nodes. Frontend endpoint is unaffected (this is the
+            # tool path only). ui_panels are surfaces, not deletable/wireable.
+            if isinstance(result, dict):
+                result = {**result, "ui_panels": _CANVAS_UI_PANELS}
         elif name == "create_conversation":
             _guard = await _run_creation_guard(db, conv_id, "session")
             if isinstance(_guard, str):

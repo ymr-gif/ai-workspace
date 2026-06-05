@@ -223,6 +223,7 @@ async def generate_stream(
             yield {"type": "status", "stage": "budget", "detail": f"Context fitted to {ctx_window:,}-tok window (≤{max_out:,} out)", "level": "info"}
         model_done     = False
         tool_call_counts: dict[tuple[str, str], int] = {}
+        _last_tool_sig: tuple[str, str] | None = None
 
         for _tool_iter in range(MAX_TOOL_ITERATIONS):
             accumulated      = []
@@ -290,13 +291,27 @@ async def generate_stream(
                         return
 
                     yield {"type": "tool_call", "name": fn_name, "args": args}
-                    _t_tool = time.monotonic()
-                    result = await execute_tool(fn_name, args, db, user_id, conv_id)
-                    _tool_ms = int((time.monotonic() - _t_tool) * 1000)
-                    _tool_failed = isinstance(result, str) and result.startswith("Error:")
-                    yield {"type": "status", "stage": "tool",
-                           "detail": f"tool {fn_name} {'✗' if _tool_failed else '✓'}",
-                           "level": "error" if _tool_failed else "info", "ms": _tool_ms}
+                    # Loop-nudge: a read-only tool called back-to-back with
+                    # identical args returns no new info. Instead of re-running
+                    # (the 70B otherwise spins on get_canvas_graph until the cap),
+                    # hand back the same data already in context with an
+                    # instruction to answer — breaks the loop without aborting.
+                    if fn_name in _READONLY_CANVAS_TOOLS and sig == _last_tool_sig:
+                        result = (f"You already called {fn_name} above this turn and the canvas "
+                                  f"is unchanged. Use that result to answer the user now — do not "
+                                  f"call {fn_name} again.")
+                        yield {"type": "status", "stage": "tool",
+                               "detail": f"tool {fn_name} — skipped (already fetched, answer from it)",
+                               "level": "info", "ms": 0}
+                    else:
+                        _t_tool = time.monotonic()
+                        result = await execute_tool(fn_name, args, db, user_id, conv_id)
+                        _tool_ms = int((time.monotonic() - _t_tool) * 1000)
+                        _tool_failed = isinstance(result, str) and result.startswith("Error:")
+                        yield {"type": "status", "stage": "tool",
+                               "detail": f"tool {fn_name} {'✗' if _tool_failed else '✓'}",
+                               "level": "error" if _tool_failed else "info", "ms": _tool_ms}
+                    _last_tool_sig = sig
 
                     if result.startswith(ASK_USER_PREFIX):
                         question = result[len(ASK_USER_PREFIX):]
