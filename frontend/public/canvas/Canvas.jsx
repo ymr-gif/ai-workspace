@@ -485,7 +485,7 @@
         fetch('/api/conversations/' + want + '/messages', { headers:{ Authorization:'Bearer '+tok } })
           .then(r => r.ok ? r.json() : [])
           .then(msgs => {
-            const mapped = msgs.map(m => ({ role:m.role, content:m.content, model:m.model||'', total_tokens:m.total_tokens||0 }));
+            const mapped = msgs.map(m => ({ role:m.role, content:m.content, model:m.model||'', total_tokens:m.total_tokens||0, activity:m.activity_trace||[] }));
             histCacheRef.current[want] = mapped;
             setNodes(nds => nds.map(n => n.id === 'session' && shownConvRef.current === want
               ? { ...n, data: { ...n.data, messages: mapped } } : n));
@@ -508,6 +508,13 @@
       ));
     }, [setNodes]);
 
+    const streamActivity = React.useCallback((steps) => {
+      setNodes(nds => nds.map(n => n.id === 'session'
+        ? { ...n, data: { ...n.data, activity: steps } }
+        : n
+      ));
+    }, [setNodes]);
+
     /* merge AI canvas graph delta into React Flow state */
     const patchCanvas = React.useCallback(({ nodes: neoNodes, wires }) => {
       // hide the backend global session node — the static 'session' node represents it
@@ -522,7 +529,7 @@
         const merged = rfNodes.map(n => {
           const p = prev[n.id];
           if (!p) return n;
-          return { ...n, data: { ...n.data, messages: p.messages, streamText: p.streamText, isStreaming: p.isStreaming, toolCalls: p.toolCalls } };
+          return { ...n, data: { ...n.data, messages: p.messages, streamText: p.streamText, isStreaming: p.isStreaming, toolCalls: p.toolCalls, activity: p.activity } };
         });
         return [...nds.filter(n => !n.id.startsWith('ai-')), ...merged];
       });
@@ -619,7 +626,7 @@
         .then(r => r.ok ? r.json() : null)
         .then(msgs => {
           if (!msgs || !msgs.length) { shownConvRef.current = shownConvRef.current || convId; return; }
-          const mapped = msgs.map(m => ({ role:m.role, content:m.content, model:m.model||'', total_tokens:m.total_tokens||0 }));
+          const mapped = msgs.map(m => ({ role:m.role, content:m.content, model:m.model||'', total_tokens:m.total_tokens||0, activity:m.activity_trace||[] }));
           histCacheRef.current[convId] = mapped;
           shownConvRef.current = shownConvRef.current || convId;
           if (shownConvRef.current !== convId) return;
@@ -638,13 +645,14 @@
         _setNodeAnim:      setNodeAnim,
         _streamSession:    streamSession,
         _streamTools:      streamTools,
+        _streamActivity:   streamActivity,
         _updateSessionMeta: null,     /* placeholder — canvas-sse.js calls it via optional chaining */
         _patch:            patchCanvas,
         _pinNode:          pinNode,
         _closeNode:        closeNode,
         _appendMessages:   appendMessages,
       };
-    }, [onMemExpand, onRemoveBranch, onDemoSend, onAutoArrange, setNodeAnim, streamSession, streamTools, patchCanvas, pinNode, closeNode, appendMessages]);
+    }, [onMemExpand, onRemoveBranch, onDemoSend, onAutoArrange, setNodeAnim, streamSession, streamTools, streamActivity, patchCanvas, pinNode, closeNode, appendMessages]);
 
     /* ARRANGE — reheat simulation (Obsidian-style: let physics settle organically) */
     const onAutoArrange = React.useCallback(() => {

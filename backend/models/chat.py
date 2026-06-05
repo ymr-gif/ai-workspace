@@ -1,6 +1,6 @@
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from pgvector.sqlalchemy import Vector
 from datetime import datetime
 import uuid
@@ -33,6 +33,9 @@ class Message(Base):
     total_tokens:      Mapped[int | None]   = mapped_column(Integer, nullable=True)
     cost_usd:          Mapped[float | None] = mapped_column(Float,   nullable=True)
     token_estimate:    Mapped[bool | None]  = mapped_column(Boolean, nullable=True)
+    # Ordered "behind the scenes" trace for this turn (pipeline stages, tools,
+    # errors) — surfaced live + persisted for the collapsible Activity strip.
+    activity_trace:    Mapped[list | None]  = mapped_column(JSONB,   nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

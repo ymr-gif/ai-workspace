@@ -151,7 +151,41 @@
     return html;
   }
 
-  function SessionOutputPanel({ session, streamText, isStreaming, messages = [], toolCalls = [] }) {
+  /* Collapsible "behind the scenes" trace for one message (live or historical). */
+  function ActivityBlock({ steps, live }) {
+    const [open, setOpen] = React.useState(false);
+    if (!steps || steps.length === 0) return null;
+    const errs = steps.filter(function(s){ return s && s.level === 'error'; }).length;
+    var card = { background:'#0a0a0a', border:'1px solid #2e2e2e',
+      borderLeft:'2px solid '+(errs?C.RED:'rgba(139,92,246,0.6)'),
+      fontFamily:C.TERM, marginBottom:8, overflow:'hidden' };
+    var hdr = { display:'flex', justifyContent:'space-between', alignItems:'center',
+      padding:'4px 8px', cursor:'pointer', userSelect:'none' };
+    var hdrTxt = { fontFamily:C.DISP, fontSize:7, letterSpacing:'0.12em',
+      textTransform:'uppercase', color:errs?C.RED:'rgba(139,92,246,0.85)' };
+    var row = { display:'flex', justifyContent:'space-between', alignItems:'baseline',
+      gap:8, padding:'3px 8px', borderTop:'1px solid '+C.LINE, fontSize:9 };
+    return (
+      <div style={card}>
+        <div style={hdr} onClick={function(){ setOpen(function(o){return !o}); }}>
+          <span style={hdrTxt}>
+            {open ? '▾' : '▸'} Activity ({steps.length}{errs ? ' · '+errs+' err' : ''}){live ? ' …' : ''}
+          </span>
+          <span style={{fontFamily:C.DISP,fontSize:7,color:C.FG5}}>{open ? '[-]' : '[+]'}</span>
+        </div>
+        {open && steps.map(function(s, i){
+          return (
+            <div key={i} style={row}>
+              <span style={{ color:(s.level==='error'?C.RED:C.FG4), wordBreak:'break-word' }}>· {s.detail}</span>
+              {s.ms != null && <span style={{ color:C.FG5, fontSize:8, whiteSpace:'nowrap' }}>{s.ms}ms</span>}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function SessionOutputPanel({ session, streamText, isStreaming, messages = [], toolCalls = [], activity = [] }) {
     const bottomRef    = React.useRef(null);
     const dragRef      = React.useRef(null);
     const [open,  setOpen]    = React.useState(false);
@@ -353,7 +387,7 @@
                 </div>
               )}
 
-              {messages.length === 0 && !hasContent && !liveTools
+              {messages.length === 0 && !hasContent && !liveTools && !(activity && activity.length)
                 ? <div style={{ display:'flex', alignItems:'center', justifyContent:'center',
                     minHeight:60, fontFamily:C.TERM, fontSize:12, color:C.FG5 }}>
                     — no messages yet —
@@ -371,13 +405,15 @@
                           {m.role !== 'user' && m.total_tokens > 0 &&
                             <span style={{ color:C.FG5, marginLeft:6 }}>{m.total_tokens} tok</span>}
                         </div>
-                        {/* historical tool calls */}
+                        {/* historical activity trace + tool calls */}
+                        {m.role !== 'user' && <ActivityBlock steps={m.activity} />}
                         {m.toolCalls && m.toolCalls.length > 0 && renderToolCalls(m.toolCalls)}
                         <div style={{ fontFamily:C.TERM, fontSize:11, color:C.FG3, lineHeight:1.5 }}
                           dangerouslySetInnerHTML={{ __html: nimMdSimple(m.content) }} />
                       </div>
                     ))}
-                    {/* live tool calls (current turn) */}
+                    {/* live activity trace + tool calls (current turn) */}
+                    {activity && activity.length > 0 && <ActivityBlock steps={activity} live={isStreaming} />}
                     {liveTools && renderToolCalls(toolCalls)}
                     {/* live stream (current turn) */}
                     {hasContent && (
@@ -511,7 +547,7 @@
   /* ─────────────── SESSION NODE ─────────────── */
   function SessionNode({ data, id }) {
     const compatS = useCompatState('sessionNode');
-    const { streamText='', isStreaming=false, messages=[], toolCalls=[] } = data;
+    const { streamText='', isStreaming=false, messages=[], toolCalls=[], activity=[] } = data;
     // global = the permanent JARVIS session (kind=global) or the static demo node
     // (no conversation_id). config is spread flat into data by neoToRF, so read data.kind.
     const isGlobal = data.kind === 'global' || !data.conversation_id;
@@ -555,6 +591,7 @@
             isStreaming={isStreaming}
             messages={messages}
             toolCalls={toolCalls}
+            activity={activity}
           />
         )}
       </div>

@@ -84,6 +84,7 @@ async def get_messages(
             "completion_tokens": m.completion_tokens,
             "total_tokens":      m.total_tokens,
             "cost_usd":          m.cost_usd,
+            "activity_trace":    m.activity_trace,
         }
         for m in msgs
     ]

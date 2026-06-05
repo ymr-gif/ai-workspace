@@ -84,6 +84,7 @@
 
 ### Canvas — Session chat: routing + the chat drawer
 - **One chat drawer** = `SessionOutputPanel` (`nodes.jsx`), a `ReactDOM.createPortal` right-edge drawer (collapsed `‹` tab) rendered only by the static `session` node. There is NO in-node chat and NO conversation-list sidebar in the canvas.
+- **Activity trace (behind-the-scenes):** `canvas-sse.js` accumulates `{type:"status", stage, detail, level, ms}` SSE events into `activity` and pushes via `_streamActivity` (mirrors `_streamTools`); `Canvas.jsx` keeps it on the session node `data.activity`; `nodes.jsx` `ActivityBlock` renders a per-message collapsible `▸ Activity (N steps)` strip (live + historical, `level:"error"` steps in red). Persisted server-side as `messages.activity_trace`, rehydrated from `GET /conversations/{id}/messages` (`activity_trace` → `m.activity` in the `histCacheRef` map). Mirrors the `toolCalls` live+history pattern exactly.
 - **Active conversation** (`targetConvId` in `Canvas.jsx`) drives both what the drawer shows AND where sends route (`window.NIM_CANVAS_INPUT_TARGET.convId`, read by `buildBody()`). Set two ways, last-wins:
   - **Input→Session wire** — dragging the static `input` box to a session node routes there; the wire effect only adopts a change (guarded by `lastWireConvRef`) so physics re-runs don't clobber a click.
   - **Click-to-focus** — `onNodeClick` on a session node makes it active and dispatches `nim-open-drawer` (the drawer opens). Clicking the global/JARVIS node → global.

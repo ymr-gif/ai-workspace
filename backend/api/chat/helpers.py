@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 import uuid
 from datetime import datetime, timezone, timedelta
 
@@ -91,6 +92,16 @@ async def _build_stream_context(
     db:           AsyncSession,
     rid:          str,
 ) -> dict:
+    # Ordered "behind the scenes" trace for the Activity strip. Each context
+    # stage appends here; swallowed failures are recorded as level="error"
+    # rather than vanishing (no-silent-failures protocol).
+    activity: list[dict] = []
+    def _act(stage: str, detail: str, level: str = "info", ms: int | None = None):
+        e = {"stage": stage, "detail": detail, "level": level}
+        if ms is not None:
+            e["ms"] = ms
+        activity.append(e)
+
     memory_row      = await db.get(UserMemory, current_user.id)
     memory_sheet    = (memory_row.content         if memory_row and memory_row.content         else "")
     project_summary = (memory_row.project_summary if memory_row and memory_row.project_summary else "")
@@ -117,12 +128,15 @@ async def _build_stream_context(
                     rid, len(loaded_facts),
                     scored_facts[0][1] if scored_facts else 0.0,
                     scored_facts[-1][1] if scored_facts else 0.0)
+        _act("memory", f"Loaded {len(loaded_facts)} memory fact{'s' if len(loaded_facts) != 1 else ''}")
     else:
         fact_saliences = {}
+        _act("memory", "No stored memory")
 
     is_ref    = retriever.is_reference_query(req.message)
     query_type = classify_query(req.message)
     policy     = get_policy(query_type)
+    _act("classify", f"Query type: {query_type}" + (" · reference" if is_ref else ""))
 
     embed_task = None
     if req.conversation_id or is_ref or req.file_ids:
@@ -161,19 +175,28 @@ async def _build_stream_context(
     top_k     = max(policy["top_k"], 8 if is_ref else 0)
     retrieved: list[str] = []
     if query_emb:
-        retrieved = await retriever.retrieve(
-            db, query_emb, conv.id,
-            top_k=top_k, query_text=req.message,
-            fusion_mode=policy["fusion_mode"], k_dense=policy["k_dense"],
-            k_sparse=policy["k_sparse"], alpha=policy["alpha"],
-        )
-        if is_ref and not retrieved:
-            retrieved = await retriever.retrieve_global(
-                db, query_emb, conv.id, current_user.id,
-                query_text=req.message,
+        _t_rag = time.monotonic()
+        try:
+            retrieved = await retriever.retrieve(
+                db, query_emb, conv.id,
+                top_k=top_k, query_text=req.message,
                 fusion_mode=policy["fusion_mode"], k_dense=policy["k_dense"],
                 k_sparse=policy["k_sparse"], alpha=policy["alpha"],
             )
+            if is_ref and not retrieved:
+                retrieved = await retriever.retrieve_global(
+                    db, query_emb, conv.id, current_user.id,
+                    query_text=req.message,
+                    fusion_mode=policy["fusion_mode"], k_dense=policy["k_dense"],
+                    k_sparse=policy["k_sparse"], alpha=policy["alpha"],
+                )
+            _act("retrieval", f"RAG: {len(retrieved)} doc{'s' if len(retrieved) != 1 else ''} · {policy['fusion_mode']}",
+                 ms=int((time.monotonic() - _t_rag) * 1000))
+        except Exception as e:
+            logger.exception("[rag] retrieve failed rid=%s", rid)
+            _act("retrieval", f"RAG: failed — {e}", level="error",
+                 ms=int((time.monotonic() - _t_rag) * 1000))
+            retrieved = []
 
     if memory_row and retrieved:
         salience_mult = 1.0 + min(memory_row.salience, 2.0) * 0.05
@@ -241,8 +264,10 @@ async def _build_stream_context(
                             chunk.get("source_id") if isinstance(chunk, dict) else None,
                             chunk.get("final_score", 0.0) if isinstance(chunk, dict) else 0.0,
                             repr(preview))
+            _act("files", f"File RAG: {len(file_chunks)} chunk{'s' if len(file_chunks) != 1 else ''} from {len(file_ids)} file{'s' if len(file_ids) != 1 else ''}")
         else:
             logger.warning("[file_ctx] rid=%s file_ids=%d but NO chunks retrieved", rid, len(file_ids))
+            _act("files", f"File RAG: 0 chunks from {len(file_ids)} file{'s' if len(file_ids) != 1 else ''}", level="error")
 
     conflicted_facts: frozenset[str] = frozenset()
     if memory_sheet:
@@ -288,16 +313,26 @@ async def _build_stream_context(
 
     graph_context = ""
     graph_facts   = ""
+    _t_graph = time.monotonic()
+    _graph_err = None
     try:
         from llm.graph_memory import query_context as graph_query
         graph_context = await graph_query(current_user.id, req.message, limit=50)
-    except Exception:
+    except Exception as e:
         logger.exception("[graph] query_context failed")
+        _graph_err = e
     try:
         from llm.graph_memory import query_by_keywords
         graph_facts = await query_by_keywords(current_user.id, req.message)
-    except Exception:
+    except Exception as e:
         logger.exception("[graph] query_by_keywords failed")
+        _graph_err = e
+    _graph_ms = int((time.monotonic() - _t_graph) * 1000)
+    if _graph_err is not None:
+        _act("graph", f"Graph memory: failed — {_graph_err}", level="error", ms=_graph_ms)
+    else:
+        _gf = len([ln for ln in graph_facts.splitlines() if ln.strip()])
+        _act("graph", f"Graph memory: {_gf} fact{'s' if _gf != 1 else ''}", ms=_graph_ms)
 
     active_goals = ""
     try:
@@ -310,8 +345,10 @@ async def _build_stream_context(
         if goals:
             lines = [f"{i+1}. {g.title}" + (f" — {g.description}" if g.description else "") for i, g in enumerate(goals)]
             active_goals = "\n".join(lines)
-    except Exception:
+            _act("goals", f"Active goals: {len(goals)}")
+    except Exception as e:
         logger.exception("[goals] query failed")
+        _act("goals", f"Goals: failed — {e}", level="error")
 
     logger.info("[policy] rid=%s query_type=%s fusion=%s alpha=%s k_dense=%d k_sparse=%d top_k=%d",
                 rid, query_type, policy["fusion_mode"], policy["alpha"],
@@ -333,4 +370,5 @@ async def _build_stream_context(
         "policy_used":         query_type,
         "fact_saliences":      fact_saliences,
         "last_session":        last_session,
+        "activity":            activity,
     }

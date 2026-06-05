@@ -29,6 +29,9 @@
   function streamTools(tools) {
     window.NIM_CANVAS_CB?._streamTools?.(tools);
   }
+  function streamActivity(steps) {
+    window.NIM_CANVAS_CB?._streamActivity?.(steps);
+  }
 
   /* ── Build ChatRequest body from canvas state ────────── */
   function buildBody() {
@@ -69,7 +72,9 @@
 
     let fullText  = '';
     let toolCalls = [];
+    let activity  = [];
     let convId    = null;
+    streamActivity([]);
 
     try {
       const res = await fetch('/api/chat/stream', {
@@ -106,6 +111,13 @@
 
           switch (event.type) {
 
+            case 'status':
+              /* behind-the-scenes pipeline step — accumulate into the Activity trace */
+              activity.push({ stage: event.stage, detail: event.detail,
+                              level: event.level || 'info', ms: event.ms });
+              streamActivity([...activity]);
+              break;
+
             case 'token':
               fullText += event.content || '';
               streamToSession(fullText, false);
@@ -140,11 +152,14 @@
                   { role: 'user',      content: window.NIM_CANVAS_LAST_INPUT },
                   { role: 'assistant', content: fullText,
                     toolCalls: toolCalls,
+                    activity: activity,
                     model: event.model || '', total_tokens: event.total_tokens || 0 },
                 ]);
               }
               toolCalls = [];
+              activity  = [];
               streamTools([]);
+              streamActivity([]);
               /* done flash on all nodes */
               ['input','config','memory','session'].forEach((id, k) =>
                 setTimeout(() => setAnim(id, 'done'), k * 80)
@@ -198,7 +213,9 @@
             case 'error':
               streamToSession('[ERROR] ' + (event.message || 'Unknown error'), true);
               toolCalls = [];
+              activity  = [];
               streamTools([]);
+              streamActivity([]);
               setAnim('session', 'error');
               setTimeout(() => setAnim('session', 'idle'), 2500);
               break;

@@ -131,6 +131,7 @@ async def generate_stream(
             system_prompt=cache_sysprompt,
         )
         if cached:
+            yield {"type": "status", "stage": "cache", "detail": "Cache hit — returning stored answer", "level": "info"}
             yield {"type": "token", "content": cached["response"]}
             yield {"type": "done",  "model": cached.get("model", "cache"), "cache_hit": True, "fallback_used": False}
             return
@@ -138,16 +139,23 @@ async def generate_stream(
     # Model selection priority: image → explicit override → file tools → memory write → router
     if image_b64:
         fallback_chain = [MODEL_VISION]
+        route_reason = "vision"
     elif model_override:
         fallback_chain = [model_override] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model_override]
+        route_reason = "override"
     elif file_ids:
         # Always use reasoning model when files attached — 8B cannot reliably use tool results
         fallback_chain = [MODELS["reasoning"]]
+        route_reason = "files"
     elif _needs_memory_tool(message):
         fallback_chain = [MODELS["reasoning"]] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != MODELS["reasoning"]]
+        route_reason = "memory"
     else:
         model, _ = await route(message, request_id)
         fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
+        route_reason = "router"
+
+    yield {"type": "status", "stage": "route", "detail": f"Routing → {fallback_chain[0]} ({route_reason})", "level": "info"}
 
     file_tools   = FILE_TOOL_SCHEMAS   if (file_ids and db is not None) else []
     canvas_tools = CANVAS_TOOL_SCHEMAS if (db is not None and node_inventory) else []
@@ -200,6 +208,8 @@ async def generate_stream(
 
     for idx, current_model in enumerate(fallback_chain):
         fallback_used  = idx > 0
+        if fallback_used:
+            yield {"type": "status", "stage": "fallback", "detail": f"Falling back → {current_model}", "level": "error"}
         tool_messages  = list(base_messages)
         ctx_window = get_context_limit(current_model)
         max_out = (model_params or {}).get("max_tokens", 4096)
@@ -209,6 +219,8 @@ async def generate_stream(
             except (TypeError, ValueError):
                 max_out = 4096
         tool_messages = apply_context_budget(tool_messages, ctx_window, max_out, fact_saliences=fact_saliences)
+        if idx == 0:
+            yield {"type": "status", "stage": "budget", "detail": f"Context fitted to {ctx_window:,}-tok window (≤{max_out:,} out)", "level": "info"}
         model_done     = False
         tool_call_counts: dict[tuple[str, str], int] = {}
 
@@ -219,6 +231,7 @@ async def generate_stream(
             stream_broke     = False
             nim_usage        = None
 
+            _t_call = time.monotonic()
             try:
                 async for chunk in call_stream(current_model, tool_messages, request_id, model_params, tools):
                     if isinstance(chunk, dict) and "__tool_calls__" in chunk:
@@ -229,6 +242,14 @@ async def generate_stream(
                         started = True
                         accumulated.append(chunk)
                         yield {"type": "token", "content": chunk}
+
+                _call_ms = int((time.monotonic() - _t_call) * 1000)
+                _short = current_model.split("/")[-1]
+                if tool_calls_done:
+                    _names = ", ".join(tc["function"]["name"] for tc in tool_calls_done)
+                    yield {"type": "status", "stage": "model_call", "detail": f"{_short} → requested tool(s): {_names}", "level": "info", "ms": _call_ms}
+                else:
+                    yield {"type": "status", "stage": "model_call", "detail": f"{_short} → response", "level": "info", "ms": _call_ms}
 
                 # Model streamed preamble text and THEN requested a tool call.
                 # Tokens already went out live; tell the client to drop that
@@ -269,7 +290,13 @@ async def generate_stream(
                         return
 
                     yield {"type": "tool_call", "name": fn_name, "args": args}
+                    _t_tool = time.monotonic()
                     result = await execute_tool(fn_name, args, db, user_id, conv_id)
+                    _tool_ms = int((time.monotonic() - _t_tool) * 1000)
+                    _tool_failed = isinstance(result, str) and result.startswith("Error:")
+                    yield {"type": "status", "stage": "tool",
+                           "detail": f"tool {fn_name} {'✗' if _tool_failed else '✓'}",
+                           "level": "error" if _tool_failed else "info", "ms": _tool_ms}
 
                     if result.startswith(ASK_USER_PREFIX):
                         question = result[len(ASK_USER_PREFIX):]

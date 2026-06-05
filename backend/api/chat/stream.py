@@ -270,6 +270,10 @@ async def chat_stream(
         tools_in_turn  = []
         last_tool_name: str | None = None
         turn_recorded  = False
+        # Behind-the-scenes trace: seed with the context-build stages
+        # (_build_stream_context), then append live status events from the
+        # service layer. Persisted on the assistant message (done + abort).
+        activity       = list(ctx.get("activity", []))
 
         async def _persist_abort(reason: str):
             # D/J2: a tool-loop/stream abort otherwise rolls back the whole
@@ -284,12 +288,22 @@ async def chat_stream(
                 db.add(Message(
                     conversation_id=conv.id, role="assistant", content=note,
                     model=model_used if model_used != "unknown" else None,
+                    activity_trace=activity or None,
                 ))
                 await db.commit()
                 turn_recorded = True
             except Exception:
                 await db.rollback()
                 logger.warning("[chat/stream] abort-persist failed rid=%s", rid)
+
+        # Canvas stage (only when canvas context is active this turn).
+        if canvas_active:
+            _cn = len((boot_report.canvas or {}).get("nodes", []))
+            activity.append({"stage": "canvas", "detail": f"Canvas: {_cn} node{'s' if _cn != 1 else ''}", "level": "info"})
+
+        # Emit the context-build burst as ordered status events before the stream.
+        for _st in activity:
+            yield f"data: {_json.dumps({'type': 'status', **_st})}\n\n"
 
         try:
             async for event in service.generate_stream(
@@ -319,6 +333,11 @@ async def chat_stream(
                     accumulated.clear()
                     yield f"data: {_json.dumps(event)}\n\n"
 
+                elif event["type"] == "status":
+                    # behind-the-scenes pipeline step — append to the trace + forward
+                    activity.append({k: v for k, v in event.items() if k != "type"})
+                    yield f"data: {_json.dumps(event)}\n\n"
+
                 elif event["type"] in ("tool_call", "tool_result", "ask_user", "confirm_write_memory"):
                     if event["type"] == "tool_call":
                         tools_in_turn.append(event.get("name", ""))
@@ -343,6 +362,7 @@ async def chat_stream(
                             content=full_response or pending_question, model=model_used,
                             prompt_tokens=pt, completion_tokens=ct,
                             total_tokens=tt, cost_usd=cost,
+                            activity_trace=activity or None,
                         )
                         db.add(asst_msg)
                         await db.commit()
