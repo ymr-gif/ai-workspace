@@ -57,7 +57,7 @@ ai-api/
 | Rate limit (per-model) | llama=15, coder=10, reasoning=5 req/60s — explicit selection only |
 | Cache bypass | triggered by: file_chunks / image_b64 / model_params present |
 | Memory write lock | `pg_advisory_xact_lock(user_id)` — prevents version races |
-| Tool loop guard | max 20 iterations; >3 same tool → abort |
+| Tool loop guard | max 60 iterations; >3 same tool **with identical args** → abort (distinct-arg bulk ops, e.g. delete many nodes, flow freely) |
 
 ---
 

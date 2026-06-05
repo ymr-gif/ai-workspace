@@ -12,8 +12,13 @@ from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, CANVAS_TOOL_SCHEMAS, WRIT
 
 from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, apply_context_budget
 
-MAX_TOOL_ITERATIONS = 20
-_READONLY_CANVAS_TOOLS = frozenset({"get_canvas_graph", "query_canvas"})
+MAX_TOOL_ITERATIONS = 60
+# Runaway-loop guard: abort when the SAME tool is called with the SAME args
+# more than this many times. Keyed on (name, args) signature, so legit bulk
+# work (delete_canvas_node on many distinct node_ids) flows freely while a
+# true loop (identical create_conversation / re-delete of one node / repeated
+# identical query) still trips. Distinct-arg volume is bounded by MAX_TOOL_ITERATIONS.
+_MAX_IDENTICAL_CALLS = 3
 
 logger = logging.getLogger("service")
 
@@ -200,7 +205,7 @@ async def generate_stream(
                 max_out = 4096
         tool_messages = apply_context_budget(tool_messages, ctx_window, max_out, fact_saliences=fact_saliences)
         model_done     = False
-        tool_call_counts: dict[str, int] = {}
+        tool_call_counts: dict[tuple[str, str], int] = {}
 
         for _tool_iter in range(MAX_TOOL_ITERATIONS):
             accumulated      = []
@@ -247,10 +252,14 @@ async def generate_stream(
                     except Exception:
                         args = {}
 
-                    tool_call_counts[fn_name] = tool_call_counts.get(fn_name, 0) + 1
-                    if tool_call_counts[fn_name] > 3 and fn_name not in _READONLY_CANVAS_TOOLS:
-                        logger.warning("[service] tool_loop_guard: %s called %d times, aborting", fn_name, tool_call_counts[fn_name])
-                        yield {"type": "error", "message": f"Tool loop detected: {fn_name} called too many times"}
+                    # Signature = name + canonical args. Identical repeats are a
+                    # loop (same delete/create/query over and over); distinct
+                    # args (bulk delete of different node_ids) are legit work.
+                    sig = (fn_name, json.dumps(args, sort_keys=True, default=str))
+                    tool_call_counts[sig] = tool_call_counts.get(sig, 0) + 1
+                    if tool_call_counts[sig] > _MAX_IDENTICAL_CALLS:
+                        logger.warning("[service] tool_loop_guard: %s called %d times with identical args, aborting", fn_name, tool_call_counts[sig])
+                        yield {"type": "error", "message": f"Tool loop detected: {fn_name} called repeatedly with the same arguments"}
                         return
 
                     yield {"type": "tool_call", "name": fn_name, "args": args}
