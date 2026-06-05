@@ -17,8 +17,9 @@ dist/
 build/
 .cache/
 
-# Storage (user uploads)
+# Storage (user uploads + DB dumps — contain user data, never commit)
 backend/storage/files/
+backend/storage/backups/
 
 # Logs
 *.log
