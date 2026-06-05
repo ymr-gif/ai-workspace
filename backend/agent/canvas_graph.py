@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -22,6 +23,16 @@ logger = logging.getLogger("canvas_graph")
 _CANVAS_CACHE_TTL = 60
 
 _WRITE_KEYWORDS = frozenset({"create", "delete", "set", "merge", "remove", "detach"})
+# Reject any write clause anywhere in the query (not just the first word) so a
+# read-only query_canvas can't smuggle a mutation, e.g. `MATCH (...) DELETE n`.
+# Case-insensitive + word-boundaried (won't trip on n.created_at / 'settings').
+_WRITE_RE = re.compile(r"\b(" + "|".join(sorted(_WRITE_KEYWORDS)) + r")\b", re.I)
+
+# Auto-scope the common omission: a bare `(var:CanvasNode)` node pattern with no
+# property map. The 70B frequently forgets the `{user_id: $uid}` filter; inject
+# it into the first such pattern. Complex queries (already-propertied labels,
+# multi-pattern WHERE filters) fall through to the instructive error.
+_BARE_CANVAS_NODE_RE = re.compile(r"\(\s*(\w*)\s*:CanvasNode\s*\)")
 
 
 # ── helpers ───────────────────────────────────────────────────────
@@ -458,12 +469,24 @@ async def find_nodes(user_id: int, node_type: str) -> list[dict]:
 async def query_canvas(
     user_id: int, cypher: str, params: dict | None = None
 ) -> list[dict]:
-    first_word = cypher.lstrip().split(maxsplit=1)[0].upper() if cypher.strip() else ""
-    if first_word in _WRITE_KEYWORDS:
-        raise ValueError(f"Write operation '{first_word}' not allowed in query_canvas")
+    _wm = _WRITE_RE.search(cypher)
+    if _wm:
+        raise ValueError(f"Write operation '{_wm.group(1).upper()}' not allowed in query_canvas (read-only)")
 
     if "$uid" not in cypher:
-        raise ValueError("Cypher query must include {user_id: $uid} to scope to current user")
+        # Auto-scope the simple case: inject {user_id: $uid} into the first bare
+        # (var:CanvasNode) pattern. If nothing matches (complex/ambiguous query),
+        # fall through to the instructive error rather than guess.
+        rewritten = _BARE_CANVAS_NODE_RE.sub(r"(\1:CanvasNode {user_id: $uid})", cypher, count=1)
+        if rewritten != cypher:
+            logger.info("[canvas] query_canvas auto-scoped user=%d", user_id)
+            cypher = rewritten
+        else:
+            raise ValueError(
+                "Cypher query must scope to the current user. Use a bare "
+                "MATCH (n:CanvasNode) RETURN n (auto-scoped) or write "
+                "{user_id: $uid} explicitly, e.g. MATCH (n:CanvasNode {user_id: $uid}) RETURN n"
+            )
 
     if ":CanvasNode" not in cypher:
         raise ValueError("Cypher query must scope to :CanvasNode nodes (e.g. MATCH (n:CanvasNode {user_id: $uid}))")

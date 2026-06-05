@@ -14,11 +14,16 @@ from .context import build_context_messages, _needs_file_tools, _needs_memory_to
 
 MAX_TOOL_ITERATIONS = 60
 # Runaway-loop guard: abort when the SAME tool is called with the SAME args
-# more than this many times. Keyed on (name, args) signature, so legit bulk
-# work (delete_canvas_node on many distinct node_ids) flows freely while a
-# true loop (identical create_conversation / re-delete of one node / repeated
-# identical query) still trips. Distinct-arg volume is bounded by MAX_TOOL_ITERATIONS.
+# too many times. Keyed on (name, args) signature, so legit bulk work
+# (delete_canvas_node on many distinct node_ids) flows freely while a true loop
+# (identical create_conversation / re-delete of one node) still trips.
+# Read-only tools (get_canvas_graph is parameterless → every call is identical;
+# query_canvas may legitimately repeat) get a higher ceiling so re-reads across
+# a multi-step task don't false-trip; they are side-effect-free. Writes stay
+# strict. Distinct-arg volume is bounded by MAX_TOOL_ITERATIONS.
 _MAX_IDENTICAL_CALLS = 3
+_MAX_IDENTICAL_READS = 8
+_READONLY_CANVAS_TOOLS = frozenset({"get_canvas_graph", "query_canvas"})
 
 logger = logging.getLogger("service")
 
@@ -257,7 +262,8 @@ async def generate_stream(
                     # args (bulk delete of different node_ids) are legit work.
                     sig = (fn_name, json.dumps(args, sort_keys=True, default=str))
                     tool_call_counts[sig] = tool_call_counts.get(sig, 0) + 1
-                    if tool_call_counts[sig] > _MAX_IDENTICAL_CALLS:
+                    _cap = _MAX_IDENTICAL_READS if fn_name in _READONLY_CANVAS_TOOLS else _MAX_IDENTICAL_CALLS
+                    if tool_call_counts[sig] > _cap:
                         logger.warning("[service] tool_loop_guard: %s called %d times with identical args, aborting", fn_name, tool_call_counts[sig])
                         yield {"type": "error", "message": f"Tool loop detected: {fn_name} called repeatedly with the same arguments"}
                         return

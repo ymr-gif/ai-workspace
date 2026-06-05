@@ -165,6 +165,8 @@ async def chat_stream(
     node_inventory_lines.append("  - You are in the JARVIS global session. Do not create sessions or nodes unless the user explicitly asks; answer normally otherwise.")
     node_inventory_lines.append("  - When tools are needed, call them rather than describing actions in text.")
     node_inventory_lines.append("  - Never delete the input node or any node marked [CORE · protected]/[GLOBAL] — they are permanent infrastructure. The session marked [GLOBAL] is the permanent JARVIS session; only [user session] nodes may be deleted. If the user asks to delete 'the session' and only the [GLOBAL] session exists, explain that it is permanent instead of deleting it.")
+    node_inventory_lines.append("  - When deleting multiple sessions (e.g. 'delete all sessions'), call delete_canvas_node once per [user session] node and SKIP every [CORE · protected]/[GLOBAL] node — do not attempt to delete them.")
+    node_inventory_lines.append("  - To see or list what is on the canvas, call get_canvas_graph (not query_canvas).")
     node_inventory = "\n".join(node_inventory_lines)
 
     canvas = boot_report.canvas
@@ -267,6 +269,27 @@ async def chat_stream(
         pending_question = ""
         tools_in_turn  = []
         last_tool_name: str | None = None
+        turn_recorded  = False
+
+        async def _persist_abort(reason: str):
+            # D/J2: a tool-loop/stream abort otherwise rolls back the whole
+            # turn — the user message (flushed, not committed) and any partial
+            # text vanish from history. Persist the user msg + a short assistant
+            # note so failed turns stay visible. Commits the pending user_msg too.
+            nonlocal turn_recorded
+            if turn_recorded:
+                return
+            try:
+                note = "".join(accumulated).strip() or f"⚠️ Turn aborted: {reason}"
+                db.add(Message(
+                    conversation_id=conv.id, role="assistant", content=note,
+                    model=model_used if model_used != "unknown" else None,
+                ))
+                await db.commit()
+                turn_recorded = True
+            except Exception:
+                await db.rollback()
+                logger.warning("[chat/stream] abort-persist failed rid=%s", rid)
 
         try:
             async for event in service.generate_stream(
@@ -323,6 +346,7 @@ async def chat_stream(
                         )
                         db.add(asst_msg)
                         await db.commit()
+                        turn_recorded = True
                         record_tokens(model_used, pt, ct, cost)
                         asyncio.create_task(_embed_exchange(asst_msg.id, conv.id, req.message, full_response))
                         from llm.graph_memory import extract_and_store as _graph_extract
@@ -449,6 +473,7 @@ async def chat_stream(
                     if event.get("message") == "All models failed":
                         ALL_MODELS_FAILED.inc()
                     yield f"data: {_json.dumps(event)}\n\n"
+                    await _persist_abort(event.get("message", "tool error"))
 
         except Exception:
             if accumulated:
@@ -458,6 +483,7 @@ async def chat_stream(
                 status = "error"
             logger.exception("[chat/stream] failed rid=%s", rid)
             yield f"data: {_json.dumps({'type': 'error', 'message': 'Internal server error'})}\n\n"
+            await _persist_abort("internal server error")
 
         finally:
             latency_ms = metrics.record_request_end(

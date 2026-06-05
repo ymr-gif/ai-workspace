@@ -86,7 +86,17 @@ async def execute_tool(
         elif name == "create_canvas_node":
             result = await create_node(user_id, args["node_type"], args.get("config"))
         elif name == "delete_canvas_node":
-            result = await delete_node(user_id, args["node_id"])
+            try:
+                result = await delete_node(user_id, args["node_id"])
+            except ValueError as _del_err:
+                # Core nodes (input / global session) are permanent. Return a
+                # benign, non-"Error:" result so the model treats it as handled
+                # and moves on instead of retrying the same delete (C/J2).
+                if "permanent infrastructure" in str(_del_err):
+                    result = (f"Skipped {args.get('node_id', '?')}: permanent infrastructure "
+                              f"(input / global session), not deleted — continue with the rest.")
+                else:
+                    raise
         elif name == "update_canvas_node":
             result = await update_node(user_id, args["node_id"], args.get("config"), args.get("status"))
         elif name == "wire_nodes":

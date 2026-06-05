@@ -11,6 +11,29 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 
 ---
 
+## Fixed — Canvas tool robustness J2 (2026-06-05)
+
+### J2 · [x] Bulk-delete loop-guard false trips + query_canvas brittleness + lost aborted turns
+
+- **Symptom:** "delete all sessions excluding the global" aborted. Log trace: model wrote a `query_canvas` Cypher missing `{user_id: $uid}` → rejected → retried the *identical* broken query → loop-guard aborted; same turn it tried to delete the protected `input` + `global` nodes (core protection blocked them). The aborted turn rolled back — user message + work vanished from history.
+
+- **Root cause:** guard + core-protection were healthy; the weaknesses were upstream — `query_canvas` requires hand-written scoped Cypher the 70B keeps botching, the model targeted protected nodes, and the abort path persisted nothing.
+
+- **Fix (A+B+C+D, all verified live, 70B global):**
+
+  | # | Change | File |
+  |---|--------|------|
+  | **A** | `get_canvas_graph` promoted to the PRIMARY inspection tool; `query_canvas` demoted to "advanced/optional". RULES tell the model to use `get_canvas_graph` to list. Live: "list every session" → one `get_canvas_graph`, answered, no loop. | `llm/tools/schemas.py`, `api/chat/stream.py` |
+  | **B** | `query_canvas` auto-scopes the common omission: injects `{user_id: $uid}` into the first bare `(var:CanvasNode)` pattern (`_BARE_CANVAS_NODE_RE`); complex queries still get an instructive error. | `agent/canvas_graph.py` |
+  | **B+** | **Pre-existing bug found via new test:** the write-keyword guard uppercased the first word but compared against a lowercase set → *never matched*, so `query_canvas` (meant read-only) would run `DELETE`/`SET`. Replaced with a word-boundary, case-insensitive scan over the whole query (`_WRITE_RE`) — also catches `MATCH (...) DELETE n`. | `agent/canvas_graph.py` |
+  | **C** | Deleting a protected node now returns a benign non-`Error:` "Skipped {id}: permanent infrastructure…" result so the model moves on instead of retrying. RULE added to skip `[CORE · protected]`/`[GLOBAL]` in bulk deletes. Live: "delete input + global" → 2 skip results, model explains, no loop. | `llm/tools/executor.py`, `api/chat/stream.py` |
+  | **D** | Aborted/failed turns persist the user message + a short `⚠️ Turn aborted: <reason>` assistant note (commits the otherwise-rolled-back user msg). Live-confirmed: an aborted turn left both rows in history. | `api/chat/stream.py` |
+  | **Guard refinement** | The signature loop-guard (J1 follow-up) false-tripped on parameterless `get_canvas_graph` (every call has identical args). Read-only tools now get `_MAX_IDENTICAL_READS=8`; write tools stay `_MAX_IDENTICAL_CALLS=3`. | `llm/service/stream.py` |
+
+- **Verification:** `pytest tests/canvas tests/retrieval` 60/60 (incl. 9 new `query_canvas` scope/write-guard tests). Live (70B, global): bulk delete of 2 user sessions → both deleted, global excluded, no loop; protected delete → benign skip; benign `hello?` clean; creation flow (TestAlpha/TestBeta) intact.
+
+---
+
 ## Fixed — Tool-loop errors + false creation framing (2026-06-04)
 
 ### J1 · [x] Model calls canvas tools repeatedly on benign messages, hits tool-loop abort

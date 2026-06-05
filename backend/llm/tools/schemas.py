@@ -94,10 +94,10 @@ TOOL_SCHEMAS = [
           {"src_id": {"type": "string", "description": "Source node UUID."},
            "dst_id": {"type": "string", "description": "Destination node UUID."}},
           ["src_id", "dst_id"]),
-    _tool("query_canvas", "Inspect your canvas with a Cypher query. Read-only. Always filter by user_id: MATCH (n:CanvasNode {user_id: $uid}).",
-          {"cypher": {"type": "string", "description": "Cypher MATCH/RETURN query. Must include {user_id: $uid}."}},
+    _tool("query_canvas", "Advanced/optional. Run a filtered read-only Cypher query against your canvas. PREFER get_canvas_graph for listing or identifying nodes/sessions — only use this for a specific filter. Auto-scoped to you: a bare MATCH (n:CanvasNode) RETURN n works.",
+          {"cypher": {"type": "string", "description": "Read-only Cypher MATCH/RETURN over (n:CanvasNode). Auto-scoped to your user; you may also write {user_id: $uid} explicitly."}},
           ["cypher"]),
-    _tool("get_canvas_graph", "Return your full canvas — all active nodes and their connections."),
+    _tool("get_canvas_graph", "See your canvas. PRIMARY tool for inspecting it — returns every node (including sessions) and their connections. Use for 'what's on my canvas', 'list/identify my sessions', 'how many nodes'. No arguments, cannot fail."),
     _tool("create_conversation",
           "Create a new conversation (session). Returns the conversation_id and automatically "
           "creates and wires its canvas node — do not create_canvas_node or wire_nodes for it. "
