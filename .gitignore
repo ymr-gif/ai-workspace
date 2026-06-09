@@ -32,3 +32,13 @@ backend/storage/backups/
 
 # Alembic cache
 backend/alembic/versions/__pycache__/
+
+# AI tool files (instructions, memory, handoff protocols)
+CLAUDE.md
+**/CLAUDE.md
+CURSOR_IDE_MEMORY.md
+HANDOFF.md
+HANDOFF_ARCHIVE.md
+HANDOFF_PROTOCOL.md
+SKILL.md
+**/SKILL.md
