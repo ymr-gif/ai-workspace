@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import JWT_EXPIRE_MINUTES, REQUIRE_INVITE
 from core.db import get_db
 from auth.schemas import Token, RegisterRequest
-from auth.security import authenticate_user, create_access_token, get_current_user, get_user, hash_password
+from auth.security import authenticate_user, create_access_token, get_current_user, get_user, hash_password, hash_api_key
 from models import Invitation, User
 
 logger      = logging.getLogger("auth")
@@ -96,7 +96,7 @@ async def generate_api_key(
     db:           AsyncSession = Depends(get_db),
 ):
     key = secrets.token_urlsafe(48)
-    current_user.api_key = key
+    current_user.api_key = hash_api_key(key)
     await db.commit()
     return {"api_key": key}
 

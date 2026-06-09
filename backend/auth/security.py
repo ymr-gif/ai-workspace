@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from datetime import timedelta, timezone, datetime
 
@@ -18,6 +19,10 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
 
 def hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+
+
+def hash_api_key(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
@@ -77,8 +82,8 @@ async def get_current_user(
     except JWTError:
         pass
 
-    # Fall back to API key lookup
-    result = await db.execute(select(User).where(User.api_key == token, User.api_key.isnot(None)))
+    # Fall back to API key lookup (token is hashed before storage)
+    result = await db.execute(select(User).where(User.api_key == hash_api_key(token), User.api_key.isnot(None)))
     user = result.scalar_one_or_none()
     if user and user.is_active:
         request.state.current_user = user
