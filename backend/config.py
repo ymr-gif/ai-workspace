@@ -83,6 +83,12 @@ BACKUP_SCHEDULE = os.getenv("BACKUP_SCHEDULE", "0 2 * * *")
 # ── Auth ──────────────────────────────────────────────────────────────────────
 REQUIRE_INVITE = os.getenv("REQUIRE_INVITE", "false").lower() == "true"
 
+# ── Web search ────────────────────────────────────────────────────────────────
+WEB_SEARCH_ENABLED = os.getenv("WEB_SEARCH_ENABLED", "false").lower() == "true"
+WEB_SEARCH_BACKEND = os.getenv("WEB_SEARCH_BACKEND", "searxng")
+SEARXNG_URL        = os.getenv("SEARXNG_URL",        "http://searxng:8080")
+TAVILY_API_KEY     = os.getenv("TAVILY_API_KEY", "")
+
 # ── App settings ──────────────────────────────────────────────────────────────
 USE_REDIS              = os.getenv("USE_REDIS", "false").lower() == "true"
 AI_TIMEOUT             = int(os.getenv("AI_TIMEOUT", 10))

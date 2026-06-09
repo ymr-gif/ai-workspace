@@ -72,6 +72,17 @@ TOOL_SCHEMAS = [
 
 FILE_TOOL_SCHEMAS = TOOL_SCHEMAS
 
+WEB_SEARCH_TOOL_SCHEMA = [_tool(
+    "web_search",
+    (
+        "Search the web for current, live information. Use when the user asks about "
+        "recent events, news, current prices, weather, scores, or anything that may "
+        "have changed after your training cutoff."
+    ),
+    {"query": {"type": "string", "description": "Search query"}},
+    ["query"],
+)]
+
 WRITE_MEMORY_SCHEMA = _tool("write_memory", (
     "Propose saving a significant, durable fact about the user to long-term memory. "
     "ONLY call this when the user explicitly says 'remember', 'save', 'store', 'keep in memory', or similar direct instructions. "

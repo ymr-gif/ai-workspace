@@ -26,6 +26,19 @@ def _needs_file_tools(message: str) -> bool:
 _MEMORY_STANDALONE_TRIGGERS = frozenset({"remember", "memorize"})
 
 
+_WEB_SEARCH_KEYWORDS = frozenset({
+    "latest", "current", "today", "now", "recent", "newest",
+    "yesterday", "news", "price", "stock", "weather", "score",
+    "standings", "trending", "live", "breaking", "just", "released",
+    "announced", "search", "lookup", "google", "2025", "2026",
+})
+
+
+def _needs_web_search(message: str) -> bool:
+    tokens = set(message.lower().split())
+    return bool(tokens & _WEB_SEARCH_KEYWORDS)
+
+
 def _format_active_goals(active_goals: str) -> str:
     if not active_goals.strip():
         return ""

@@ -47,6 +47,11 @@ async def execute_tool(
             result = f"{ASK_USER_PREFIX}{args.get('question', '')}"
         elif name == "write_memory":
             result = f"{CONFIRM_WRITE_PREFIX}{args.get('fact', '')}"
+        elif name == "web_search":
+            from llm.tools.web_search import run_web_search
+            results = await run_web_search(args.get("query", ""))
+            lines = [f"[{i+1}] {r['title']}\n{r['url']}\n{r['snippet']}" for i, r in enumerate(results)]
+            return "\n\n".join(lines) if lines else "No results found."
         elif name == "query_graph":
             from llm.graph_memory import query_by_term
             term   = args.get("query", "")
