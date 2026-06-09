@@ -1,6 +1,6 @@
 # NIM AI Gateway — Project Summary
 
-Generated: 2026-05-31
+Generated: 2026-06-10
 
 ---
 
@@ -27,7 +27,6 @@ ai-api/
 ├── HANDOFF_PROTOCOL.md     ← multi-agent delegation workflow
 ├── HANDOFF.md              ← current owner file (exactly one at all times)
 ├── HANDOFF_ARCHIVE.md      ← completed handoff records
-├── agent/                  ← [symlink to backend/agent/] canvas node registry + CRUD + boot
 ├── backend/                ← FastAPI app
 ├── docker/                 ← Compose, Dockerfiles, Grafana config
 └── frontend/               ← React/Vite UI
@@ -108,16 +107,12 @@ backend/
 │   ├── prompts_scheduled.py — PromptTemplate, ScheduledPrompt, ScheduledPromptRun
 │   ├── auth.py              — Invitation
 │   └── system.py            — SystemConfig
-├── agent/                   — autonomous canvas: Node registry, Neo4j canvas CRUD, boot diagnostics
-│   ├── node.py              — Node dataclass + 11-type registry (input/session/memory/files/…)
-│   ├── canvas_graph.py      — create/delete/update/wire/unwire/query/get canvas; scratchpad CRUD; Redis cache
-│   └── boot.py              — _check_health() diagnostics + BootReport + format_boot_log()
 ├── alembic/versions/        — 037 migrations; latest: 037_drop_workspaces.py (removed the workspace layer)
 ├── auth/                    — JWT, bcrypt (direct), API key fallback, invite validation
 ├── llm/
 │   ├── service/             — context build, context budget allocator, SSE stream + tool loop
 │   ├── nim.py               — NIM API call; accumulates tool_call deltas
-│   ├── tools/               — 18 tool schemas (10 existing + 7 canvas + create_conversation) + execute_tool()
+│   ├── tools/               — 11 tool schemas + execute_tool()
 │   ├── graph_memory.py      — Neo4j extraction (70B) + query_by_keywords
 │   ├── router.py            — keyword classify(), model route(), get_context_limit()
 │   ├── circuit_breaker.py   — threshold=5, cooldown=90s, Redis-persisted
@@ -216,7 +211,7 @@ backend/
 ## AI Agent Tool Loop
 
 - **Trigger:** any message when `file_ids` non-empty → forces reasoning model (70B)
-- **Tools (18 total — 11 existing + 7 canvas):** `list_files` · `read_file` · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph`
+- **Tools (11):** `list_files` · `read_file` · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory`
 - **Guards:** same tool >3× → abort; `MAX_TOOL_ITERATIONS=10`; tool result capped 12000 chars in context
 - **`ask_user`:** yields `{type:"ask_user"}` SSE + done → pauses loop; amber card in UI
 - **`write_memory`:** offered only when reasoning model selected AND `_needs_memory_tool()` returns true; yields `{type:"confirm_write_memory", fact}` SSE; green card in UI; user confirms → `POST /api/memory/write`
@@ -333,7 +328,6 @@ frontend/src/
 - Sync file I/O + CPU parsing wrapped in `asyncio.to_thread()`
 - Auth uses `bcrypt` directly (no passlib) — `$2b$` hashes compatible
 - Neo4j: MERGE SET preserves specific type over OTHER; 500-entity cap per user (evicts oldest); graph cache in Redis 60s TTL; busted on every entity write
-- Neo4j canvas: `CanvasNode` label (separate from `Entity`); `WIRED_TO` relationship with typed ports; `canvas_user_id` index; Redis `canvas:{uid}` cache 60s TTL busted on every graph mutation
 - `/admin/env` PUT writes `.env` + updates running config live; POST `/admin/env/reload` does `importlib.reload(config)`
 - `nginx.frontend.conf`: `resolver 127.0.0.11 valid=10s` + `set $upstream api` forces Docker DNS re-resolution after rebuilds; `rewrite ^/api/(.*) /$1 break` strips prefix (variable proxy_pass does NOT auto-strip)
 - Prometheus: multiprocess mode via `PROMETHEUS_MULTIPROC_DIR=/tmp/prom_multiproc` + `tmpfs`; in-process counters reset on container restart but TSDB volume persists rates
@@ -373,7 +367,7 @@ frontend/src/
 12. ✅ User-Defined Scheduled Agents — `AutomationsPanel.jsx`; `useScheduledPrompts.js`; full CRUD + run history; cron alias support; migration 034
 13. ✅ Goal / Task Tracker — `UserGoal` model; `[ACTIVE GOALS]` context block (tier 3); `GoalsPanel.jsx` + `useGoals.js`; migration 035
 14. ✅ Pattern Detection + Proactive Triggers — `detect_recurring_patterns()`; 7-day dedup guard; ARQ enqueue with hint; `agency.py` merged + hint kwarg
-15. ✅ Global Autonomous Agent Canvas (NEW-2026-05-31) — Neo4j-backed node graph; 11 typed node types with input/output ports; `WIRED_TO` relationships with port validation; `agent_scratchpad` JSONB for cross-session context; boot diagnostics on agent init; 7 new canvas tools; per-session chat drawer (Input→Session wire + click-to-focus); zero collisions with existing Entity labels/tools/endpoints
+~~15. Global Autonomous Agent Canvas~~ — removed 2026-06-09
 16. Web Search Tool — `WEB_SEARCH_ENABLED` + `WEB_SEARCH_BACKEND` env vars
 17. Daily/Weekly Digest
 
@@ -402,18 +396,3 @@ Live webpage ingestion · External integrations (Drive, Notion, GitHub) · Image
 - **Exactly one `HANDOFF.md`** in the entire project at all times. Location = current owner. Move with `mv`, never create a second copy.
 - Root-owned files workers must not edit: `.env` · `.env.example` · `.gitignore` · `.dockerignore` · root `CLAUDE.md` · `README.md` · `ROADMAP.md`
 
----
-
-## Autonomous Agent Canvas
-
-The AI maintains a **Neo4j-backed canvas** — a structured self-model of its workspace with typed nodes and wired connections:
-
-- **11 node types:** input, session, memory, files, logs, usage, config, insights, goals, automations, mech
-- **Typed ports:** each node defines input/output ports (e.g., `session.input: [message]`, `session.output: [response, metadata]`)
-- **WIRED_TO relationships:** `(src)-[:WIRED_TO {src_port, dst_port, relation}]->(dst)` with port type validation
-- **Agent scratchpad:** `UserMemory.agent_scratchpad` JSONB — agent persists context, goals, and decisions across sessions
-- **Boot diagnostics:** on session init, agent checks model health + Neo4j/Redis/Postgres connectivity + restores canvas state
-- **7 new tools:** `create_canvas_node`, `delete_canvas_node`, `update_canvas_node`, `wire_nodes`, `unwire_nodes`, `query_canvas`, `get_canvas_graph`
-- **Zero collisions:** separate Neo4j label (`CanvasNode` vs `Entity`), prefixed tool names (`canvas_*`), separate Redis cache key
-
-**Key files:** `backend/agent/node.py` · `backend/agent/canvas_graph.py` · `backend/agent/boot.py` · `backend/core/neo4j_client.py` (+1 index) · `backend/models/user.py` (+agent_scratchpad) · `backend/alembic/versions/036_agent_scratchpad.py` · `backend/llm/tools/schemas.py` (+7 schemas) · `backend/llm/tools/executor.py` (+7 branches)
