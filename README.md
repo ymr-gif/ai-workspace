@@ -1,186 +1,163 @@
-# AI API Backend (FastAPI)
+# NIM AI Gateway
 
-A lightweight, modular FastAPI backend template designed to grow into a production-ready API service with authentication, database integration, and AI-facing service layers.
-
----
-
-## Table of Contents
-- [Overview](#overview)
-- [Current Status](#current-status)
-- [Features](#features)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Prerequisites](#prerequisites)
-- [Quickstart](#quickstart)
-- [Environment Variables](#environment-variables)
-- [API Usage Examples](#api-usage-examples)
-- [Development](#development)
-- [Roadmap](#roadmap)
-
----
-
-## Overview
-This project provides a clean FastAPI foundation with separated routers, core config, and service modules so it can scale as requirements grow.
-
-It is intended as a starter backend for applications that will eventually include:
-- persistent storage (PostgreSQL)
-- stronger authentication/authorization (JWT + role policies)
-- external API and AI service integrations
-
----
-
-## Current Status
-This repository is currently in **starter-template phase**:
-- Core API scaffolding is in place
-- Basic auth flow structure exists
-- Architecture is organized for future expansion
-
-Some features listed in the roadmap are **planned** and not fully implemented yet.
+A self-hosted AI chat backend routing requests to [NVIDIA NIM](https://build.nvidia.com/) models. FastAPI + React/Vite, fully containerized via Docker Compose.
 
 ---
 
 ## Features
-- FastAPI-based REST API foundation
-- Modular routing structure (`routers/`)
-- Separated service logic (`services/`)
-- Environment-based configuration via `.env`
-- Integration-ready layout for external APIs/AI services
+
+- **Multi-model routing** — keyword classifier picks llama / coder / reasoning; per-request and per-conversation model lock supported
+- **SSE streaming** — real-time token streaming to the frontend
+- **Hybrid RAG** — pgvector + BM25 fusion retrieval; adaptive policy per query type
+- **Graph memory** — Neo4j entity extraction; per-user knowledge graph persists across sessions
+- **Multi-tier memory** — compressed history, project summary, salience-ranked facts, memory compaction
+- **AI agent tool loop** — file read/write/patch, graph queries, memory writes; loop-guarded with circuit abort
+- **File knowledge base** — upload PDF, DOCX, XLSX, plain text; SHA-256 dedup; chunk + embed pipeline
+- **Auth** — JWT + API key fallback (SHA-256 hashed); bcrypt passwords; invite-gated registration; role-based access
+- **Rate limiting** — sliding-window per user (15 req/60s) + per model; Redis-backed
+- **Circuit breaker** — 5 failures → open; 90s cooldown; pre-tripped on startup if model is unreachable
+- **Observability** — Prometheus + Grafana; activity trace per message; structured logs
+- **Admin panel** — user management, per-user cost limits, live env management, audit log
 
 ---
 
-## Tech Stack
-- Python
-- FastAPI
-- Uvicorn
-- python-dotenv
-- HTTPX
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.11, FastAPI, SQLAlchemy, Alembic |
+| Frontend | React, Vite, TypeScript |
+| Database | PostgreSQL + pgvector |
+| Cache | Redis |
+| Graph | Neo4j |
+| Monitoring | Prometheus, Grafana |
+| Runtime | Docker Compose |
+| AI | NVIDIA NIM API |
 
 ---
 
-## Project Structure
-```text
-app/
-│
-├── main.py
-├── core/
-│   └── config.py
-│
-├── routers/
-│   ├── auth.py
-│   └── api.py
-│
-├── services/
-│   └── auth_service.py
-│
-├── models/
-│   └── users.py
-│
-└── utils/
-    └── security.py
-```
+## Models
 
----
-
-## Prerequisites
-- Python 3.10+
-- pip
-- Git
+| Role | Model |
+|---|---|
+| General | `meta/llama-3.1-8b-instruct` |
+| Coder | `deepseek-ai/deepseek-v4-flash` |
+| Reasoning | `meta/llama-3.3-70b-instruct` |
+| Embedding | `nvidia/nv-embedqa-e5-v5` (1024d) |
 
 ---
 
 ## Quickstart
 
-### 1) Clone the repository
+### Prerequisites
+- Docker + Docker Compose
+- NVIDIA NIM API key — [build.nvidia.com](https://build.nvidia.com/)
+
+### 1. Clone
 ```bash
 git clone https://github.com/ymr-gif/ai-workspace.git
 cd ai-workspace
 ```
 
-### 2) Create and activate a virtual environment
-```bash
-python -m venv .venv
-```
-
-**Linux/macOS**
-```bash
-source .venv/bin/activate
-```
-
-**Windows (PowerShell)**
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
-### 3) Install dependencies
-```bash
-pip install -r requirements.txt
-```
-
-### 4) Run the development server
-```bash
-uvicorn app.main:app --reload
-```
-
-Open: `http://127.0.0.1:8000`
-
-Interactive API docs:
-- Swagger UI: `http://127.0.0.1:8000/docs`
-- ReDoc: `http://127.0.0.1:8000/redoc`
-
----
-
-## Environment Variables
-Copy the example file and set your values:
-
+### 2. Configure
 ```bash
 cp .env.example .env
 ```
 
-At minimum, configure values required by your auth/config modules before running the server.
+Minimum required values:
+```env
+NVIDIA_API_KEY=your_key_here
+JWT_SECRET_KEY=your_random_secret
+```
+
+### 3. Start
+```bash
+cd docker && docker compose up -d
+```
+
+Frontend: `http://localhost:5173`  
+API docs: `http://localhost:8000/docs`  
+Grafana: `http://localhost:3000`
 
 ---
 
-## API Usage Examples
-> Replace endpoints below with your actual route paths if they differ.
+## API
 
-### Health check
+All endpoints require `Authorization: Bearer <token>` unless noted.
+
+### Auth
 ```bash
-curl -X GET http://127.0.0.1:8000/health
+# Login
+POST /auth/token
+form: username, password
+
+# Register (invite required by default)
+POST /auth/register
+json: { username, password, invite_token }
 ```
 
-### Login (example)
+### Chat
 ```bash
-curl -X POST http://127.0.0.1:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}'
+# Streaming (SSE)
+POST /chat/stream
+json: { message, conversation_id?, model_override?, file_ids? }
+
+# Non-streaming
+POST /chat
 ```
 
-### Protected endpoint (example with bearer token)
+### Conversations
 ```bash
-curl -X GET http://127.0.0.1:8000/api/me \
-  -H "Authorization: Bearer <your_token_here>"
+GET  /conversations          # list with optional ?q= search
+GET  /conversations/{id}/messages
+DELETE /conversations/{id}
+GET  /conversations/{id}/export
+```
+
+### Files
+```bash
+POST /files/upload           # multipart
+GET  /files
+DELETE /files/{id}
+```
+
+### Memory & Graph
+```bash
+GET  /memory
+GET  /graph/stats
+GET  /graph/sample
 ```
 
 ---
 
-## Development
+## Environment Variables
 
-### Run server
-```bash
-uvicorn app.main:app --reload
-```
+See `.env.example` for the full list. Key variables:
 
-### Recommended next additions
-- Add test suite (`pytest`)
-- Add linting/formatting (`ruff`, `black`)
-- Add pre-commit hooks
+| Variable | Description |
+|---|---|
+| `NVIDIA_API_KEY` | NIM API key |
+| `JWT_SECRET_KEY` | Secret for JWT signing |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `REDIS_URL` | Redis connection string |
+| `NEO4J_URI` | Neo4j bolt URI |
+| `REQUIRE_INVITE` | `true` to gate registration behind invites |
+| `MODEL_LLAMA` / `MODEL_CODER` / `MODEL_REASONING` | Override default model IDs |
+| `REQUEST_TIMEOUT` | NIM request timeout in seconds (default 30) |
 
 ---
 
-## Roadmap
-- Add PostgreSQL integration (SQLAlchemy + Alembic)
-- Implement JWT-based authentication
-- Add user registration and account lifecycle flows
-- Add role/permission checks
-- Improve API security (rate limiting, CORS hardening, secrets management)
-- Add observability (structured logs, metrics, health probes)
+## Project Structure
+
+```
+ai-api/
+├── backend/          — FastAPI app (auth, chat, files, memory, agent, admin)
+├── frontend/         — React/Vite UI
+└── docker/           — Compose files, Dockerfiles, Grafana dashboards
+```
+
+---
+
+## License
+
+MIT
