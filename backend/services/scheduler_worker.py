@@ -13,7 +13,6 @@ from croniter import croniter
 from sqlalchemy import select
 
 import llm.client as llm_client
-from agent.reconcile import list_canvas_user_ids, reconcile_canvas
 from config import BACKUP_SCHEDULE, MODELS, REQUEST_TIMEOUT
 from core.db import AsyncSessionLocal, init_db
 from core.logger import setup_logging
@@ -117,7 +116,7 @@ async def sync_schedules(scheduler: AsyncIOScheduler) -> None:
     existing   = {job.id for job in scheduler.get_jobs()}
 
     # Remove stale jobs — but never the internal __*__ jobs (sync/compact/
-    # canvas reconcile/backup). They are not ScheduledPrompt rows, so they are
+    # backup). They are not ScheduledPrompt rows, so they are
     # not in active_ids; without this guard sync would delete itself + the rest.
     for job_id in existing - active_ids:
         if job_id.startswith("__") and job_id.endswith("__"):
@@ -163,26 +162,6 @@ async def run_memory_compaction() -> None:
             count += 1
 
     logger.info("[scheduler] compaction queued for %d users", count)
-
-
-async def run_canvas_reconcile() -> None:
-    """Periodic canvas hygiene for every user — reaps orphan sessions and collapses
-    duplicate nodes that predate the create_node dedup guard. Idempotent."""
-    try:
-        user_ids = await list_canvas_user_ids()
-    except Exception as e:
-        logger.warning("[scheduler] canvas reconcile: could not list users: %s", e)
-        return
-
-    done = 0
-    for uid in user_ids:
-        try:
-            async with AsyncSessionLocal() as db:
-                await reconcile_canvas(uid, db)
-            done += 1
-        except Exception:
-            logger.exception("[scheduler] canvas reconcile failed user=%s", uid)
-    logger.info("[scheduler] canvas reconcile complete — %d users", done)
 
 
 async def run_backup() -> None:
@@ -231,14 +210,6 @@ async def main() -> None:
         run_memory_compaction,
         CronTrigger.from_crontab("0 3 * * *", timezone="UTC"),
         id = "__compact_memory__",
-    )
-
-    # Canvas reconcile every 6 hours — reap orphans + collapse duplicates
-    scheduler.add_job(
-        run_canvas_reconcile,
-        "interval",
-        hours = 6,
-        id    = "__canvas_reconcile__",
     )
 
     # Scheduled backup via BACKUP_SCHEDULE env (default: 2 AM UTC)

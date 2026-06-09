@@ -8,22 +8,16 @@ from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route, get_context_limit
 from llm.nim import call, call_stream
-from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, CANVAS_TOOL_SCHEMAS, WRITE_MEMORY_SCHEMA, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX, canvas_context_active
+from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, WRITE_MEMORY_SCHEMA, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX
 
 from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, apply_context_budget
 
 MAX_TOOL_ITERATIONS = 60
 # Runaway-loop guard: abort when the SAME tool is called with the SAME args
-# too many times. Keyed on (name, args) signature, so legit bulk work
-# (delete_canvas_node on many distinct node_ids) flows freely while a true loop
-# (identical create_conversation / re-delete of one node) still trips.
-# Read-only tools (get_canvas_graph is parameterless → every call is identical;
-# query_canvas may legitimately repeat) get a higher ceiling so re-reads across
-# a multi-step task don't false-trip; they are side-effect-free. Writes stay
-# strict. Distinct-arg volume is bounded by MAX_TOOL_ITERATIONS.
+# too many times. Keyed on (name, args) signature, so legit bulk work flows
+# freely while a true loop (identical repeated call) still trips. Distinct-arg
+# volume is bounded by MAX_TOOL_ITERATIONS.
 _MAX_IDENTICAL_CALLS = 3
-_MAX_IDENTICAL_READS = 8
-_READONLY_CANVAS_TOOLS = frozenset({"get_canvas_graph", "query_canvas"})
 
 logger = logging.getLogger("service")
 
@@ -113,9 +107,6 @@ async def generate_stream(
     conflicted_facts: frozenset         = frozenset(),
     fact_saliences:   dict | None       = None,
     last_session:     str               = "",
-    boot_log:         str               = "",
-    node_inventory:   str               = "",
-    canvas_state:     str               = "",
 ):
     # Cache excludes file/image/custom-params requests; history + model included in key
     use_cache = not file_chunks and not image_b64 and not model_params
@@ -157,30 +148,21 @@ async def generate_stream(
 
     yield {"type": "status", "stage": "route", "detail": f"Routing → {fallback_chain[0]} ({route_reason})", "level": "info"}
 
-    file_tools   = FILE_TOOL_SCHEMAS   if (file_ids and db is not None) else []
-    canvas_tools = CANVAS_TOOL_SCHEMAS if (db is not None and node_inventory) else []
-
-    # Withhold ALL canvas tools unless the message references a canvas object
-    # (or a creation flow is mid-confirmation). The 70B otherwise treats every
-    # benign turn as a canvas task and loops — on write tools (create/wire/
-    # delete) or, if only read tools remain, on get_canvas_graph/query_canvas
-    # until MAX_TOOL_ITERATIONS (J1). With none offered it answers in text.
-    if canvas_tools and not await canvas_context_active(message, conv_id):
-        canvas_tools = []
+    file_tools = FILE_TOOL_SCHEMAS if (file_ids and db is not None) else []
 
     # write_memory: reasoning model only + user must explicitly request save (prevents 70B saving on its own initiative)
     _is_reasoning = fallback_chain[0] == MODELS["reasoning"]
     mem_tools = [WRITE_MEMORY_SCHEMA] if (db is not None and _is_reasoning and _needs_memory_tool(message)) else []
-    # deduplicate by tool name (file_tools already contains canvas tools when both active)
+    # deduplicate by tool name
     _seen, tools_list = set(), []
-    for t in (file_tools + canvas_tools + mem_tools):
+    for t in (file_tools + mem_tools):
         n = t["function"]["name"]
         if n not in _seen:
             _seen.add(n)
             tools_list.append(t)
     tools = tools_list or None
 
-    # Tool-required turns (canvas/file ops) must not degrade to 8B — it emits tool
+    # Tool-required turns (file ops) must not degrade to 8B — it emits tool
     # calls as plain text instead of using the tool-calling API. Drop llama from the
     # fallback chain when tools are active, but never leave the chain empty.
     if tools and MODELS["llama"] in fallback_chain:
@@ -203,7 +185,6 @@ async def generate_stream(
         graph_context=graph_context,
         graph_facts=graph_facts, active_goals=active_goals,
         conflicted_facts=conflicted_facts, last_session=last_session,
-        boot_log=boot_log, node_inventory=node_inventory, canvas_state=canvas_state,
     ) + [user_msg]
 
     for idx, current_model in enumerate(fallback_chain):
@@ -223,7 +204,6 @@ async def generate_stream(
             yield {"type": "status", "stage": "budget", "detail": f"Context fitted to {ctx_window:,}-tok window (≤{max_out:,} out)", "level": "info"}
         model_done     = False
         tool_call_counts: dict[tuple[str, str], int] = {}
-        _last_tool_sig: tuple[str, str] | None = None
 
         for _tool_iter in range(MAX_TOOL_ITERATIONS):
             accumulated      = []
@@ -284,34 +264,19 @@ async def generate_stream(
                     # args (bulk delete of different node_ids) are legit work.
                     sig = (fn_name, json.dumps(args, sort_keys=True, default=str))
                     tool_call_counts[sig] = tool_call_counts.get(sig, 0) + 1
-                    _cap = _MAX_IDENTICAL_READS if fn_name in _READONLY_CANVAS_TOOLS else _MAX_IDENTICAL_CALLS
-                    if tool_call_counts[sig] > _cap:
+                    if tool_call_counts[sig] > _MAX_IDENTICAL_CALLS:
                         logger.warning("[service] tool_loop_guard: %s called %d times with identical args, aborting", fn_name, tool_call_counts[sig])
                         yield {"type": "error", "message": f"Tool loop detected: {fn_name} called repeatedly with the same arguments"}
                         return
 
                     yield {"type": "tool_call", "name": fn_name, "args": args}
-                    # Loop-nudge: a read-only tool called back-to-back with
-                    # identical args returns no new info. Instead of re-running
-                    # (the 70B otherwise spins on get_canvas_graph until the cap),
-                    # hand back the same data already in context with an
-                    # instruction to answer — breaks the loop without aborting.
-                    if fn_name in _READONLY_CANVAS_TOOLS and sig == _last_tool_sig:
-                        result = (f"You already called {fn_name} above this turn and the canvas "
-                                  f"is unchanged. Use that result to answer the user now — do not "
-                                  f"call {fn_name} again.")
-                        yield {"type": "status", "stage": "tool",
-                               "detail": f"tool {fn_name} — skipped (already fetched, answer from it)",
-                               "level": "info", "ms": 0}
-                    else:
-                        _t_tool = time.monotonic()
-                        result = await execute_tool(fn_name, args, db, user_id, conv_id)
-                        _tool_ms = int((time.monotonic() - _t_tool) * 1000)
-                        _tool_failed = isinstance(result, str) and result.startswith("Error:")
-                        yield {"type": "status", "stage": "tool",
-                               "detail": f"tool {fn_name} {'✗' if _tool_failed else '✓'}",
-                               "level": "error" if _tool_failed else "info", "ms": _tool_ms}
-                    _last_tool_sig = sig
+                    _t_tool = time.monotonic()
+                    result = await execute_tool(fn_name, args, db, user_id, conv_id)
+                    _tool_ms = int((time.monotonic() - _t_tool) * 1000)
+                    _tool_failed = isinstance(result, str) and result.startswith("Error:")
+                    yield {"type": "status", "stage": "tool",
+                           "detail": f"tool {fn_name} {'✗' if _tool_failed else '✓'}",
+                           "level": "error" if _tool_failed else "info", "ms": _tool_ms}
 
                     if result.startswith(ASK_USER_PREFIX):
                         question = result[len(ASK_USER_PREFIX):]

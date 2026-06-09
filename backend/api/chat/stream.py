@@ -25,11 +25,6 @@ from llm.summarizer.history import compress_history
 from llm.summarizer.memory import update_memory
 from llm.summarizer.project import update_project_summary
 
-from agent.boot import agent_boot, format_boot_log
-from agent.scratchpad import update_scratchpad
-from agent.node import registry as node_registry, AI_CREATABLE_TYPES
-from llm.tools import canvas_context_active
-
 from .helpers import (
     _build_stream_context, _check_cost_cap, _extract_model_params,
     _resolve_conversation, _resolve_model,
@@ -42,12 +37,6 @@ from .schemas import ChatRequest
 router = APIRouter()
 logger = logging.getLogger("chat")
 
-_CANVAS_WRITE_TOOLS = frozenset({
-    "create_canvas_node", "delete_canvas_node", "update_canvas_node",
-    "wire_nodes", "unwire_nodes",
-    # this auto-creates + wires a canvas node via _ensure_creation_wiring
-    "create_conversation",
-})
 
 @router.post("/chat/stream")
 async def chat_stream(
@@ -133,90 +122,7 @@ async def chat_stream(
                 )
 
     ctx = await _build_stream_context(req, conv, current_user, db, rid)
-
-    # Canvas intent gate (J1) — drives ALL canvas prompt injection this turn.
-    # Computed once: gates boot CANVAS line, last_session, node inventory, and
-    # CANVAS STATE. On benign turns nothing canvas-flavored reaches the model.
-    canvas_active = await canvas_context_active(req.message, conv.id)
-
-    # Agent boot — health check, scratchpad restore, canvas state
-    boot_report = await agent_boot(current_user.id)
-    boot_log = format_boot_log(boot_report, include_canvas=canvas_active)
-    last_session = ctx.get("last_session", "") if canvas_active else ""
-
-    # type classification owned by agent/node.py (single source of truth)
-    _CREATABLE_NODES = [n for n in node_registry if n in AI_CREATABLE_TYPES]
-    ni_width = max(len(n) for n in node_registry) + 2
-    node_inventory_lines = ["CANVAS LAYOUT:"]
-    node_inventory_lines.append("")
-    node_inventory_lines.append("PERMANENT nodes (already exist — NEVER call create_canvas_node for these):")
-    node_inventory_lines.append("  input    → user's global message input box (sends to this JARVIS conversation)")
-    node_inventory_lines.append("  session  → this JARVIS global conversation output — ONE exists, never duplicate it")
-    node_inventory_lines.append("  memory   → user memory store")
-    node_inventory_lines.append("  config   → model/params settings")
-    node_inventory_lines.append("")
-    node_inventory_lines.append("Other node types you can add to the canvas:")
-    for n_name in _CREATABLE_NODES:
-        n_def = node_registry[n_name]
-        node_inventory_lines.append(f"  {n_name.ljust(ni_width)}→ {n_def.label}")
-    node_inventory_lines.append("")
-
-    node_inventory_lines.append("RULES:")
-    node_inventory_lines.append("  - You are in the JARVIS global session. Do not create sessions or nodes unless the user explicitly asks; answer normally otherwise.")
-    node_inventory_lines.append("  - When tools are needed, call them rather than describing actions in text.")
-    node_inventory_lines.append("  - Never delete the input node or any node marked [CORE · protected]/[GLOBAL] — they are permanent infrastructure. The session marked [GLOBAL] is the permanent JARVIS session; only [user session] nodes may be deleted. If the user asks to delete 'the session' and only the [GLOBAL] session exists, explain that it is permanent instead of deleting it.")
-    node_inventory_lines.append("  - When deleting multiple sessions (e.g. 'delete all sessions'), call delete_canvas_node once per [user session] node and SKIP every [CORE · protected]/[GLOBAL] node — do not attempt to delete them.")
-    node_inventory_lines.append("  - To see or list what is on the canvas, call get_canvas_graph (not query_canvas).")
-    node_inventory = "\n".join(node_inventory_lines)
-
-    canvas = boot_report.canvas
-    canvas_lines = []
-    if canvas.get("nodes"):
-        # batch-resolve conversation titles
-        import uuid as _uuid_mod
-        _conv_ids = []
-        for _n in canvas["nodes"]:
-            _cfg = _n.get("config", {})
-            if _n.get("node_type") == "session" and _cfg.get("conversation_id"):
-                _conv_ids.append(_cfg["conversation_id"])
-        _conv_titles: dict = {}
-        try:
-            if _conv_ids:
-                _r = await db.execute(
-                    select(Conversation.id, Conversation.title)
-                    .where(Conversation.id.in_([_uuid_mod.UUID(i) for i in _conv_ids]),
-                           Conversation.user_id == current_user.id)
-                )
-                _conv_titles = {str(r[0]): r[1] for r in _r}
-        except Exception:
-            pass
-
-        canvas_lines.append("[CANVAS STATE]")
-        for n in canvas["nodes"]:
-            cfg = n.get("config", {})
-            name = cfg.get("name", "")
-            if not name and n.get("node_type") == "session":
-                name = _conv_titles.get(cfg.get("conversation_id", ""), "")
-            name_str = f' "{name}"' if name else ""
-            conns = n.get("connections", [])
-            conn_str = f" → {len(conns)} connections" if conns else ""
-            core_str = " [CORE · protected]" if n.get("protected") else ""
-            # H4: make the global session explicit so the model never confuses it
-            # with an ordinary user session
-            if n.get("node_type") == "session":
-                core_str += " [GLOBAL]" if cfg.get("kind") == "global" else " [user session]"
-            # full node_id (not truncated) — the model passes these verbatim to delete/update/wire
-            canvas_lines.append(f"  {n.get('node_type', '?')}{name_str} ({n.get('node_id', '?')}){core_str}{conn_str}")
-    canvas_state = "\n".join(canvas_lines)
-
-    # Gate canvas prompt injection by intent (J1): on benign turns the 70B
-    # narrates the canvas instead of answering. Withhold the node inventory +
-    # CANVAS STATE blocks unless the message references the canvas (or a
-    # creation flow is mid-confirmation). Mirrors the tool gating in the service
-    # layer — empty node_inventory also drops canvas tools there.
-    if not canvas_active:
-        node_inventory = ""
-        canvas_state = ""
+    last_session = ctx.get("last_session", "")
 
     system_prompt = conv.system_prompt or None
 
@@ -231,7 +137,6 @@ async def chat_stream(
             active_goals=ctx.get("active_goals", ""),
             conflicted_facts=ctx.get("conflicted_facts", frozenset()),
             last_session=last_session,
-            boot_log=boot_log, node_inventory=node_inventory, canvas_state=canvas_state,
         )
         t_cmp = metrics.record_request_start()
 
@@ -268,7 +173,6 @@ async def chat_stream(
         accumulated    = []
         pending_question = ""
         tools_in_turn  = []
-        last_tool_name: str | None = None
         turn_recorded  = False
         # Behind-the-scenes trace: seed with the context-build stages
         # (_build_stream_context), then append live status events from the
@@ -296,11 +200,6 @@ async def chat_stream(
                 await db.rollback()
                 logger.warning("[chat/stream] abort-persist failed rid=%s", rid)
 
-        # Canvas stage (only when canvas context is active this turn).
-        if canvas_active:
-            _cn = len((boot_report.canvas or {}).get("nodes", []))
-            activity.append({"stage": "canvas", "detail": f"Canvas: {_cn} node{'s' if _cn != 1 else ''}", "level": "info"})
-
         # Emit the context-build burst as ordered status events before the stream.
         for _st in activity:
             yield f"data: {_json.dumps({'type': 'status', **_st})}\n\n"
@@ -321,7 +220,6 @@ async def chat_stream(
                 conflicted_facts=ctx.get("conflicted_facts", frozenset()),
                 fact_saliences=ctx.get("fact_saliences", {}),
                 last_session=last_session,
-                boot_log=boot_log, node_inventory=node_inventory, canvas_state=canvas_state,
             ):
                 if event["type"] == "token":
                     accumulated.append(event["content"])
@@ -341,12 +239,9 @@ async def chat_stream(
                 elif event["type"] in ("tool_call", "tool_result", "ask_user", "confirm_write_memory"):
                     if event["type"] == "tool_call":
                         tools_in_turn.append(event.get("name", ""))
-                        last_tool_name = event.get("name", "")
                     if event["type"] == "ask_user":
                         pending_question = event.get("question", "")
                     yield f"data: {_json.dumps(event)}\n\n"
-                    if event["type"] == "tool_result" and last_tool_name in _CANVAS_WRITE_TOOLS:
-                        yield f"data: {_json.dumps({'type': 'canvas_update'})}\n\n"
 
                 elif event["type"] == "done":
                     model_used    = event.get("model", "unknown")
@@ -431,18 +326,6 @@ async def chat_stream(
                                 tools_in_turn,
                                 model_used,
                             )
-
-                        # Save agent scratchpad (append-only merge)
-                        from datetime import datetime, timezone
-                        try:
-                            await update_scratchpad(current_user.id, {
-                                "last_message": req.message[:200],
-                                "summary": req.message[:120],
-                                "last_action": "chat_response",
-                                "updated_at": datetime.now(timezone.utc).isoformat(),
-                            })
-                        except Exception:
-                            logger.warning("[scratchpad] update failed rid=%s", rid)
 
                         event["prompt_tokens"]     = pt
                         event["completion_tokens"] = ct

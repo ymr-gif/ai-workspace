@@ -2,7 +2,7 @@
 
 sync_schedules computes stale jobs as `existing - active_ids`, where active_ids
 is only ScheduledPrompt rows. The internal jobs (__sync__, __compact_memory__,
-__canvas_reconcile__, __backup__) are not DB rows, so without the __*__ guard
+__backup__) are not DB rows, so without the __*__ guard
 they fall into "stale" and sync deletes itself + the rest on its first fire.
 """
 from unittest.mock import MagicMock
@@ -17,7 +17,7 @@ import services.scheduler_worker as sw  # noqa: E402
 
 pytestmark = pytest.mark.asyncio
 
-INTERNAL = ["__sync__", "__compact_memory__", "__canvas_reconcile__", "__backup__"]
+INTERNAL = ["__sync__", "__compact_memory__", "__backup__"]
 
 
 async def _noop():

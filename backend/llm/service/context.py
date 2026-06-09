@@ -54,15 +54,8 @@ def build_context_messages(
     active_goals:     str             = "",
     conflicted_facts: frozenset[str]  = frozenset(),
     last_session:     str             = "",
-    boot_log:         str             = "",
-    node_inventory:   str             = "",
-    canvas_state:     str             = "",
 ) -> list[dict]:
     messages = []
-
-    # Agent boot context — prepended before system prompt
-    boot_blocks = [b for b in (boot_log, node_inventory, canvas_state) if b]
-    boot_prefix = "\n\n".join(boot_blocks) if boot_blocks else ""
 
     if file_names:
         if file_ids:
@@ -84,16 +77,10 @@ def build_context_messages(
             )
         else:
             file_notice = f"The user has attached these files: {', '.join(file_names)}. Use file tools to read or edit them."
-        base = system_prompt.rstrip() + "\n\n" + file_notice if system_prompt else file_notice
-        content = base
-        if boot_prefix:
-            content = boot_prefix + "\n\n" + content
+        content = system_prompt.rstrip() + "\n\n" + file_notice if system_prompt else file_notice
         messages.append({"role": "system", "content": content})
     elif system_prompt:
-        content = system_prompt
-        if boot_prefix:
-            content = boot_prefix + "\n\n" + content
-        messages.append({"role": "system", "content": content})
+        messages.append({"role": "system", "content": system_prompt})
     else:
         content = (
             "If information is not present in your current context (not in memory, not in conversation history): "
@@ -102,8 +89,6 @@ def build_context_messages(
             "Memory is only saved when the system displays a green confirmation card with Accept/Dismiss buttons — that is the only real memory save path. "
             "Without that card, nothing is persisted. Do not simulate or pretend to save memory."
         )
-        if boot_prefix:
-            content = boot_prefix + "\n\n" + content
         messages.append({"role": "system", "content": content})
 
     if last_session:

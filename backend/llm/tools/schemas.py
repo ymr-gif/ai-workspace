@@ -1,6 +1,3 @@
-from agent.node import AI_CREATABLE_TYPES
-
-
 def _tool(
     name: str,
     description: str,
@@ -71,50 +68,9 @@ TOOL_SCHEMAS = [
     _tool("query_graph", "Search the user's knowledge graph for entities and relationships related to a topic, person, or concept.",
           {"query": {"type": "string", "description": "Topic, person, or concept to search for."}},
           ["query"]),
-    _tool("create_canvas_node", f"Create a new node on your canvas. Node types: {', '.join(sorted(AI_CREATABLE_TYPES))}. (input/memory/config/session are managed automatically — do not create them here; insights/goals/automations/mech are not standalone nodes.)",
-          {"node_type": {"type": "string", "description": "Type of node to create (see node inventory)."},
-           "config": {"type": "object", "description": "Optional config for the node (e.g. conversation_id)."}},
-          ["node_type"]),
-    _tool("delete_canvas_node", "Permanently remove a node and all its connections from your canvas.",
-          {"node_id": {"type": "string", "description": "UUID of the node to delete."}},
-          ["node_id"]),
-    _tool("update_canvas_node", "Update a node's config or status on your canvas.",
-          {"node_id": {"type": "string", "description": "UUID of the node to update."},
-           "config": {"type": "object", "description": "New config values to merge."},
-           "status": {"type": "string", "description": "New status (active, paused, archived)."}},
-          ["node_id"]),
-    _tool("wire_nodes", "Connect two nodes. src_port must be an output of the source node, dst_port must be an input of the destination.",
-          {"src_id": {"type": "string", "description": "Source node UUID."},
-           "dst_id": {"type": "string", "description": "Destination node UUID."},
-           "src_port": {"type": "string", "description": "Output port on source (e.g. 'response', 'content')."},
-           "dst_port": {"type": "string", "description": "Input port on destination (e.g. 'query', 'filter')."},
-           "relation": {"type": "string", "description": "Label for this connection (e.g. 'analyzes', 'contains', 'feeds')."}},
-          ["src_id", "dst_id", "src_port", "dst_port", "relation"]),
-    _tool("unwire_nodes", "Remove all connections between two nodes.",
-          {"src_id": {"type": "string", "description": "Source node UUID."},
-           "dst_id": {"type": "string", "description": "Destination node UUID."}},
-          ["src_id", "dst_id"]),
-    _tool("query_canvas", "Advanced/optional. Run a filtered read-only Cypher query against your canvas. PREFER get_canvas_graph for listing or identifying nodes/sessions — only use this for a specific filter. Auto-scoped to you: a bare MATCH (n:CanvasNode) RETURN n works.",
-          {"cypher": {"type": "string", "description": "Read-only Cypher MATCH/RETURN over (n:CanvasNode). Auto-scoped to your user; you may also write {user_id: $uid} explicitly."}},
-          ["cypher"]),
-    _tool("get_canvas_graph", "See your canvas. PRIMARY tool for inspecting it — returns every node (including sessions) and their connections. Use for 'what's on my canvas', 'list/identify my sessions', 'how many nodes'. No arguments, cannot fail."),
-    _tool("create_conversation",
-          "Create a new conversation (session). Returns the conversation_id and automatically "
-          "creates and wires its canvas node — do not create_canvas_node or wire_nodes for it. "
-          "Only call when the user explicitly asks to create a session — never on greetings, "
-          "topic suggestions, or general questions.",
-          {"title":        {"type": "string", "description": "Short title for the conversation, provided by user."}},
-          ["title"]),
 ]
 
-_CANVAS_TOOL_NAMES = frozenset({
-    "create_canvas_node", "delete_canvas_node", "update_canvas_node",
-    "wire_nodes", "unwire_nodes", "query_canvas", "get_canvas_graph",
-    "create_conversation",
-})
-
-FILE_TOOL_SCHEMAS    = [t for t in TOOL_SCHEMAS if t["function"]["name"] not in _CANVAS_TOOL_NAMES]
-CANVAS_TOOL_SCHEMAS  = [t for t in TOOL_SCHEMAS if t["function"]["name"] in _CANVAS_TOOL_NAMES]
+FILE_TOOL_SCHEMAS = TOOL_SCHEMAS
 
 WRITE_MEMORY_SCHEMA = _tool("write_memory", (
     "Propose saving a significant, durable fact about the user to long-term memory. "

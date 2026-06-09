@@ -4,20 +4,15 @@
 ```
 ├── main.py                 — lifespan, middleware, router includes
 ├── config.py               — env vars loaded from ../.env via find_dotenv()
-├── agent/                  — canvas architecture (node registry, Neo4j CRUD, boot diagnostics)
-│   ├── __init__.py
-│   ├── node.py             — Node dataclass + 11-type registry
-│   ├── canvas_graph.py     — Neo4j CanvasNode CRUD, canvas cache, scratchpad read/write
-│   └── boot.py             — agent_boot() health checks, BootReport, format_boot_log()
 ├── models/                 — ORM (21 classes: Invitation, User, UserInsight, AdminAuditLog, UserMemory, MemoryConflict, UserMemoryVersion, UserBehaviorProfile, UserGoal, File, FileChunk, FileVersion, Conversation, Message, MessageEmbedding, ConversationFile, ToolCallLog, PromptTemplate, ScheduledPrompt, ScheduledPromptRun, SystemConfig)
 ├── alembic/versions/       — 037 migrations; latest: 037_drop_workspaces.py (removed the workspace layer)
 ├── auth/                   — JWT, bcrypt (direct, no passlib), API key fallback, invite validation
 ├── tests/
 │   └── test.py + retrieval/conftest.py + test_hybrid_eval.py — 47 tests, mock DB, no NIM
 ├── llm/
-│   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=20)
+│   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=60)
 │   ├── nim.py              — NIM API call, accumulates tool_call deltas
-│   ├── tools/              — 18 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
+│   ├── tools/              — 11 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
 │   │   └── schemas.py, executor.py, file_ops.py, search.py
 │   ├── graph_memory.py     — Neo4j extraction (70B model) + query_by_keywords; entity caps: _MAX_ENTITY_NAME_LEN=200, _MAX_ENTITIES_PER_CALL=30, _MAX_RELS_PER_CALL=60, _MAX_USER_ENTITIES=500 (evicts oldest by updated_at); cache key SHA256[:32]; _cache_del_user() busts on write; skips if compact:running:{user_id} Redis lock held; MERGE SET preserves specific type over OTHER
 │   ├── router.py / circuit_breaker.py / embeddings.py — classify, circuit, embed
@@ -33,7 +28,7 @@
 │   │   ├── __init__.py     — combines router + stream_router
 │   │   ├── schemas.py      — ChatRequest model
 │   │   ├── router.py       — POST /chat (non-streaming)
-│   │   ├── stream.py       — POST /chat/stream SSE endpoint + event_generator; status="partial" for mid-stream breaks (STREAM_INTERRUPTIONS counter); ALL_MODELS_FAILED counter; emits `canvas_update` event after any `canvas_*` tool result (frontend re-fetches GET /canvas/graph); saves `pending_question` from `ask_user` event as assistant message content; injects node_inventory with supplemental prompt instructions. **Activity trace:** emits `{type:"status", stage, detail, level, ms?}` events for every pipeline step — context-build stages come from `ctx["activity"]` (seeded in `_build_stream_context`, error-surfaced not silently swallowed), live stages (cache/route/budget/model_call/fallback/tool) from `generate_stream`; accumulated into `activity` and persisted as `messages.activity_trace` (JSONB) on the assistant message (done **and** `_persist_abort`). Returned by `GET /conversations/{id}/messages`. No-silent-failures: traced stages emit `level:"error"` instead of `except: pass`.
+│   │   ├── stream.py       — POST /chat/stream SSE endpoint + event_generator; status="partial" for mid-stream breaks (STREAM_INTERRUPTIONS counter); ALL_MODELS_FAILED counter; saves `pending_question` from `ask_user` event as assistant message content. **Activity trace:** emits `{type:"status", stage, detail, level, ms?}` events for every pipeline step — context-build stages come from `ctx["activity"]` (seeded in `_build_stream_context`, error-surfaced not silently swallowed), live stages (cache/route/budget/model_call/fallback/tool) from `generate_stream`; accumulated into `activity` and persisted as `messages.activity_trace` (JSONB) on the assistant message (done **and** `_persist_abort`). Returned by `GET /conversations/{id}/messages`. No-silent-failures: traced stages emit `level:"error"` instead of `except: pass`.
 │   │   ├── helpers.py      — context build, model resolve, cost cap; auto-resolves expired MemoryConflicts (keep_a); time-based fact salience decay in ranking (not persisted)
 │   │   └── background.py   — auto-title, embed, proactive, token/cost calc; _auto_title uses atomic UPDATE...WHERE title=:default (no TOCTOU race)
 │   ├── files/              — upload, ingest-url, search, versions; sha256 dedup
@@ -48,7 +43,6 @@
 │   │   ├── audit.py        — GET /audit-log
 │   │   ├── env.py          — GET/PUT env vars, reload
 │   │   └── system.py       — POST /re-embed
-│   ├── canvas.py           — REST bridge for AI canvas graph: GET /canvas/graph · POST /canvas/nodes · PATCH /canvas/nodes/{id} · DELETE /canvas/nodes/{id} · POST /canvas/wire · DELETE /canvas/wire · GET /canvas/global (returns-or-creates JARVIS conversation, title="JARVIS"); all auth-gated; calls agent/canvas_graph.py; 400 on ValueError (bad type/port), 404 on missing node
 │   ├── graph.py            — /graph/stats, /health, /sample (?limit=1-200, ?entity_type=); DELETE /graph/entities/{name}; POST /graph/prune (removes long names + stale OTHER-type entities >7 days)
 │   ├── system.py           — /health, /metrics, /hardware + /system/hardware alias (both serve CPU/RAM/GPU/disk/uptime — psutil + pynvml); probe_models_on_startup() pings all MODELS, pre-trips circuit on failure
 │   ├── memory.py           — GET /memory returns active_conflicts count; scan_conflicts sets expires_at=+7d; conflicts auto-resolved keep_a after expiry
@@ -77,7 +71,7 @@
 - **SystemConfig**: key/value store — tracks MODEL_EMBEDDING for re-embed triggers
 - Others: more in `models/` (chat, file, memory, tools, scheduled, auth)
 - **UserBehaviorProfile**: one row per user, JSONB `profile` with `query_types / topic_keywords / tools_used / models_used / total_messages`; updated via ARQ `update_behavior_profile_job` post-reply; feeds `generate_user_insight()`; migration 033
-- **UserMemory**: added `agent_scratchpad` JSONB (nullable) in migration 036 — append-only merge canvas writes
+- **UserMemory**: has `agent_scratchpad` JSONB (nullable) from migration 036 — unused since canvas removal
 
 ---
 
@@ -85,7 +79,7 @@
 `message` (str, max 2000) · `conversation_id` · `model_override`
 `temperature` (0–2) · `max_tokens` (1–4096) · `top_p` (0–1) · `compare` (bool)
 `image_b64` (base64 → forces vision) · `image_mime_type`
-`file_ids` (list[str], default []) — explicit file UUIDs to attach per-request (canvas File→Session wire); merged with conversation-attached files in `helpers.py`; ownership-checked against `current_user.id` before use; triggers embedding + reasoning model (70B) same as conversation files
+`file_ids` (list[str], default []) — explicit file UUIDs to attach per-request; merged with conversation-attached files in `helpers.py`; ownership-checked against `current_user.id` before use; triggers embedding + reasoning model (70B) same as conversation files
 
 ---
 
@@ -93,68 +87,10 @@
 - Trigger: any message when `file_ids` non-empty → always forces reasoning model (70B); 8B cannot reliably use tool results
 - File tools always available when files attached (not keyword-gated); `_needs_file_tools()` no longer gates tool availability
 
-- Tools (19 total — 11 existing + 7 canvas + 1 creation): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `create_canvas_node` · `delete_canvas_node` · `update_canvas_node` · `wire_nodes` · `unwire_nodes` · `query_canvas` · `get_canvas_graph` · `create_conversation` (Postgres Conversation + returns id; auto-creates+wires its session canvas node via `_ensure_creation_wiring` — AI must NOT create/wire it)
-- Guards: same tool **with identical args** repeated → abort (signature = `(name, json.dumps(args, sort_keys))`). Write tools `_MAX_IDENTICAL_CALLS=3`; read-only tools (`get_canvas_graph` is parameterless so every call collides; `query_canvas`) get `_MAX_IDENTICAL_READS=8` so legit re-reads across a multi-step task don't false-trip. Distinct-arg calls (bulk `delete_canvas_node` over many node_ids) flow freely — only a true loop (same delete/create/query repeated) trips. Bounded overall by `MAX_TOOL_ITERATIONS=60` · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
-- **Canvas tool gating (J1, 2026-06-04):** ALL canvas tools (read + write) are withheld unless `canvas_context_active(message, conv_id)` (`executor.py`) is true — i.e. the message names a canvas object (`_CANVAS_INTENT_RE`: canvas/node/session/conversation/wire/graph…) OR a creation flow is mid-confirmation (Redis state set). Applied in `llm/service/stream.py` (`canvas_tools = []` when inactive). Without this the 70B treats every benign turn as a canvas task and loops on whatever tool is offered (gating only write tools just makes it spin on read-only). Tradeoff: canvas STATE/inventory still injected, so the model may narrate the canvas on benign turns — no loop.
-- **Creation guard** (`create_conversation`): 3-layer state machine in `executor.py` (`_run_creation_guard`)
+- Tools (11 total): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory`
+- Guards: same tool **with identical args** repeated → abort (signature = `(name, json.dumps(args, sort_keys))`). `_MAX_IDENTICAL_CALLS=3` for all tools. Bounded overall by `MAX_TOOL_ITERATIONS=60` · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
 - `ask_user` / `write_memory` emit SSE + done → pauses loop; amber/green card in UI; `POST /api/memory/write` on user confirm; `ask_user` question persisted as assistant message content so model sees it on next turn
 - `append_to_file` for explicit write requests only; `search_in_file` preferred over `read_file` for sections
-
----
-
-## Agent Canvas Architecture
-
-### Node Registry (`agent/node.py`)
-- `Node` dataclass: `name`, `label`, `ports` (input/output), `tools`, `default_config`, + policy flags `embedded` / `ai_creatable` / `permanent`
-- 11 node types: `input`, `session`, `memory`, `files`, `logs`, `usage`, `config`, `insights`, `goals`, `automations`, `mech`
-- `registry: dict[str, Node]` and `get_node_type()` lookup
-- **Single source of truth for type classification** (H1): derived frozensets — `EMBEDDED_TYPES` (insights/goals/automations/mech), `AI_CREATABLE_TYPES` (files/logs/usage), `PERMANENT_TYPES` (input/memory/config), `MANAGED_TYPES` (input/session/memory/config — internal-create only). Consumed by `canvas_graph.create_node`, `api/chat/stream.py` (`_CREATABLE_NODES`), `llm/tools/schemas.py`. Never re-hardcode these sets.
-- **`create_node` guard:** rejects `EMBEDDED_TYPES`; rejects `MANAGED_TYPES` unless `internal=True` (bootstrap paths `_ensure_canvas_wiring` / `_ensure_creation_wiring`); rejects non-UUID `config.conversation_id`.
-- **Session identity (H4):** `config.kind` = `"global"` (permanent JARVIS session, set by `_ensure_canvas_wiring`) vs `"user"` (ordinary, set by `_ensure_creation_wiring`); CANVAS STATE renders `[GLOBAL]` / `[user session]`.
-
-### Canvas Graph CRUD (`agent/canvas_graph.py`)
-- create/delete/update `CanvasNode` (label separate from `Entity`); wire/unwire with port validation; get_node with incident wires
-- get_canvas_graph (Redis `canvas:{uid}` TTL 60s); read-only `query_canvas` — write-keyword guard (`_WRITE_RE`, whole-query word-boundary scan, case-insensitive), auto-scopes every bare `(n:CanvasNode)` with `{user_id: $uid}` (`_BARE_CANVAS_NODE_RE`), then rejects any `:CanvasNode` binding not carrying `{user_id: $uid}` (`_UNSCOPED_CANVAS_RE`) → blocks cross-tenant reads (multi-binding leak, literal `{user_id: 999}`, hostile WHERE); scratchpad R/W via SQLAlchemy `UserMemory.agent_scratchpad` (append-only merge)
-- All ops scoped to `CanvasNode` / `agent_scratchpad` / `canvas:` prefix — never touch `Entity`, `UserMemory.content`, or `graph:*` keys
-
-## Creation Guard (`llm/tools/executor.py`)
-
-3-layer state machine preventing `create_conversation` without explicit user intent.
-
-### Layer 1 — Redis Flow State
-- Key: `creation_flow:{conv_id}`, TTL 300s
-- States: `pending_specs` → `confirmed`
-- Set to `pending_specs` when Layer 2 detects creation intent
-- Set to `confirmed` when Layer 3 confirms user reply matches `_CONFIRMATION_RE`
-- Cleared on successful creation; degrades gracefully when Redis unavailable (falls through to Layer 2)
-- `confirmed` → allow; `pending_specs` → run Layer 3. **No** latest-message cross-check on these states — it broke the confirm turn (the "yes" message has no creation intent of its own, so re-detecting `_CREATION_RE` cleared the flow and rejected). Stale-leak prevention is now handled upstream by canvas tool gating (`canvas_context_active`) + Layer 3's affirmative-reply requirement.
-
-### Layer 2 — Latest Message Intent
-- Queries ONLY the most recent user message (`.limit(1)`) — not last 3
-- Matches against `_CREATION_RE`: `(create|new|make|start|set up|setup)...(session|conversation)` or reverse order
-- Skips messages matching `_NEGATION_RE` (don't create, never mind, cancel, etc.)
-- Also checks `noun in text` or generic `(create|new|make|start) (one|a|an|the|this|some)`
-- Returns `ASK_USER_PREFIX` to ask user for specs + confirmation
-
-### Layer 3 — Confirmation Check
-- Runs when Redis state is `pending_specs`
-- Scans last 4 messages for assistant ASK_USER content ("I need your confirmation") followed by user reply
-- User reply must match `_CONFIRMATION_RE`: `yes|yeah|sure|confirm|create|do it|proceed|go ahead|make it|let's do|okay?|please|that sounds|agree|approved|start`
-- Prevented false-positive: canvas queries like "what nodes are on my canvas?" do NOT match → stays pending
-
-### Rejection Flow
-- All 3 layers false → returns instructional rejection string (not `ASK_USER_PREFIX`): "Cannot create session: the user didn't request one."
-- Model sees this as tool result text, can retry or move on
-- If user hasn't confirmed → returns "The user hasn't confirmed yet. Wait for their response."
-
-### Auto-wiring
-- On successful creation, `_ensure_creation_wiring()` creates the matching session canvas node and wires it to the input node: `routed_message` → `message` (relation `routes_to`). The system prompt tells the model NOT to create/wire the node itself — auto-wiring owns it.
-
-### Prompt Reinforcement (J1 anti-priming, 2026-06-04 — defense-in-depth only)
-- NOTE: prompt changes alone did NOT fix J1 (the 70B looped regardless). The actual fix is canvas tool gating (see "Canvas tool gating" above). These prompt edits are kept as defense-in-depth.
-- Node inventory RULES no longer name `create_conversation` (it primed the model to call it on benign turns). Single neutral rule: "You are in the JARVIS global session. Do not create sessions or nodes unless the user explicitly asks; answer normally otherwise."
-- `create_conversation` tool description drops the old manual `create_canvas_node`/`wire_nodes` procedure (auto-wiring owns it) and says: "Only call when the user explicitly asks — never on greetings, topic suggestions, or general questions."
-- Rejection messages now tell the model to STOP retrying: "Do not call this tool again. Answer the user's message normally instead." — breaks the reject→retry→loop-guard-abort cycle.
 
 ---
 
@@ -162,22 +98,6 @@
 - Tokens accumulated in `_token_buffer` per `call_stream` call
 - If response contains tool calls → discard buffered tokens (prevent model from generating preamble text before tool execution, then duplicating it after)
 - If no tool calls → flush buffer as normal SSE `content` events
-
----
-
-### Boot Sequence (`agent/boot.py`)
-- `agent_boot(user_id)` → `BootReport` with health, scratchpad, canvas graph, node_summary
-- `_check_health()`: pings all models + embedding + Neo4j + Redis + Postgres in parallel
-- `format_boot_log(report)`: formatted for system prompt injection
-
-### System Prompt Injection (Step 7)
-- Boot log, node inventory (11 types), and canvas state prepended to system message on every request
-- Tier 0 (never dropped by context budget allocator)
-- Combined size ~500 tokens
-- Confirmation-protocol + session-creation instruction blocks REMOVED (they primed false creation framing). See Prompt Reinforcement above.
-- No redundant "call get_canvas_graph for UUIDs" instruction — UUIDs already in `[CANVAS STATE]`
-- Tool-calling instruction softened: "When tools are needed, call them" not "CRITICAL: call tools immediately"
-
 
 ---
 
@@ -230,7 +150,7 @@ Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACT
 - `.env` merge script in root CLAUDE.md — adds missing keys from `.env.example` as commented-out
 - Debug mode: `retriever.retrieve()` / `retrieve_from_files(debug=True)` returns `(chunks, debug_info)` tuple; `/search?debug=true` returns `{"results": [...], "debug": [...]}`
 - Eval harness: `tests/retrieval/test_hybrid_eval.py` — 26 tests, mock DB (AsyncMock), no NIM deps; run with `pytest tests/retrieval/ -v`
-- Neo4j indexes created on startup: unique constraint `(user_id, name)`, fulltext `entity_name_ft` on `e.name`, range index `entity_user_id` on `e.user_id`, range index `canvas_user_id` on `CanvasNode.user_id`; writes use UNWIND batch (2 round-trips regardless of entity/rel count); graph query results cached in Redis (key `graph:{user_id}:{sha256[:32]}`, TTL 60s, USE_REDIS gated); cache busted on every entity write (`_cache_del_user`)
+- Neo4j indexes created on startup: unique constraint `(user_id, name)`, fulltext `entity_name_ft` on `e.name`, range index `entity_user_id` on `e.user_id`; also creates `canvas_user_id` index on `CanvasNode.user_id` (harmless dead code — canvas removed, `core/neo4j_client.py` not touched); writes use UNWIND batch (2 round-trips regardless of entity/rel count); graph query results cached in Redis (key `graph:{user_id}:{sha256[:32]}`, TTL 60s, USE_REDIS gated); cache busted on every entity write (`_cache_del_user`)
 - NIM retry: `MAX_RETRIES=3` (4 total); exponential backoff with jitter `min(30, 2**attempt) * (0.75 + 0.5*random)` — attempt 0≈1s, 1≈2s, 2≈4s, 3≈8s
 - Circuit breaker: _THRESHOLD=5, _COOLDOWN=90s; Redis-persisted `cb:open:{model}` EX 90; restored on startup via `restore_circuit_state()`; pre-tripped at startup by `probe_models_on_startup()` for any model returning non-200
 - Prometheus: multiprocess mode active when `PROMETHEUS_MULTIPROC_DIR` set — `export_metrics()` uses `MultiProcessCollector(CollectorRegistry())`; new counters: `stream_interruptions_total`, `all_models_failed_total`, `arq_job_failed_total{job_type}`
