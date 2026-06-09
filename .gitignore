@@ -33,6 +33,11 @@ backend/storage/backups/
 # Alembic cache
 backend/alembic/versions/__pycache__/
 
+# IDE / AI tool configs
+.cursor/
+opencode.json
+design_handoff_ultrakill_reskin/
+
 # AI tool files (instructions, memory, handoff protocols)
 CLAUDE.md
 **/CLAUDE.md
