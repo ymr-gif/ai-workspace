@@ -11,7 +11,7 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Browser  (React / Vite)                                    │
-│  14 panels · 13 hooks · SSE streaming · ReactFlow canvas   │
+│  14 panels · 13 hooks · SSE streaming                      │
 └────────────────────────┬────────────────────────────────────┘
                          │  REST + SSE
                     nginx proxy
@@ -112,7 +112,6 @@ Guards: identical `(tool, args)` signature repeated → abort (writes after 3, r
 - **SSE streaming**: raw cursor → done → `<ReactMarkdown>`; per-bubble token count, cost, query type, and source count badges
 - **Unified search**: fans out to files, conversations, memory, and graph; results grouped by source
 - **Memory panel**: per-fact salience score bars, conflict resolution UI, interactive graph (ReactFlow circle layout with click-to-highlight)
-- **JARVIS canvas**: ReactFlow visual workspace with Neo4j-backed session nodes, smart handle routing, real-time drag re-routing, and full chat drawer
 - **Goals + Automations**: CRUD panels for user goals (with conversation linking) and scheduled prompts (cron + daily/weekly/monthly aliases)
 
 ### Observability
