@@ -33,6 +33,9 @@ backend/storage/backups/
 # Alembic cache
 backend/alembic/versions/__pycache__/
 
+# SearXNG — auto-generated config contains secret_key
+docker/searxng/settings.yml
+
 # IDE / AI tool configs
 .cursor/
 opencode.json

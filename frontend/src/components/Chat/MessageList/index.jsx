@@ -74,6 +74,9 @@ export default function MessageList({
             {!m.streaming && m.role === 'ai' && m.srcCount > 0 && (
               <span style={{ fontSize:'14px', marginLeft:'0.25rem', color: m.srcCount >= 3 ? GRN : AMB }}>· {m.srcCount} src</span>
             )}
+            {m.webSearched && (
+              <span style={{ background:'#0e7490', color:'white', fontSize:'0.65rem', padding:'1px 5px', borderRadius:'3px', marginLeft:'4px' }}>web</span>
+            )}
           </div>
         </Fragment>
         )

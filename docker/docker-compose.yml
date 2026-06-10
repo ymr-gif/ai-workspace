@@ -205,6 +205,19 @@ services:
     networks:
       - backend
 
+  searxng:
+    image: searxng/searxng:latest
+    profiles: [web-search]
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    environment:
+      - SEARXNG_SECRET=changeme-replace-in-prod
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    networks:
+      - backend
+
 volumes:
   pgdata:
   neo4jdata:
