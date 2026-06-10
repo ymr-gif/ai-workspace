@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-05-31 (P0 + P1 complete; P2 in progress — #12, #13, #14, #15 done)
+Last updated: 2026-06-10 (P0 + P1 complete; P2 in progress — #12, #13, #14, #15, #16 done)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -34,7 +34,7 @@ Last updated: 2026-05-31 (P0 + P1 complete; P2 in progress — #12, #13, #14, #1
 
 ---
 
-## Current State (as of migration 036; P0 + P1 complete; P2 #12–15 done)
+## Current State (as of migration 036; P0 + P1 complete; P2 #12–16 done)
 
 | Area | Status |
 |------|--------|
@@ -52,7 +52,8 @@ Last updated: 2026-05-31 (P0 + P1 complete; P2 in progress — #12, #13, #14, #1
 | File storage — SHA256 dedup, versioning, chunk quality states | ✅ |
 | File formats — PDF, DOCX, XLSX, text/code/markdown | ✅ |
 | Full data export (`GET /api/export/full` ZIP stream) | ✅ |
-| AI agent tool loop (18 tools: 11 existing + 7 canvas) | ✅ |
+| AI agent tool loop (19 tools: 12 existing + 7 canvas) | ✅ |
+| Web search tool (SearXNG/Tavily, heuristic-gated, `WEB_SEARCH_ENABLED` env var) | ✅ |
 | Pattern detection + proactive triggers (`detect_recurring_patterns()`; 7-day dedup; ARQ enqueue with hint) | ✅ |
 | Global autonomous agent canvas — Neo4j-backed node system (11 node types, typed ports, WIRED_TO relationships, agent scratchpad, boot diagnostics, per-session chat drawer) | ✅ |
 | Autonomous memory writing (write_memory tool, user-confirm green card) | ✅ |
@@ -110,7 +111,7 @@ Last updated: 2026-05-31 (P0 + P1 complete; P2 in progress — #12, #13, #14, #1
 ### Dimension 5 — Real-Time World Perception
 | Gap | Notes |
 |-----|-------|
-| Web search tool | No internet search during chat |
+| ~~Web search tool~~ | ~~No internet search during chat~~ ✅ |
 | Live webpage ingestion | `ingest-url` exists but no live web fetch mid-conversation |
 | External integrations | No calendar, email, or third-party data stream connectors |
 
@@ -215,9 +216,9 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 ~~- Backend: `backend/agent/` (node.py, canvas_graph.py, boot.py) · `backend/core/neo4j_client.py` (+1 index) · `backend/models/user.py` (+agent_scratchpad) · `backend/alembic/versions/036_agent_scratchpad.py` · `backend/llm/tools/schemas.py` (+7 schemas) · `backend/llm/tools/executor.py` (+7 dispatch branches) · `backend/llm/service/context.py` (boot + registry injection) · `backend/api/chat/helpers.py` (boot call + scratchpad save)~~
 ~~- Zero conflicts: distinct Neo4j label (`CanvasNode` vs `Entity`), prefixes on all tool names (`canvas_*`), separate Redis cache key (`canvas:{uid}`), append-only to UserMemory~~
 
-#### Web Search Tool
-`web_search(query)` tool in agent loop. Calls configurable backend (SearXNG self-hosted or Tavily API). Returns top 5 results as grounded context. Gated by `WEB_SEARCH_ENABLED` + `WEB_SEARCH_BACKEND` env vars.
-- Backend: new tool in `llm/tools/`; optional SearXNG service in docker-compose
+#### ~~Web Search Tool~~ ✅
+~~`web_search(query)` tool in agent loop. Calls configurable backend (SearXNG self-hosted or Tavily API). Returns top 5 results as grounded context. Gated by `WEB_SEARCH_ENABLED` + `WEB_SEARCH_BACKEND` env vars.~~
+~~- Backend: new tool in `llm/tools/`; optional SearXNG service in docker-compose~~
 
 #### Event-Driven Triggers
 `POST /api/webhooks/{user_token}` accepts external events. Payload routed to ARQ job that processes content and generates a `UserInsight`. Supports: `file.uploaded`, `reminder`, `external.data`.
@@ -281,7 +282,7 @@ P2 — following sprint
    ~~13. Goal / Task Tracker             new model + UI, medium effort~~ ✅
    ~~14. Pattern Detection + Triggers    builds on Behavioral Profile~~ ✅
    ~~15. Global Autonomous Agent Canvas  Neo4j-based node system; 11 node types; typed ports; agent scratchpad; boot diagnostics; 7 new canvas tools~~ ✅ (NEW-2026-05-31)
-   16. Web Search Tool                 gated by env var, isolated
+   ~~16. Web Search Tool                 gated by env var, isolated~~ ✅
    17. Daily/Weekly Digest             scheduler already wired
 
 P3 — future
@@ -303,5 +304,5 @@ P3 — future
 | 2. Unified Interface | 90% | Cross-conversation knowledge propagation remaining |
 | 3. Reasoning Loop | 65% | No grounding confidence, no intent classification |
 | 4. Autonomous Agency | 60% | No webhook events, no digest |
-| 5. Real-Time Perception | 10% | No web search, no external integrations |
-| **Overall** | **~82%** | P1 complete; P2 in progress (#12, #14 done) |
+| 5. Real-Time Perception | 30% | Web search done; no external integrations, no live ingestion |
+| **Overall** | **~85%** | P1 complete; P2 in progress (#12–16 done) |
