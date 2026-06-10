@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from config import REDIS_URL
 from core.db import AsyncSessionLocal
-from models import Conversation, File, FileChunk, Message, MessageEmbedding, UserInsight, UserMemory
+from models import Conversation, File, FileChunk, Message, MessageEmbedding, UserInsight, UserMemory, WebhookEvent
 from observability.prom_metrics import ARQ_JOB_FAILED
 from services.processor import _process
 
@@ -141,6 +141,51 @@ async def extract_preferences_job(ctx, user_id: int) -> None:
             ARQ_JOB_FAILED.labels(job_type="extract_preferences").inc()
 
 
+async def process_webhook_job(ctx, *, event_id: str) -> None:
+    from datetime import datetime
+    from llm.agency import generate_user_insight
+
+    async with AsyncSessionLocal() as db:
+        try:
+            row = await db.get(WebhookEvent, uuid.UUID(event_id))
+            if not row:
+                logger.warning("[arq] webhook_event not found id=%s", event_id)
+                return
+            if row.status == "processed":
+                return
+
+            user_id = row.user_id
+            event_type = row.event_type
+            payload = row.payload
+
+            if event_type == "file.uploaded":
+                hint = f"New file uploaded: {payload.get('filename', 'unknown')}"
+            elif event_type == "reminder":
+                hint = f"Reminder triggered: {payload.get('message', '')}"
+            elif event_type == "external.data":
+                hint = f"External data received: {payload.get('source', 'unknown')} — {str(payload)[:200]}"
+            else:
+                hint = f"Event received: {event_type}"
+
+            insight = await generate_user_insight(user_id, "", "", hint=hint)
+            if insight:
+                db.add(UserInsight(user_id=user_id, content=insight))
+
+            row.status = "processed"
+            row.processed_at = datetime.utcnow()
+            await db.commit()
+            logger.info("[arq] webhook processed id=%s user=%s", event_id, user_id)
+        except Exception as e:
+            await db.rollback()
+            row = await db.get(WebhookEvent, uuid.UUID(event_id))
+            if row:
+                row.status = "error"
+                row.error = str(e)
+                await db.commit()
+            logger.exception("[arq] webhook failed id=%s", event_id)
+            raise
+
+
 async def update_behavior_profile_job(ctx, user_id: int, query_type: str, message: str, tool_names: list[str], model_used: str) -> None:
     from services.behavior import detect_recurring_patterns, update_behavior_profile
 
@@ -181,7 +226,7 @@ async def update_behavior_profile_job(ctx, user_id: int, query_type: str, messag
 
 
 class WorkerSettings:
-    functions = [process_file_job, generate_insight_job, re_embed_batch_job, compact_memory_job, extract_preferences_job, update_behavior_profile_job]
+    functions = [process_file_job, generate_insight_job, re_embed_batch_job, compact_memory_job, extract_preferences_job, update_behavior_profile_job, process_webhook_job]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 10
     max_tries = _MAX_TRIES

@@ -24,6 +24,7 @@ from api.export import router as export_router
 from api.goals import router as goals_router
 from api.search import router as search_router
 from api.usage import router as usage_router
+from api.webhooks import webhooks_router, webhook_token_router
 from auth import auth_router, invite_router
 from config import REQUEST_TIMEOUT
 from config import REDIS_URL
@@ -126,6 +127,8 @@ app.include_router(goals_router)
 app.include_router(search_router)
 app.include_router(graph_router)
 app.include_router(invite_router)
+app.include_router(webhooks_router, prefix="/api")
+app.include_router(webhook_token_router, prefix="/auth/me")
 
 Instrumentator().instrument(app).expose(app, endpoint="/prometheus")
 

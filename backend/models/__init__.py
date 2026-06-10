@@ -1,5 +1,5 @@
 from .auth import Invitation
-from .user import User, UserBehaviorProfile, UserGoal, UserInsight, AdminAuditLog, UserMemory, UserMemoryVersion, MemoryConflict
+from .user import User, UserBehaviorProfile, UserGoal, UserInsight, AdminAuditLog, UserMemory, UserMemoryVersion, MemoryConflict, WebhookEvent
 from .file import File, FileChunk, FileVersion
 from .chat import Conversation, Message, MessageEmbedding, ConversationFile
 from .tools import ToolCallLog
@@ -11,4 +11,5 @@ __all__ = [
     "FileVersion", "Invitation", "MemoryConflict", "Message", "MessageEmbedding", "PromptTemplate",
     "ScheduledPrompt", "ScheduledPromptRun", "SystemConfig", "ToolCallLog",
     "User", "UserBehaviorProfile", "UserGoal", "UserInsight", "UserMemory", "UserMemoryVersion",
+    "WebhookEvent",
 ]
