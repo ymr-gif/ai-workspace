@@ -13,12 +13,12 @@ from croniter import croniter
 from sqlalchemy import select
 
 import llm.client as llm_client
-from config import BACKUP_SCHEDULE, MODELS, REQUEST_TIMEOUT
+from config import BACKUP_SCHEDULE, DIGEST_ENABLED, DIGEST_SCHEDULE, MODELS, REQUEST_TIMEOUT
 from core.db import AsyncSessionLocal, init_db
 from core.logger import setup_logging
 from core.neo4j_client import close_neo4j, init_neo4j
 from llm.nim import call as nim_call
-from models import File as FileModel, ScheduledPrompt, ScheduledPromptRun, UserMemory
+from models import File as FileModel, ScheduledPrompt, ScheduledPromptRun, User, UserGoal, UserInsight, UserMemory, UserMemoryVersion
 from services.processor import process_file_async
 from storage.storage_manager import StorageManager
 
@@ -164,6 +164,48 @@ async def run_memory_compaction() -> None:
     logger.info("[scheduler] compaction queued for %d users", count)
 
 
+async def run_digest() -> None:
+    if not DIGEST_ENABLED:
+        return
+
+    from services.digest import build_digest
+    from services.email import send_email
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(User).where(User.is_active == True))
+        users = result.scalars().all()
+
+    sent = 0
+    skipped = 0
+    for user in users:
+        try:
+            async with AsyncSessionLocal() as db:
+                digest = await build_digest(user.id, db)
+                if not digest:
+                    skipped += 1
+                    continue
+
+                db.add(UserInsight(user_id=user.id, content=digest))
+
+                if user.email:
+                    try:
+                        await send_email(
+                            to=user.email,
+                            subject="Your Weekly Digest",
+                            body=digest,
+                        )
+                    except Exception:
+                        logger.warning("[digest] email failed user=%s", user.id)
+
+                await db.commit()
+                sent += 1
+        except Exception:
+            logger.exception("[digest] failed user=%s", user.id)
+            skipped += 1
+
+    logger.info("[digest] sent=%d skipped=%d", sent, skipped)
+
+
 async def run_backup() -> None:
     script = Path(__file__).resolve().parent.parent.parent / "docker" / "backup.sh"
     logger.info("[backup] starting — %s", script)
@@ -222,6 +264,17 @@ async def main() -> None:
         logger.info("[scheduler] backup scheduled cron=%s", BACKUP_SCHEDULE)
     except Exception as e:
         logger.warning("[scheduler] invalid backup schedule %s: %s", BACKUP_SCHEDULE, e)
+
+    if DIGEST_ENABLED:
+        try:
+            scheduler.add_job(
+                run_digest,
+                CronTrigger.from_crontab(DIGEST_SCHEDULE, timezone="UTC"),
+                id = "__digest__",
+            )
+            logger.info("[scheduler] digest scheduled cron=%s", DIGEST_SCHEDULE)
+        except Exception as e:
+            logger.warning("[scheduler] invalid digest schedule %s: %s", DIGEST_SCHEDULE, e)
 
     scheduler.start()
     logger.info("[scheduler] running")

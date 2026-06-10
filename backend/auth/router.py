@@ -101,6 +101,27 @@ async def generate_api_key(
     return {"api_key": key}
 
 
+@auth_router.patch("/me/email")
+async def set_email(
+    body: dict,
+    current_user: User         = Depends(get_current_user),
+    db:           AsyncSession = Depends(get_db),
+):
+    email = body.get("email")
+    if email is not None:
+        if not isinstance(email, str) or not email.strip():
+            raise HTTPException(status_code=422, detail="Invalid email")
+        email = email.strip()
+        result = await db.execute(
+            select(User).where(User.email == email, User.id != current_user.id)
+        )
+        if result.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Email already taken")
+    current_user.email = email
+    await db.commit()
+    return {"email": email}
+
+
 @auth_router.delete("/me/api-key")
 async def revoke_api_key(
     current_user: User         = Depends(get_current_user),

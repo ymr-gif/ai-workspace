@@ -45,7 +45,7 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
        PostgreSQL     Redis        Neo4j     Prometheus
        + pgvector   (cache,      (entity      + Grafana
        + pgBouncer   rate limit,   graph)     (24 panels,
-       40 migrations  circuit                  2 alerts)
+       41 migrations  circuit                  2 alerts)
        22 ORM models  breaker)
 ```
 
@@ -104,6 +104,23 @@ Activated when file IDs are attached to a request; forces the 70B model.
 | `query_graph` | Cypher query against the user's Neo4j graph |
 | `write_memory` | propose a memory write; requires user confirmation |
 | `web_search` | search the web for live information; conditionally injected when `WEB_SEARCH_ENABLED=true` and query matches keyword heuristic; backends: SearXNG (self-hosted) or Tavily |
+
+### Daily/Weekly Digest
+An APScheduler cron job generates a per-user markdown summary of the past 7 days — new files uploaded, memory snapshots taken, insights generated, and goals updated. Delivered as a `UserInsight` (visible in the Insights panel) and optionally emailed via SMTP.
+
+| Variable | Default | Description |
+|---|---|---|
+| `DIGEST_ENABLED` | `false` | Enable the digest job |
+| `DIGEST_SCHEDULE` | `0 8 * * 1` | Cron schedule (default: Monday 8 AM UTC) |
+| `SMTP_HOST` | — | SMTP server hostname; leave blank to skip email |
+| `SMTP_PORT` | `587` | SMTP port (`465` skips STARTTLS) |
+| `SMTP_USERNAME` | — | SMTP login username |
+| `SMTP_PASSWORD` | — | SMTP login password |
+| `SMTP_FROM` | — | Sender address (falls back to `SMTP_USERNAME`) |
+
+Users set their email address via `PATCH /auth/me/email`. If unset, digest is delivered as `UserInsight` only.
+
+---
 
 ### Event-Driven Webhook Triggers
 External systems can POST events to the platform via a per-user token:
@@ -279,6 +296,7 @@ POST /webhooks/{user_token}           receive external event (public — no auth
 GET  /auth/me/webhook-token           retrieve webhook token
 POST /auth/me/webhook-token           generate / regenerate webhook token
 DELETE /auth/me/webhook-token         revoke webhook token
+PATCH /auth/me/email                  set / update / clear email address for digest delivery
 GET  /system/hardware                 CPU / RAM / GPU / disk / uptime
 GET  /health
 ```

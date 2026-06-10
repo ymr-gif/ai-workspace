@@ -17,6 +17,7 @@ class User(Base):
     cost_window_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     api_key: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
     webhook_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, unique=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(256), nullable=True, unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

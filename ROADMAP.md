@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-06-10 (P0 + P1 complete; P2 in progress — #12, #13, #14, #15, #16, Event-Driven Triggers done)
+Last updated: 2026-06-10 (P0 + P1 complete; P2 complete — all features done)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -34,7 +34,7 @@ Last updated: 2026-06-10 (P0 + P1 complete; P2 in progress — #12, #13, #14, #1
 
 ---
 
-## Current State (as of migration 040; P0 + P1 complete; P2 #12–16 + Event-Driven Triggers done)
+## Current State (as of migration 041; P0 + P1 + P2 complete)
 
 | Area | Status |
 |------|--------|
@@ -55,6 +55,7 @@ Last updated: 2026-06-10 (P0 + P1 complete; P2 in progress — #12, #13, #14, #1
 | AI agent tool loop (19 tools: 12 existing + 7 canvas) | ✅ |
 | Web search tool (SearXNG/Tavily, heuristic-gated, `WEB_SEARCH_ENABLED` env var) | ✅ |
 | Event-driven webhook triggers (`POST /webhooks/{user_token}`; `file.uploaded` / `reminder` / `external.data`; ARQ → UserInsight; `WebhookEvent` model; migration 040) | ✅ |
+| Daily/weekly digest (APScheduler cron; per-user markdown summary of files/memory/insights/goals; delivered as `UserInsight` + optional SMTP email; `DIGEST_ENABLED` + `DIGEST_SCHEDULE` env vars; migration 041 adds `email` to users) | ✅ |
 | Pattern detection + proactive triggers (`detect_recurring_patterns()`; 7-day dedup; ARQ enqueue with hint) | ✅ |
 | Global autonomous agent canvas — Neo4j-backed node system (11 node types, typed ports, WIRED_TO relationships, agent scratchpad, boot diagnostics, per-session chat drawer) | ✅ |
 | Autonomous memory writing (write_memory tool, user-confirm green card) | ✅ |
@@ -107,7 +108,7 @@ Last updated: 2026-06-10 (P0 + P1 complete; P2 in progress — #12, #13, #14, #1
 | ~~User-defined scheduled agents~~ | ~~User can't define "check X every week and summarize"~~ ✅ |
 | Goal / task tracking | No persistent goal list the AI maintains on behalf of user |
 | ~~Event-driven triggers~~ | ~~No webhook/event system (file upload → trigger AI action)~~ ✅ |
-| Autonomous summarization push | Daily/weekly digest not yet user-configurable |
+| ~~Autonomous summarization push~~ | ~~Daily/weekly digest not yet user-configurable~~ ✅ |
 
 ### Dimension 5 — Real-Time World Perception
 | Gap | Notes |
@@ -225,9 +226,9 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 ~~`POST /api/webhooks/{user_token}` accepts external events. Payload routed to ARQ job that processes content and generates a `UserInsight`. Supports: `file.uploaded`, `reminder`, `external.data`.~~
 ~~- Backend: `api/webhooks.py`; ARQ job; `WebhookEvent` model; user token in `User` table~~
 
-#### Daily/Weekly Digest
-Scheduler job generates a weekly markdown summary (new files, memory changes, insights, goal progress) and delivers it as a `UserInsight` + optional email via SMTP. Configurable via `DIGEST_ENABLED`, `DIGEST_SCHEDULE`, `SMTP_*` env vars.
-- Backend: scheduler job + email module; env vars
+#### ~~Daily/Weekly Digest~~ ✅
+~~Scheduler job generates a weekly markdown summary (new files, memory changes, insights, goal progress) and delivers it as a `UserInsight` + optional email via SMTP. Configurable via `DIGEST_ENABLED`, `DIGEST_SCHEDULE`, `SMTP_*` env vars.~~
+~~- Backend: scheduler job + email module; env vars~~
 
 ---
 
@@ -285,7 +286,7 @@ P2 — following sprint
    ~~15. Global Autonomous Agent Canvas  Neo4j-based node system; 11 node types; typed ports; agent scratchpad; boot diagnostics; 7 new canvas tools~~ ✅ (NEW-2026-05-31)
    ~~16. Web Search Tool                 gated by env var, isolated~~ ✅
    ~~17. Event-Driven Triggers           webhook + ARQ + WebhookEvent model~~ ✅
-   18. Daily/Weekly Digest             scheduler already wired
+   ~~18. Daily/Weekly Digest             scheduler + email module + SMTP config~~ ✅
 
 P3 — future
   17. Live Webpage Ingestion
@@ -305,6 +306,6 @@ P3 — future
 | 1. Persistent Memory | 97% | P0 complete |
 | 2. Unified Interface | 90% | Cross-conversation knowledge propagation remaining |
 | 3. Reasoning Loop | 65% | No grounding confidence, no intent classification |
-| 4. Autonomous Agency | 75% | Webhook events done; digest remaining |
+| 4. Autonomous Agency | 90% | P2 complete; cross-conversation propagation remaining |
 | 5. Real-Time Perception | 30% | Web search done; no external integrations, no live ingestion |
-| **Overall** | **~87%** | P1 complete; P2 in progress (#12–16 + webhook done) |
+| **Overall** | **~90%** | P0 + P1 + P2 complete; P3 remaining |

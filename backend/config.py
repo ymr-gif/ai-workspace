@@ -83,6 +83,15 @@ BACKUP_SCHEDULE = os.getenv("BACKUP_SCHEDULE", "0 2 * * *")
 # ── Auth ──────────────────────────────────────────────────────────────────────
 REQUIRE_INVITE = os.getenv("REQUIRE_INVITE", "false").lower() == "true"
 
+# ── Digest / Email ───────────────────────────────────────────────────────────
+DIGEST_ENABLED  = os.getenv("DIGEST_ENABLED",  "false").lower() == "true"
+DIGEST_SCHEDULE = os.getenv("DIGEST_SCHEDULE", "0 8 * * 1")
+SMTP_HOST       = os.getenv("SMTP_HOST", "")
+SMTP_PORT       = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USERNAME   = os.getenv("SMTP_USERNAME", "")
+SMTP_PASSWORD   = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM       = os.getenv("SMTP_FROM", "")
+
 # ── Web search ────────────────────────────────────────────────────────────────
 WEB_SEARCH_ENABLED = os.getenv("WEB_SEARCH_ENABLED", "false").lower() == "true"
 WEB_SEARCH_BACKEND = os.getenv("WEB_SEARCH_BACKEND", "searxng")
