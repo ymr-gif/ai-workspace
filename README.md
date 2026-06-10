@@ -45,8 +45,8 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
        PostgreSQL     Redis        Neo4j     Prometheus
        + pgvector   (cache,      (entity      + Grafana
        + pgBouncer   rate limit,   graph)     (24 panels,
-       39 migrations  circuit                  2 alerts)
-       21 ORM models  breaker)
+       40 migrations  circuit                  2 alerts)
+       22 ORM models  breaker)
 ```
 
 ---
@@ -104,6 +104,23 @@ Activated when file IDs are attached to a request; forces the 70B model.
 | `query_graph` | Cypher query against the user's Neo4j graph |
 | `write_memory` | propose a memory write; requires user confirmation |
 | `web_search` | search the web for live information; conditionally injected when `WEB_SEARCH_ENABLED=true` and query matches keyword heuristic; backends: SearXNG (self-hosted) or Tavily |
+
+### Event-Driven Webhook Triggers
+External systems can POST events to the platform via a per-user token:
+
+```
+POST /api/webhooks/{user_token}   { "event_type": "reminder", "payload": {...} }
+```
+
+Supported event types: `file.uploaded` · `reminder` · `external.data`
+
+Each event is persisted as a `WebhookEvent` record, then an ARQ job generates a `UserInsight` from the payload. Users manage their token via:
+
+```
+GET    /auth/me/webhook-token   — retrieve current token (null if not yet generated)
+POST   /auth/me/webhook-token   — generate / regenerate token
+DELETE /auth/me/webhook-token   — revoke token
+```
 
 Guards: identical `(tool, args)` signature repeated → abort (writes after 3, reads after 8); hard cap at 60 iterations.
 
@@ -258,6 +275,10 @@ GET  /usage                           aggregate token + cost stats
 GET  /export/full                     ZIP: conversations + files + memory + graph
 GET  /goals                           user goals
 GET  /scheduled-prompts               automation schedules
+POST /webhooks/{user_token}           receive external event (public — no auth header needed)
+GET  /auth/me/webhook-token           retrieve webhook token
+POST /auth/me/webhook-token           generate / regenerate webhook token
+DELETE /auth/me/webhook-token         revoke webhook token
 GET  /system/hardware                 CPU / RAM / GPU / disk / uptime
 GET  /health
 ```
