@@ -77,6 +77,9 @@ export default function MessageList({
             {m.webSearched && (
               <span style={{ background:'#0e7490', color:'white', fontSize:'0.65rem', padding:'1px 5px', borderRadius:'3px', marginLeft:'4px' }}>web</span>
             )}
+            {m.urlFetched && (
+              <span style={{ background:'#0369a1', color:'white', fontSize:'0.65rem', padding:'1px 5px', borderRadius:'3px', marginLeft:'4px' }}>url</span>
+            )}
           </div>
         </Fragment>
         )

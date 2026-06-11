@@ -83,6 +83,16 @@ WEB_SEARCH_TOOL_SCHEMA = [_tool(
     ["query"],
 )]
 
+FETCH_URL_TOOL_SCHEMA = [_tool(
+    "fetch_url",
+    (
+        "Fetch and read the full text content of a web page at a given URL. "
+        "Use when the user provides a URL to read, summarize, or analyze."
+    ),
+    {"url": {"type": "string", "description": "The full URL to fetch (must start with http:// or https://)."}},
+    ["url"],
+)]
+
 WRITE_MEMORY_SCHEMA = _tool("write_memory", (
     "Propose saving a significant, durable fact about the user to long-term memory. "
     "ONLY call this when the user explicitly says 'remember', 'save', 'store', 'keep in memory', or similar direct instructions. "

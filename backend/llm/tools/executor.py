@@ -52,6 +52,9 @@ async def execute_tool(
             results = await run_web_search(args.get("query", ""))
             lines = [f"[{i+1}] {r['title']}\n{r['url']}\n{r['snippet']}" for i, r in enumerate(results)]
             return "\n\n".join(lines) if lines else "No results found."
+        elif name == "fetch_url":
+            from llm.tools.fetch_url import run_fetch_url
+            return await run_fetch_url(args.get("url", ""))
         elif name == "query_graph":
             from llm.graph_memory import query_by_term
             term   = args.get("query", "")

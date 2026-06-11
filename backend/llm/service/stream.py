@@ -8,7 +8,7 @@ from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route, get_context_limit
 from llm.nim import call, call_stream
-from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, WEB_SEARCH_TOOL_SCHEMA, WRITE_MEMORY_SCHEMA, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX
+from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, WEB_SEARCH_TOOL_SCHEMA, FETCH_URL_TOOL_SCHEMA, WRITE_MEMORY_SCHEMA, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX
 
 from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, _needs_web_search, apply_context_budget
 
@@ -124,7 +124,7 @@ async def generate_stream(
         if cached:
             yield {"type": "status", "stage": "cache", "detail": "Cache hit — returning stored answer", "level": "info"}
             yield {"type": "token", "content": cached["response"]}
-            yield {"type": "done",  "model": cached.get("model", "cache"), "cache_hit": True, "fallback_used": False, "web_searched": False}
+            yield {"type": "done",  "model": cached.get("model", "cache"), "cache_hit": True, "fallback_used": False, "web_searched": False, "url_fetched": False}
             return
 
     # Model selection priority: image → explicit override → file tools → memory write → router
@@ -155,10 +155,12 @@ async def generate_stream(
     mem_tools = [WRITE_MEMORY_SCHEMA] if (db is not None and _is_reasoning and _needs_memory_tool(message)) else []
 
     web_tools = WEB_SEARCH_TOOL_SCHEMA if (WEB_SEARCH_ENABLED and _needs_web_search(message)) else []
+    import re as _re
+    fetch_url_tools = FETCH_URL_TOOL_SCHEMA if _re.search(r'https?://', message) else []
 
     # deduplicate by tool name
     _seen, tools_list = set(), []
-    for t in (file_tools + web_tools + mem_tools):
+    for t in (file_tools + web_tools + fetch_url_tools + mem_tools):
         n = t["function"]["name"]
         if n not in _seen:
             _seen.add(n)
@@ -208,6 +210,7 @@ async def generate_stream(
         model_done     = False
         tool_call_counts: dict[tuple[str, str], int] = {}
         _web_searched = False
+        _url_fetched  = False
 
         for _tool_iter in range(MAX_TOOL_ITERATIONS):
             accumulated      = []
@@ -285,7 +288,7 @@ async def generate_stream(
                     if result.startswith(ASK_USER_PREFIX):
                         question = result[len(ASK_USER_PREFIX):]
                         yield {"type": "ask_user", "question": question}
-                        done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched}
+                        done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched, "url_fetched": _url_fetched}
                         if nim_usage:
                             done_ev["usage"] = nim_usage
                         yield done_ev
@@ -295,7 +298,7 @@ async def generate_stream(
                     if result.startswith(CONFIRM_WRITE_PREFIX):
                         fact = result[len(CONFIRM_WRITE_PREFIX):]
                         yield {"type": "confirm_write_memory", "fact": fact}
-                        done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched}
+                        done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched, "url_fetched": _url_fetched}
                         if nim_usage:
                             done_ev["usage"] = nim_usage
                         yield done_ev
@@ -304,6 +307,8 @@ async def generate_stream(
 
                     if fn_name == "web_search":
                         _web_searched = True
+                    if fn_name == "fetch_url":
+                        _url_fetched = True
 
                     yield {"type": "tool_result", "name": fn_name, "content": result[:500]}
                     tool_messages.append({"role": "assistant", "tool_calls": [tc]})
@@ -340,7 +345,7 @@ async def generate_stream(
             if fallback_used:
                 metrics.record_fallback()
 
-            done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched}
+            done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched, "url_fetched": _url_fetched}
             if nim_usage:
                 done_ev["usage"] = nim_usage
             yield done_ev
