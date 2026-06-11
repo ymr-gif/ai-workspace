@@ -34,9 +34,9 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
 │  Graph Memory  ──► Neo4j                                    │
 │    entity + relation extraction (70B) · 500 entity cap     │
 │                                                             │
-│  Agent Tool Loop (12 tools, max 60 iterations)             │
+│  Agent Tool Loop (13 tools, max 60 iterations)             │
 │    file I/O · fuzzy patch · graph query · memory write     │
-│    web search · ask_user pause · identical-signature abort │
+│    web search · fetch URL · ask_user · identical-sig abort │
 │                                                             │
 │  Background (ARQ workers + APScheduler)                     │
 │    embed · compact · insights · behavior profile · backup  │
@@ -104,6 +104,7 @@ Activated when file IDs are attached to a request; forces the 70B model.
 | `query_graph` | Cypher query against the user's Neo4j graph |
 | `write_memory` | propose a memory write; requires user confirmation |
 | `web_search` | search the web for live information; conditionally injected when `WEB_SEARCH_ENABLED=true` and query matches keyword heuristic; backends: SearXNG (self-hosted) or Tavily |
+| `fetch_url` | fetch and read the full text of any web page mid-conversation; injected when the user's message contains a URL; ephemeral — content is returned as tool-result context, nothing stored; SSRF-hardened: scheme allowlist, DNS-pinned connection (TOCTOU-safe), port allowlist `{80, 443}`, 1 MB byte cap, Content-Type allowlist |
 
 ### Daily/Weekly Digest
 An APScheduler cron job generates a per-user markdown summary of the past 7 days — new files uploaded, memory snapshots taken, insights generated, and goals updated. Delivered as a `UserInsight` (visible in the Insights panel) and optionally emailed via SMTP.
@@ -144,7 +145,7 @@ Guards: identical `(tool, args)` signature repeated → abort (writes after 3, r
 ### Frontend
 - **14 panels**: Sidebar, MessageList, ModelToolbar, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel, AutomationsPanel, GoalsPanel, SettingsModal
 - **13 hooks**: dedicated hook per domain (`useStreamChat`, `useMemory`, `useFiles`, `useGoals`, etc.)
-- **SSE streaming**: raw cursor → done → `<ReactMarkdown>`; per-bubble token count, cost, query type, source count, and cyan `web` badge (when `web_searched`)
+- **SSE streaming**: raw cursor → done → `<ReactMarkdown>`; per-bubble token count, cost, query type, source count, cyan `web` badge (`web_searched`), and blue `url` badge (`url_fetched`)
 - **Unified search**: fans out to files, conversations, memory, and graph; results grouped by source
 - **Memory panel**: per-fact salience score bars, conflict resolution UI, interactive graph (ReactFlow circle layout with click-to-highlight)
 - **Goals + Automations**: CRUD panels for user goals (with conversation linking) and scheduled prompts (cron + daily/weekly/monthly aliases)
@@ -251,7 +252,7 @@ POST /chat                    non-streaming
 
 **SSE event types:** `token` · `tool_call` · `tool_result` · `status` · `ask_user` · `confirm_write_memory` · `proactive` · `preamble_discard` · `error` · `done`
 
-`done` payload: `model` · `cache_hit` · `fallback_used` · `web_searched` · `total_tokens` · `prompt_tokens` · `completion_tokens` · `cost_usd` · `query_type` · `src_count` · `provenance[]` · `conversation_id` · `last_session?`
+`done` payload: `model` · `cache_hit` · `fallback_used` · `web_searched` · `url_fetched` · `total_tokens` · `prompt_tokens` · `completion_tokens` · `cost_usd` · `query_type` · `src_count` · `provenance[]` · `conversation_id` · `last_session?`
 
 ### Conversations
 ```
