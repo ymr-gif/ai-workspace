@@ -130,6 +130,16 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
     "meta/llama-3.2-90b-vision-instruct":      {"input": 0.16, "output": 0.16},
 }
 
+# ── External integrations (OAuth 2.0) ──────────────────────────────────────────
+INTEGRATION_SECRET       = os.getenv("INTEGRATION_SECRET", "")
+INTEGRATION_REDIRECT_BASE = os.getenv("INTEGRATION_REDIRECT_BASE", "http://localhost:8000")
+GOOGLE_CLIENT_ID         = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET     = os.getenv("GOOGLE_CLIENT_SECRET", "")
+NOTION_CLIENT_ID         = os.getenv("NOTION_CLIENT_ID", "")
+NOTION_CLIENT_SECRET     = os.getenv("NOTION_CLIENT_SECRET", "")
+GITHUB_CLIENT_ID         = os.getenv("GITHUB_CLIENT_ID", "")
+GITHUB_CLIENT_SECRET     = os.getenv("GITHUB_CLIENT_SECRET", "")
+
 # ── Startup guards ────────────────────────────────────────────────────────────
 if not NVIDIA_API_KEY:
     raise RuntimeError("NVIDIA_API_KEY is not set. Add it to your .env file.")

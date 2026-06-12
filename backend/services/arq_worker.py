@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from datetime import timedelta
@@ -8,7 +9,7 @@ from sqlalchemy import func, select
 
 from config import REDIS_URL
 from core.db import AsyncSessionLocal
-from models import Conversation, File, FileChunk, Message, MessageEmbedding, UserInsight, UserMemory, WebhookEvent
+from models import Conversation, ExternalSource, File, FileChunk, Message, MessageEmbedding, UserInsight, UserMemory, WebhookEvent
 from observability.prom_metrics import ARQ_JOB_FAILED
 from services.processor import _process
 
@@ -225,8 +226,102 @@ async def update_behavior_profile_job(ctx, user_id: int, query_type: str, messag
             ARQ_JOB_FAILED.labels(job_type="update_behavior_profile").inc()
 
 
+async def sync_external_source_job(ctx, *, source_id: str) -> None:
+    from datetime import datetime
+    from core.encryption import decrypt_token, encrypt_token
+    from services.integrations.registry import get_connector
+    from services.processor import process_file_async
+    from storage.storage_manager import StorageManager
+
+    _storage = StorageManager()
+    attempt = ctx.get("job_try", 1)
+
+    async with AsyncSessionLocal() as db:
+        try:
+            src = await db.get(ExternalSource, uuid.UUID(source_id))
+            if not src:
+                logger.warning("[arq] sync_source not found id=%s", source_id)
+                return
+
+            if not src.credentials:
+                logger.warning("[arq] sync_source no credentials id=%s", source_id)
+                src.status = "needs_reauth"
+                await db.commit()
+                return
+
+            connector_cls = get_connector(src.connector_type)
+
+            credentials = {
+                "access_token": decrypt_token(src.credentials["access_token"]),
+                "refresh_token": decrypt_token(src.credentials["refresh_token"]) if src.credentials.get("refresh_token") else None,
+                "expires_at": src.credentials.get("expires_at"),
+            }
+
+            if credentials.get("expires_at") and credentials["expires_at"] < int(datetime.utcnow().timestamp()):
+                credentials = await connector_cls.refresh_tokens(credentials)
+                src.credentials = {
+                    "access_token": encrypt_token(credentials["access_token"]),
+                    "expires_at": credentials.get("expires_at"),
+                }
+                if credentials.get("refresh_token"):
+                    src.credentials["refresh_token"] = encrypt_token(credentials["refresh_token"])
+                await db.commit()
+
+            connector = connector_cls()
+            chunk_count = 0
+            async for chunk in connector.iter_chunks(credentials, src.resource_id):
+                storage_path, size_bytes, sha256 = await _storage.save_text(chunk["text"], chunk["filename"])
+                file_record = File(
+                    user_id=src.user_id,
+                    filename=chunk["filename"],
+                    mime_type=chunk["mime_type"],
+                    size_bytes=size_bytes,
+                    storage_path=storage_path,
+                    upload_status="uploaded",
+                    sha256_hash=sha256,
+                )
+                db.add(file_record)
+                await db.flush()
+                asyncio.create_task(process_file_async(file_record.id, storage_path, chunk["mime_type"]))
+                chunk_count += 1
+
+            src.last_sync_at = datetime.utcnow()
+            src.status = "active"
+            src.error = None
+            await db.commit()
+            logger.info("[arq] sync_source done id=%s chunks=%d", source_id, chunk_count)
+
+        except Exception as e:
+            await db.rollback()
+            src = await db.get(ExternalSource, uuid.UUID(source_id))
+            if not src:
+                return
+
+            status_code = getattr(e, "status_code", None) or getattr(e, "response", None) and getattr(e.response, "status_code", None)
+            if status_code in (401, 403):
+                src.status = "needs_reauth"
+                src.error = str(e)[:2000]
+                await db.commit()
+                logger.warning("[arq] sync_source needs_reauth id=%s", source_id)
+                return
+
+            logger.exception("[arq] sync_source failed id=%s attempt=%d", source_id, attempt)
+            src.error = str(e)[:2000]
+            await db.commit()
+
+            if attempt <= len(_RETRY_DELAYS):
+                raise Retry(defer=timedelta(seconds=_RETRY_DELAYS[attempt - 1]))
+
+            ARQ_JOB_FAILED.labels(job_type="sync_external_source").inc()
+            src = await db.get(ExternalSource, uuid.UUID(source_id))
+            if src:
+                src.status = "error"
+                src.error = str(e)[:2000]
+                await db.commit()
+
+
 class WorkerSettings:
-    functions = [process_file_job, generate_insight_job, re_embed_batch_job, compact_memory_job, extract_preferences_job, update_behavior_profile_job, process_webhook_job]
+    functions = [process_file_job, generate_insight_job, re_embed_batch_job, compact_memory_job, extract_preferences_job, update_behavior_profile_job, process_webhook_job, sync_external_source_job]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 10
     max_tries = _MAX_TRIES

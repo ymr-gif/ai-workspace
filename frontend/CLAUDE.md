@@ -6,8 +6,8 @@
 - `src/components/Chat/index.jsx` — orchestrator; uses `useStreamChat` hook for SSE, `closeAllExcept` helper, wraps panels in `<PanelPropsCtx.Provider>` with all hook state as single object
 - `src/components/Chat/PanelPropsContext.js` — React context eliminating prop drilling; panels consume via `usePanelProps()`
 - `src/lib/chatStyles.js` — shared style objects; `LAYERS` constant for z-indices, `panelBase` for all slide-in panels
-- `src/hooks/` — 13 hooks: useConversations, useMemory, useFiles, useModelParams, useSettings, useToolLogs, useUsage, useAdmin, useInsights, useSearch, useScheduledPrompts, useGoals, useStreamChat
-- `src/components/Chat/*/index.jsx` — 14 sub-components: Sidebar, MessageList, ModelToolbar, SettingsModal, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel, AutomationsPanel, GoalsPanel
+- `src/hooks/` — 14 hooks: useConversations, useMemory, useFiles, useModelParams, useSettings, useToolLogs, useUsage, useAdmin, useInsights, useSearch, useScheduledPrompts, useGoals, useIntegrations, useStreamChat
+- `src/components/Chat/*/index.jsx` — 15 sub-components: Sidebar, MessageList, ModelToolbar, SettingsModal, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel, AutomationsPanel, GoalsPanel, IntegrationsPanel
 - **All fetch calls must use `/api/` prefix** — bare paths bypass proxy and 404 silently
 - **JWT flow:** login → `POST /api/auth/token` → store token as `nim_token` in localStorage → `Authorization: Bearer` on all fetch calls
 
@@ -25,6 +25,7 @@
 - **Compare mode** — same streaming/done split per model card
 - **Automations panel** (ROADMAP #12) — ⏱ Auto header button; slide-in; `useScheduledPrompts.js`; CRUD for scheduled prompts via `/api/scheduled-prompts`; create/edit form with preset aliases (daily/weekly/monthly) or custom cron, optional model_override; per-row: active toggle (`PATCH is_active`) · ▶ Run (`POST /run`) · ▼ Runs (expandable run history from `GET /id/runs`) · Edit · 🗑 delete; form overlays panel with zIndex:2
 - **Goals panel** (ROADMAP #13) — 🎯 Goals header button; slide-in; `useGoals.js`; CRUD via `/api/goals`; status filter pills (all/active/paused/completed); per-card: StatusBadge · linked conv count · toggle active↔paused · 🔗 Link conv (if `activeConvId` set + goal active, `POST /goals/{id}/link/{convId}`, disabled if already linked) · Edit · 🗑 delete; create/edit form overlay (title, description, status dropdown)
+- **Integrations panel** — Integrations header button; slide-in; `useIntegrations.js`; sources list from `GET /api/integrations`; per-card status badge, sync button (`POST /api/integrations/{id}/sync`), delete (`DELETE`); Available Connectors section shows Google Drive / Notion / GitHub with OAuth connect flow (`GET /api/integrations/oauth/start`) via popup; popup-closed polling refreshes list; popup-blocked warning banner; error banner for failures
 - **⬡ Canvas button** — opens `/canvas/index.html` in a new tab; styled red (`color:RED, borderColor:RED`); placed in header before Logout; canvas checks `nim_token` in localStorage and redirects to `/` if missing
 
 ## Files Panel
@@ -82,7 +83,7 @@ Scoped to `.md-body` via `<style>` tag. Covers: p · h1-h4 · code/pre · ul/ol/
 - **`closeAllExcept(...keep)`** — single helper in `Chat/index.jsx` for panel close logic. Adding a panel requires zero handler edits.
 - **Derived memory values**, **derived search values**, **derived file values** and all hook return values are collected into a single `ctx` object in `Chat/index.jsx` and passed via `<PanelPropsCtx.Provider>`. Add any new derived value to the `ctx` object — never thread it as a separate prop.
 - **`LAYERS` constant** in `chatStyles.js` centralizes all z-indices. Use `LAYERS.panel`, `LAYERS.viewer`, `LAYERS.settingsModal`, `LAYERS.wsModal` — never raw z-index values.
-- **`panelBase`** in `chatStyles.js` provides shared slide-in panel styles. All 6 side panels use `{...panelBase, width, maxWidth}` with overrides only for dimension/color differences.
+- **`panelBase`** in `chatStyles.js` provides shared slide-in panel styles. All 7 side panels use `{...panelBase, width, maxWidth}` with overrides only for dimension/color differences.
 
 ---
 

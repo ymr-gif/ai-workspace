@@ -15,6 +15,7 @@ import useInsights from '../../hooks/useInsights.js'
 import useSearch from '../../hooks/useSearch.js'
 import useScheduledPrompts from '../../hooks/useScheduledPrompts.js'
 import useGoals from '../../hooks/useGoals.js'
+import useIntegrations from '../../hooks/useIntegrations.js'
 import useStreamChat from '../../hooks/useStreamChat.js'
 import { PanelPropsCtx } from './PanelPropsContext'
 
@@ -32,6 +33,7 @@ import MemoryPanel from './MemoryPanel'
 import SearchPanel from './SearchPanel'
 import AutomationsPanel from './AutomationsPanel'
 import GoalsPanel from './GoalsPanel'
+import IntegrationsPanel from './IntegrationsPanel'
 
 export default function Chat({ token, onLogout }) {
   const conv = useConversations(token)
@@ -46,6 +48,7 @@ export default function Chat({ token, onLogout }) {
   const search = useSearch(token)
   const auto   = useScheduledPrompts(token)
   const goals  = useGoals(token)
+  const integ  = useIntegrations(token)
 
   const [userRole, setUserRole] = useState(null)
 
@@ -59,14 +62,14 @@ export default function Chat({ token, onLogout }) {
     const map = [
       ['mem', mem], ['files', files], ['toolLog', toolLog],
       ['usage', usage], ['insights', insights], ['admin', admin],
-      ['search', search], ['auto', auto], ['goals', goals],
+      ['search', search], ['auto', auto], ['goals', goals], ['integ', integ],
     ]
     for (const [key, h] of map) {
       const s = key === 'mem' ? 'setMemOpen' : key === 'files' ? 'setFilesOpen'
         : key === 'toolLog' ? 'setToolLogOpen' : key === 'usage' ? 'setUsageOpen'
         : key === 'insights' ? 'setInsightsOpen' : key === 'admin' ? 'setInviteOpen'
         : key === 'search' ? 'setSearchOpen' : key === 'auto' ? 'setAutoOpen'
-        : 'setGoalsOpen'
+        : key === 'goals' ? 'setGoalsOpen' : 'setIntegOpen'
       if (!keep.includes(key)) h[s](false)
     }
   }
@@ -100,7 +103,7 @@ export default function Chat({ token, onLogout }) {
   const diffTarget      = useMemo(() => mem.diffIdx !== null ? mem.memHistory[mem.diffIdx] : null, [mem.diffIdx, mem.memHistory])
   const diffLines       = useMemo(() => diffTarget ? computeDiff((diffTarget.content||'')+'\n'+(diffTarget.project_summary||''), (mem.memData?.content||'')+'\n'+(mem.memData?.project_summary||'')) : [], [diffTarget, mem.memData])
 
-  const ctx = { token, conv, mem, settings, files, toolLog, usage, admin, insights, modelParams, search, auto, goals, hasMemory, sections, projectSections, wordCount, panelSlide, diffTarget, diffLines, importRef, selectConv, handleAcceptWrite, handleDismissWrite, fmtDate }
+  const ctx = { token, conv, mem, settings, files, toolLog, usage, admin, insights, modelParams, search, auto, goals, integ, hasMemory, sections, projectSections, wordCount, panelSlide, diffTarget, diffLines, importRef, selectConv, handleAcceptWrite, handleDismissWrite, fmtDate }
 
   const lockedModelLabel = conv.convLockModel
     ? (MODEL_LABELS[conv.convLockModel] || conv.convLockModel)
@@ -120,7 +123,7 @@ export default function Chat({ token, onLogout }) {
     return () => clearTimeout(tid)
   }, [conv.lastSession])
 
-  const anyOpen = mem.memOpen || files.filesOpen || settings.settingsOpen || toolLog.toolLogOpen || usage.usageOpen || admin.inviteOpen || insights.insightsOpen || search.searchOpen || auto.autoOpen || goals.goalsOpen
+  const anyOpen = mem.memOpen || files.filesOpen || settings.settingsOpen || toolLog.toolLogOpen || usage.usageOpen || admin.inviteOpen || insights.insightsOpen || search.searchOpen || auto.autoOpen || goals.goalsOpen || integ.integOpen
 
   return (
     <div style={s.root}>
@@ -176,6 +179,11 @@ export default function Chat({ token, onLogout }) {
               style={{ ...s.hdrBtn, ...(goals.goalsOpen ? { color:GRN, borderColor:GRN } : {}) }}
               title="Goals & tasks">
               🎯 Goals
+            </button>
+            <button onClick={() => { closeAllExcept(); integ.setIntegOpen(o => !o) }}
+              style={{ ...s.hdrBtn, ...(integ.integOpen ? { color:CYN, borderColor:CYN } : {}) }}
+              title="External integrations">
+              Integrations
             </button>
             <button onClick={() => { closeAllExcept('mem'); mem.setMemOpen(true) }} style={s.hdrBtn}>
               {mem.memPending ? <span style={s.updatingDot} /> : hasMemory && <span style={s.memDot} />}
@@ -256,6 +264,7 @@ export default function Chat({ token, onLogout }) {
         <InvitePanel />
         <SearchPanel />
         <GoalsPanel />
+        <IntegrationsPanel />
         <AutomationsPanel />
         <MemoryPanel />
       </PanelPropsCtx.Provider>

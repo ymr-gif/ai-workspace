@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-06-11 (P0 + P1 + P2 complete; P3 live webpage ingestion done)
+Last updated: 2026-06-12 (P0 + P1 + P2 complete; P3 live webpage ingestion + external integrations done)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -238,9 +238,10 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 ~~`fetch_url(url)` tool: fetches live webpage via `httpx`, strips HTML with BeautifulSoup, chunks + embeds on the fly, injects as ephemeral `[WEB CONTEXT]`. Not stored as a File.~~
 ~~- Backend: new tool; `httpx` + `beautifulsoup4` deps~~
 
-#### External Integrations
-OAuth connectors for Google Drive, Notion, GitHub. ARQ polling jobs sync external content into file store. `ExternalSource` model tracks connector type, credentials, last sync.
-- Backend: `ExternalSource` model; per-provider connector modules; OAuth flow
+#### ~~External Integrations~~ ✅
+~~OAuth connectors for Google Drive, Notion, GitHub. ARQ polling jobs sync external content into file store. `ExternalSource` model tracks connector type, credentials, last sync.~~
+~~- Backend: `ExternalSource` model; per-provider connector modules; OAuth flow~~
+~~- Frontend: IntegrationsPanel; OAuth popup flow; status/sync UI~~
 
 #### Image Storage + Indexing
 Persist uploaded images as `File` records. Generate text captions via NIM vision endpoint at upload time. Embed captions for semantic search alongside text chunks.
@@ -290,7 +291,7 @@ P2 — following sprint
 
 P3 — future
   ~~17. Live Webpage Ingestion~~ ✅
-  18. External Integrations
+  ~~18. External Integrations~~ ✅
   19. Image Storage + Indexing
   20. Voice Input
   21. Horizontal Scaling
@@ -307,5 +308,5 @@ P3 — future
 | 2. Unified Interface | 90% | Cross-conversation knowledge propagation remaining |
 | 3. Reasoning Loop | 65% | No grounding confidence, no intent classification |
 | 4. Autonomous Agency | 90% | P2 complete; cross-conversation propagation remaining |
-| 5. Real-Time Perception | 45% | Web search + live fetch done; no external integrations |
-| **Overall** | **~91%** | P0 + P1 + P2 complete; P3 live ingestion done |
+| 5. Real-Time Perception | 70% | Web search + live fetch + OAuth integrations done; no calendar/email connectors |
+| **Overall** | **~95%** | P0 + P1 + P2 complete; P3 live ingestion + external integrations done |

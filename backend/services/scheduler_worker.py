@@ -164,6 +164,31 @@ async def run_memory_compaction() -> None:
     logger.info("[scheduler] compaction queued for %d users", count)
 
 
+async def run_integration_sync() -> None:
+    from core.arq_pool import get_arq_pool
+
+    pool = get_arq_pool()
+    if not pool:
+        logger.warning("[scheduler] integration sync skipped — no arq pool")
+        return
+
+    from models import ExternalSource
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ExternalSource).where(ExternalSource.status == "active")
+        )
+        sources = result.scalars().all()
+
+    count = 0
+    for src in sources:
+        await pool.enqueue_job("sync_external_source_job", source_id=str(src.id))
+        count += 1
+
+    logger.info("[scheduler] integration sync queued for %d sources", count)
+
+
 async def run_digest() -> None:
     if not DIGEST_ENABLED:
         return
@@ -264,6 +289,14 @@ async def main() -> None:
         logger.info("[scheduler] backup scheduled cron=%s", BACKUP_SCHEDULE)
     except Exception as e:
         logger.warning("[scheduler] invalid backup schedule %s: %s", BACKUP_SCHEDULE, e)
+
+    # External integrations sync every 6 hours
+    scheduler.add_job(
+        run_integration_sync,
+        CronTrigger.from_crontab("0 */6 * * *", timezone="UTC"),
+        id = "__integration_sync__",
+    )
+    logger.info("[scheduler] integration sync scheduled every 6h")
 
     if DIGEST_ENABLED:
         try:

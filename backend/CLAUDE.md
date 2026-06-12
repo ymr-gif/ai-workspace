@@ -4,8 +4,8 @@
 ```
 ├── main.py                 — lifespan, middleware, router includes
 ├── config.py               — env vars loaded from ../.env via find_dotenv()
-├── models/                 — ORM (22 classes: Invitation, User, UserInsight, AdminAuditLog, UserMemory, MemoryConflict, UserMemoryVersion, UserBehaviorProfile, UserGoal, WebhookEvent, File, FileChunk, FileVersion, Conversation, Message, MessageEmbedding, ConversationFile, ToolCallLog, PromptTemplate, ScheduledPrompt, ScheduledPromptRun, SystemConfig)
-├── alembic/versions/       — 041 migrations; latest: 041_user_email.py (email column on users)
+├── models/                 — ORM (23 classes: Invitation, User, UserInsight, AdminAuditLog, UserMemory, MemoryConflict, UserMemoryVersion, UserBehaviorProfile, UserGoal, WebhookEvent, ExternalSource, File, FileChunk, FileVersion, Conversation, Message, MessageEmbedding, ConversationFile, ToolCallLog, PromptTemplate, ScheduledPrompt, ScheduledPromptRun, SystemConfig)
+├── alembic/versions/       — 042 migrations; latest: 042_external_sources.py (external_sources table)
 ├── auth/                   — JWT, bcrypt (direct, no passlib), API key fallback (SHA-256 hashed), invite validation
 ├── tests/
 │   └── test.py + retrieval/conftest.py + test_hybrid_eval.py — 47 tests, mock DB, no NIM
@@ -165,6 +165,17 @@ Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACT
 - Circuit breaker: _THRESHOLD=5, _COOLDOWN=90s; Redis-persisted `cb:open:{model}` EX 90; restored on startup via `restore_circuit_state()`; pre-tripped at startup by `probe_models_on_startup()` for any model returning non-200
 - Prometheus: multiprocess mode active when `PROMETHEUS_MULTIPROC_DIR` set — `export_metrics()` uses `MultiProcessCollector(CollectorRegistry())`; new counters: `stream_interruptions_total`, `all_models_failed_total`, `arq_job_failed_total{job_type}`
 - Summarizer imports: `api/chat/stream.py` imports `compress_history`, `update_memory`, `update_project_summary` from `llm.summarizer.*` — missing these causes `NameError` at runtime (caught by except handler, skips memory update)
+
+### External Integrations (since 2026-06-12)
+- `ExternalSource` model: `id`, `user_id`, `connector_type` (google_drive|notion|github), `display_name`, `resource_id`, `credentials` (JSONB, Fernet-encrypted), `status` (pending|active|error|needs_reauth|paused), `error`, `last_sync_at`, `created_at`
+- `core/encryption.py`: `encrypt_token()`, `decrypt_token()`, `fernet_ready()` — uses `cryptography.fernet.Fernet`; returns 503 on all creation/oauth endpoints when key missing
+- `services/integrations/` package: `AbstractConnector` ABC (TypedDicts: `OAuthTokens`, `ConnectorCredentials`, `SyncedChunk`) + `registry.py` (auto-register via `@register` decorator) + per-provider: `google_drive.py`, `notion.py`, `github.py`
+- API routes (`/api/integrations`): `GET/POST /integrations`, `GET/PATCH/DELETE /integrations/{id}`, `POST /integrations/{id}/sync`, `GET /integrations/oauth/start`, `GET /integrations/oauth/callback`
+- OAuth callback (`/api/integrations/oauth/callback`) has **no JWT** authorization — identity from Redis state `intg:state:{uuid4}` → `{user_id, connector_type}`, TTL 600s
+- New config vars: `INTEGRATION_SECRET` (Fernet key, 44-char base64url), `INTEGRATION_REDIRECT_BASE` (default `http://localhost:8000`), `GOOGLE_CLIENT_ID/SECRET`, `NOTION_CLIENT_ID/SECRET`, `GITHUB_CLIENT_ID/SECRET` — all nullable `os.getenv(key, "")`
+- ARQ job `sync_external_source_job(ctx, *, source_id)`: retries with `_RETRY_DELAYS=[5,30,120]`, 401/403 → `needs_reauth` no retry, final failure → `ARQ_JOB_FAILED` counter + `status="error"`; decrypts credentials, refreshes if expired, calls `iter_chunks()`, saves via `StorageManager.save_text()` + `process_file_async()`
+- Scheduler: `run_integration_sync()` enqueues sync for all active sources every 6h (cron `0 */6 * * *`, id `__integration_sync__`)
+- Migration 042: created `external_sources` table with unique index `(user_id, connector_type, resource_id)` and index on `user_id`
 
 ---
 

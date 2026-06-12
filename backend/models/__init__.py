@@ -3,11 +3,12 @@ from .user import User, UserBehaviorProfile, UserGoal, UserInsight, AdminAuditLo
 from .file import File, FileChunk, FileVersion
 from .chat import Conversation, Message, MessageEmbedding, ConversationFile
 from .tools import ToolCallLog
+from .integration import ExternalSource
 from .prompts_scheduled import PromptTemplate, ScheduledPrompt, ScheduledPromptRun
 from .system import SystemConfig
 
 __all__ = [
-    "AdminAuditLog", "Conversation", "ConversationFile", "File", "FileChunk",
+    "AdminAuditLog", "Conversation", "ConversationFile", "ExternalSource", "File", "FileChunk",
     "FileVersion", "Invitation", "MemoryConflict", "Message", "MessageEmbedding", "PromptTemplate",
     "ScheduledPrompt", "ScheduledPromptRun", "SystemConfig", "ToolCallLog",
     "User", "UserBehaviorProfile", "UserGoal", "UserInsight", "UserMemory", "UserMemoryVersion",
