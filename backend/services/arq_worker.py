@@ -271,6 +271,15 @@ async def sync_external_source_job(ctx, *, source_id: str) -> None:
             chunk_count = 0
             async for chunk in connector.iter_chunks(credentials, src.resource_id):
                 storage_path, size_bytes, sha256 = await _storage.save_text(chunk["text"], chunk["filename"])
+
+                existing = await db.scalar(
+                    select(File).where(File.user_id == src.user_id, File.sha256_hash == sha256)
+                )
+                if existing:
+                    from pathlib import Path
+                    Path(storage_path).unlink(missing_ok=True)
+                    continue
+
                 file_record = File(
                     user_id=src.user_id,
                     filename=chunk["filename"],
