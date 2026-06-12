@@ -25,7 +25,7 @@ class GoogleDriveConnector(AbstractConnector):
 
     @classmethod
     def get_auth_url(cls, state: str) -> str:
-        redirect = f"{INTEGRATION_REDIRECT_BASE}/api/integrations/oauth/callback"
+        redirect = f"{INTEGRATION_REDIRECT_BASE}/integrations/oauth/callback"
         return (
             f"{AUTH_URL}?response_type=code"
             f"&client_id={GOOGLE_CLIENT_ID}"
@@ -37,7 +37,7 @@ class GoogleDriveConnector(AbstractConnector):
 
     @classmethod
     async def exchange_code(cls, code: str) -> OAuthTokens:
-        redirect = f"{INTEGRATION_REDIRECT_BASE}/api/integrations/oauth/callback"
+        redirect = f"{INTEGRATION_REDIRECT_BASE}/integrations/oauth/callback"
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 TOKEN_URL,

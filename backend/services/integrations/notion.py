@@ -26,7 +26,7 @@ class NotionConnector(AbstractConnector):
 
     @classmethod
     def get_auth_url(cls, state: str) -> str:
-        redirect = f"{INTEGRATION_REDIRECT_BASE}/api/integrations/oauth/callback"
+        redirect = f"{INTEGRATION_REDIRECT_BASE}/integrations/oauth/callback"
         return (
             f"{AUTH_URL}?client_id={NOTION_CLIENT_ID}"
             f"&redirect_uri={redirect}"
@@ -36,7 +36,7 @@ class NotionConnector(AbstractConnector):
 
     @classmethod
     async def exchange_code(cls, code: str) -> OAuthTokens:
-        redirect = f"{INTEGRATION_REDIRECT_BASE}/api/integrations/oauth/callback"
+        redirect = f"{INTEGRATION_REDIRECT_BASE}/integrations/oauth/callback"
         basic = base64.b64encode(
             f"{NOTION_CLIENT_ID}:{NOTION_CLIENT_SECRET}".encode()
         ).decode()
