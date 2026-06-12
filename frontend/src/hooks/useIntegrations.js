@@ -64,7 +64,7 @@ export default function useIntegrations(token) {
     setErrorMsg('')
     setPopupBlocked(false)
     fetch(`/api/integrations/oauth/start?connector_type=${type}`, { headers: authHeaders })
-      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e?.detail || 'Failed to start OAuth')))
       .then(data => {
         const popup = window.open(data.url, 'oauth_popup', 'width=600,height=700')
         if (!popup) { setPopupBlocked(true); return }
@@ -75,7 +75,7 @@ export default function useIntegrations(token) {
           }
         }, 500)
       })
-      .catch(() => setErrorMsg('Failed to start OAuth'))
+      .catch(msg => setErrorMsg(typeof msg === 'string' ? msg : 'Failed to start OAuth'))
   }
 
   const connectedTypes = useMemo(() => new Set(sources.map(s => s.connector_type)), [sources])

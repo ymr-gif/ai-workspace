@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import GITHUB_CLIENT_ID, GOOGLE_CLIENT_ID, NOTION_CLIENT_ID
 from core.arq_pool import get_arq_pool
 from core.db import get_db
 from core.encryption import decrypt_token, encrypt_token, fernet_ready
@@ -17,6 +18,12 @@ from core.redis_client import get_redis
 from auth.security import get_current_user
 from models import ExternalSource, User
 from services.integrations.registry import get_connector
+
+_CLIENT_ID_MAP: dict[str, tuple[str, str]] = {
+    "google_drive": (GOOGLE_CLIENT_ID, "GOOGLE_CLIENT_ID"),
+    "notion":       (NOTION_CLIENT_ID, "NOTION_CLIENT_ID"),
+    "github":       (GITHUB_CLIENT_ID, "GITHUB_CLIENT_ID"),
+}
 
 logger = logging.getLogger("api.integrations")
 
@@ -203,6 +210,14 @@ async def oauth_start(
         raise HTTPException(status_code=503, detail="Encryption not configured (INTEGRATION_SECRET missing)")
 
     conn_cls = get_connector(connector_type)
+
+    client_id_val, client_id_var = _CLIENT_ID_MAP[connector_type]
+    if not client_id_val:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{connector_type} OAuth not configured — set {client_id_var} in .env",
+        )
+
     state = str(uuid.uuid4())
 
     redis = await get_redis()
