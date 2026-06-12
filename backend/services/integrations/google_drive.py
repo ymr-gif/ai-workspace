@@ -1,3 +1,4 @@
+import time
 from typing import AsyncIterator
 
 import httpx
@@ -54,7 +55,7 @@ class GoogleDriveConnector(AbstractConnector):
             return OAuthTokens(
                 access_token=data["access_token"],
                 refresh_token=data.get("refresh_token"),
-                expires_at=int(data.get("expires_in", 3600)),
+                expires_at=int(time.time()) + int(data.get("expires_in", 3600)),
             )
 
     @classmethod
@@ -76,7 +77,7 @@ class GoogleDriveConnector(AbstractConnector):
             return ConnectorCredentials(
                 access_token=data["access_token"],
                 refresh_token=credentials["refresh_token"],
-                expires_at=int(data.get("expires_in", 3600)),
+                expires_at=int(time.time()) + int(data.get("expires_in", 3600)),
             )
 
     async def iter_chunks(
