@@ -129,7 +129,7 @@ app.include_router(search_router)
 app.include_router(graph_router)
 app.include_router(invite_router)
 app.include_router(webhooks_router, prefix="/api")
-app.include_router(integrations_router, prefix="/api")
+app.include_router(integrations_router)
 app.include_router(webhook_token_router, prefix="/auth/me")
 
 Instrumentator().instrument(app).expose(app, endpoint="/prometheus")
