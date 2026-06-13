@@ -36,7 +36,7 @@ async def _search_files(
             select(
                 FileChunk.id,
                 FileChunk.content,
-                FileModel.id,
+                FileModel.id.label("file_id"),
                 FileModel.filename,
                 (1.0 - FileChunk.embedding.cosine_distance(query_embedding)).label("sim"),
             )

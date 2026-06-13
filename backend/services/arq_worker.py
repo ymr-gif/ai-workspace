@@ -7,7 +7,10 @@ from arq.connections import RedisSettings
 from arq.worker import Retry
 from sqlalchemy import func, select
 
-from config import REDIS_URL
+import httpx
+
+import llm.client as llm_client
+from config import REDIS_URL, REQUEST_TIMEOUT
 from core.db import AsyncSessionLocal
 from models import Conversation, ExternalSource, File, FileChunk, Message, MessageEmbedding, UserInsight, UserMemory, WebhookEvent
 from observability.prom_metrics import ARQ_JOB_FAILED
@@ -297,7 +300,7 @@ async def sync_external_source_job(ctx, *, source_id: str) -> None:
                 )
                 db.add(file_record)
                 await db.flush()
-                asyncio.create_task(process_file_async(file_record.id, storage_path, chunk["mime_type"]))
+                await ctx["redis"].enqueue_job("process_file_job", str(file_record.id), storage_path, chunk["mime_type"])
                 chunk_count += 1
 
             src.last_sync_at = datetime.utcnow()
@@ -335,8 +338,20 @@ async def sync_external_source_job(ctx, *, source_id: str) -> None:
                 await db.commit()
 
 
+async def startup(ctx):
+    llm_client.client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
+
+
+async def shutdown(ctx):
+    if llm_client.client:
+        await llm_client.client.aclose()
+        llm_client.client = None
+
+
 class WorkerSettings:
     functions = [process_file_job, generate_insight_job, re_embed_batch_job, compact_memory_job, extract_preferences_job, update_behavior_profile_job, process_webhook_job, sync_external_source_job]
+    on_startup = startup
+    on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 10
     max_tries = _MAX_TRIES

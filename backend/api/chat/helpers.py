@@ -138,9 +138,7 @@ async def _build_stream_context(
     policy     = get_policy(query_type)
     _act("classify", f"Query type: {query_type}" + (" · reference" if is_ref else ""))
 
-    embed_task = None
-    if req.conversation_id or is_ref or req.file_ids:
-        embed_task = asyncio.create_task(embed_text(req.message, input_type="query"))
+    embed_task = asyncio.create_task(embed_text(req.message, input_type="query"))
 
     history_summary = conv.history_summary or ""
     candidates: list = []
@@ -239,6 +237,16 @@ async def _build_stream_context(
         name_map   = {row[0]: row[1] for row in name_res.all()}
         file_ids   = [fid for fid in req_fids if fid in name_map]
         file_names = [name_map[fid] for fid in file_ids]
+
+    if not file_ids and query_emb:
+        all_res = await db.execute(
+            select(File.id, File.filename)
+            .where(File.user_id == current_user.id, File.upload_status == "ready")
+        )
+        rows = all_res.all()
+        if rows:
+            file_ids   = [r[0] for r in rows]
+            file_names = [r[1] for r in rows]
 
     if file_ids:
         if query_emb:
