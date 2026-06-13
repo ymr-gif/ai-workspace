@@ -27,7 +27,8 @@ async def _search_in_file(
     if not chunks:
         return "No matching content found in this file."
     logger.info("[tools] search_in_file file_id=%s query=%r chunks=%d", file_id, query[:50], len(chunks))
-    return "\n\n---\n\n".join(c["content"] for c in chunks)
+    body = "\n\n---\n\n".join(c["content"] for c in chunks)
+    return f"{body}\n\n[{len(chunks)} chunk(s) matched. Use read_file for full file content.]"
 
 
 async def _search_across_files(db: AsyncSession, conv_id: uuid.UUID, query: str, user_id: int) -> str:
@@ -49,4 +50,5 @@ async def _search_across_files(db: AsyncSession, conv_id: uuid.UUID, query: str,
     if not chunks:
         return "No matching content found across attached files."
     logger.info("[tools] search_across_files conv=%s query=%r chunks=%d", conv_id, query[:50], len(chunks))
-    return "\n\n---\n\n".join(c["content"] for c in chunks)
+    body = "\n\n---\n\n".join(c["content"] for c in chunks)
+    return f"{body}\n\n[{len(chunks)} chunk(s) matched across {len(file_ids)} file(s). Use read_file for full file content.]"
