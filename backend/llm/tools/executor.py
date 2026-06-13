@@ -28,7 +28,7 @@ async def execute_tool(
     result = f"Unknown tool: {name}"
     try:
         if name == "list_files":
-            result = await _list_files(db, conv_id)
+            result = await _list_files(db, conv_id, user_id)
         elif name == "read_file":
             result = await _read_file(db, user_id, uuid.UUID(args["file_id"]))
         elif name == "write_file":
@@ -42,7 +42,7 @@ async def execute_tool(
         elif name == "search_in_file":
             result = await _search_in_file(db, user_id, uuid.UUID(args["file_id"]), args["query"])
         elif name == "search_across_files":
-            result = await _search_across_files(db, conv_id, args["query"])
+            result = await _search_across_files(db, conv_id, args["query"], user_id)
         elif name == "ask_user":
             result = f"{ASK_USER_PREFIX}{args.get('question', '')}"
         elif name == "write_memory":

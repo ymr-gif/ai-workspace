@@ -1,5 +1,18 @@
 # Backend Reference
 
+## Graphify — Mandatory Navigation Rule
+
+`graphify-out/graph.json` exists at project root. **NEVER grep or read source files for codebase exploration without first running graphify query.**
+
+- `graphify query "<question>"` — scoped subgraph for any codebase question
+- `graphify path "<A>" "<B>"` — relationship between two concepts
+- `graphify explain "<concept>"` — focused explanation of a node
+- Raw file reads only after graphify has oriented you, or to modify/debug specific lines
+- After any code change: `graphify update .` (AST-only, no API cost)
+- Applies to subagents — include this rule in every subagent prompt involving code exploration
+
+---
+
 ## Structure
 ```
 ├── main.py                 — lifespan, middleware, router includes
@@ -29,7 +42,7 @@
 │   │   ├── schemas.py      — ChatRequest model
 │   │   ├── router.py       — POST /chat (non-streaming)
 │   │   ├── stream.py       — POST /chat/stream SSE endpoint + event_generator; status="partial" for mid-stream breaks (STREAM_INTERRUPTIONS counter); ALL_MODELS_FAILED counter; saves `pending_question` from `ask_user` event as assistant message content. **Activity trace:** emits `{type:"status", stage, detail, level, ms?}` events for every pipeline step — context-build stages come from `ctx["activity"]` (seeded in `_build_stream_context`, error-surfaced not silently swallowed), live stages (cache/route/budget/model_call/fallback/tool) from `generate_stream`; accumulated into `activity` and persisted as `messages.activity_trace` (JSONB) on the assistant message (done **and** `_persist_abort`). Returned by `GET /conversations/{id}/messages`. No-silent-failures: traced stages emit `level:"error"` instead of `except: pass`.
-│   │   ├── helpers.py      — context build, model resolve, cost cap; auto-resolves expired MemoryConflicts (keep_a); time-based fact salience decay in ranking (not persisted)
+│   │   ├── helpers.py      — context build, model resolve, cost cap; auto-resolves expired MemoryConflicts (keep_a); time-based fact salience decay in ranking (not persisted); query always embedded (no conversation_id gate); global file fallback: when no files explicitly attached, retrieves from ALL user ready files so Drive-synced content is searchable without manual attachment
 │   │   └── background.py   — auto-title, embed, proactive, token/cost calc; _auto_title uses atomic UPDATE...WHERE title=:default (no TOCTOU race)
 │   ├── files/              — upload, ingest-url, search, versions; sha256 dedup
 │   ├── conversations/      — list (?q=), export, PATCH, delete; file attach/detach
@@ -47,7 +60,7 @@
 │   ├── system.py           — /health, /metrics, /hardware + /system/hardware alias (both serve CPU/RAM/GPU/disk/uptime — psutil + pynvml); probe_models_on_startup() pings all MODELS, pre-trips circuit on failure
 │   ├── memory.py           — GET /memory returns active_conflicts count; scan_conflicts sets expires_at=+7d; conflicts auto-resolved keep_a after expiry
 │   ├── export.py            — GET /export/full; builds ZIP in memory with conversations/files/memory/graph data
-│   ├── search.py            — GET /api/search unified search; fans out to files/conversations/memory/graph via asyncio.gather
+│   ├── search.py            — GET /api/search unified search; fans out to files/conversations/memory/graph via asyncio.gather; file search selects FileModel.id.label("file_id") to avoid column name collision with FileChunk.id
 │   ├── goals.py             — CRUD for UserGoal; status filter, conversation linking
 │   ├── scheduled_prompts.py — CRUD for user-defined automated prompts; schedule alias support (daily/weekly/monthly); POST /run trigger
 │   ├── webhooks.py          — POST /api/webhooks/{user_token} (public, no auth); GET/POST/DELETE /auth/me/webhook-token; WebhookEvent insert + ARQ enqueue
@@ -57,7 +70,7 @@
 │   ├── compat.py / templates.py / usage.py / tool_logs.py
 ├── services/
 │   ├── processor.py        — extract→chunk→embed; CPU work in asyncio.to_thread()
-│   ├── arq_worker.py       — _MAX_TRIES=4 (5s/30s/120s); ARQ_JOB_FAILED counter on final failure for all jobs; process_file_job sets upload_status="error" on final failure
+│   ├── arq_worker.py       — _MAX_TRIES=4 (5s/30s/120s); ARQ_JOB_FAILED counter on final failure for all jobs; process_file_job sets upload_status="error" on final failure; WorkerSettings has on_startup/on_shutdown that init/close llm_client.client (httpx) — required for embeddings in worker process; sync job enqueues process_file_job via ctx["redis"].enqueue_job() (NOT asyncio.create_task — tasks silently fail in ARQ context)
 │   ├── re_embed.py         — batches of 100; triggered on startup or /admin/re-embed
 │   ├── file_service.py     — fuzzy-patch, save-version-before-mutate; sync I/O in asyncio.to_thread()
 │   └── scheduler_worker.py — APScheduler cron runner; daily memory compaction at 3 AM UTC; backup via BACKUP_SCHEDULE env (default 2 AM UTC)
@@ -91,7 +104,7 @@
 
 ## AI Agent Tool Loop
 - Trigger: any message when `file_ids` non-empty → always forces reasoning model (70B); 8B cannot reliably use tool results
-- File tools always available when files attached (not keyword-gated); `_needs_file_tools()` no longer gates tool availability
+- File tools always available when files attached (not keyword-gated); `_needs_file_tools()` no longer gates tool availability. `list_files`/`search_across_files` fall back to all user's ready files when none attached to conversation (fixed 2026-06-13)
 
 - Tools (13 total): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `web_search` · `fetch_url`
 - `web_search` is conditionally injected (not always present): requires `WEB_SEARCH_ENABLED=true` **and** `_needs_web_search(message)` keyword match (`latest`, `current`, `today`, `news`, `price`, `weather`, `score`, `trending`, `live`, `breaking`, etc.); dispatches to SearXNG (`GET {SEARXNG_URL}/search?format=json`) or Tavily (`POST https://api.tavily.com/search`) based on `WEB_SEARCH_BACKEND`; returns at most 5 results as `[N] title\nurl\nsnippet`; `done` SSE includes `web_searched: bool` (true if any web_search call executed)
@@ -173,7 +186,8 @@ Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACT
 - API routes (`/api/integrations`): `GET/POST /integrations`, `GET/PATCH/DELETE /integrations/{id}`, `POST /integrations/{id}/sync`, `GET /integrations/oauth/start`, `GET /integrations/oauth/callback`
 - OAuth callback (`/api/integrations/oauth/callback`) has **no JWT** authorization — identity from Redis state `intg:state:{uuid4}` → `{user_id, connector_type}`, TTL 600s
 - New config vars: `INTEGRATION_SECRET` (Fernet key, 44-char base64url), `INTEGRATION_REDIRECT_BASE` (default `http://localhost:8000`), `GOOGLE_CLIENT_ID/SECRET`, `NOTION_CLIENT_ID/SECRET`, `GITHUB_CLIENT_ID/SECRET` — all nullable `os.getenv(key, "")`
-- ARQ job `sync_external_source_job(ctx, *, source_id)`: retries with `_RETRY_DELAYS=[5,30,120]`, 401/403 → `needs_reauth` no retry, final failure → `ARQ_JOB_FAILED` counter + `status="error"`; decrypts credentials, refreshes if expired, calls `iter_chunks()`, saves via `StorageManager.save_text()` + `process_file_async()`
+- ARQ job `sync_external_source_job(ctx, *, source_id)`: retries with `_RETRY_DELAYS=[5,30,120]`, 401/403 → `needs_reauth` no retry, final failure → `ARQ_JOB_FAILED` counter + `status="error"`; decrypts credentials, refreshes if expired (fast-fails to `needs_reauth` if expired AND no refresh_token), calls `iter_chunks()`, saves via `StorageManager.save_text()` + enqueues `process_file_job` via `ctx["redis"].enqueue_job()`
+- Google OAuth auth URL includes `prompt=consent` to guarantee refresh_token on every authorization (without it Google only returns refresh_token on first auth)
 - Scheduler: `run_integration_sync()` enqueues sync for all active sources every 6h (cron `0 */6 * * *`, id `__integration_sync__`)
 - Migration 042: created `external_sources` table with unique index `(user_id, connector_type, resource_id)` and index on `user_id`
 

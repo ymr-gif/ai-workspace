@@ -14,7 +14,7 @@ logger = logging.getLogger("tools")
 MAX_FILE_READ = 100_000
 
 
-async def _list_files(db: AsyncSession, conv_id: uuid.UUID) -> str:
+async def _list_files(db: AsyncSession, conv_id: uuid.UUID, user_id: int) -> str:
     result = await db.execute(
         select(FileModel.id, FileModel.filename, FileModel.size_bytes, FileModel.upload_status)
         .join(ConversationFile, ConversationFile.file_id == FileModel.id)
@@ -22,7 +22,13 @@ async def _list_files(db: AsyncSession, conv_id: uuid.UUID) -> str:
     )
     rows = result.all()
     if not rows:
-        return "No files attached to this conversation."
+        result2 = await db.execute(
+            select(FileModel.id, FileModel.filename, FileModel.size_bytes, FileModel.upload_status)
+            .where(FileModel.user_id == user_id, FileModel.upload_status == "ready")
+        )
+        rows = result2.all()
+    if not rows:
+        return "No files available."
     lines = [
         f"- {r.filename} (id={r.id}, size={r.size_bytes} bytes, status={r.upload_status})"
         for r in rows
