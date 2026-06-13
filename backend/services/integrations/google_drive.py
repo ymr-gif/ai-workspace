@@ -33,6 +33,7 @@ class GoogleDriveConnector(AbstractConnector):
             f"&redirect_uri={redirect}"
             f"&scope={SCOPE}"
             f"&access_type=offline"
+            f"&prompt=consent"
             f"&state={state}"
         )
 

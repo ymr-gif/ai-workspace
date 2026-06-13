@@ -258,6 +258,12 @@ async def sync_external_source_job(ctx, *, source_id: str) -> None:
             }
 
             if credentials.get("expires_at") and credentials["expires_at"] < int(datetime.utcnow().timestamp()):
+                if not credentials.get("refresh_token"):
+                    src.status = "needs_reauth"
+                    src.error = "Access token expired and no refresh token available"
+                    await db.commit()
+                    logger.warning("[arq] sync_source no refresh_token id=%s", source_id)
+                    return
                 credentials = await connector_cls.refresh_tokens(credentials)
                 src.credentials = {
                     "access_token": encrypt_token(credentials["access_token"]),
