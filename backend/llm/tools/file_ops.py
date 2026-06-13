@@ -34,6 +34,7 @@ async def _list_files(db: AsyncSession, conv_id: uuid.UUID, user_id: int) -> str
         for r in rows
     ]
     logger.info("[tools] list_files conv=%s count=%d", conv_id, len(rows))
+    lines.append(f"[{len(rows)} file(s) total. This list is complete — use search_in_file or read_file to access content.]")
     return "\n".join(lines)
 
 
