@@ -13,7 +13,7 @@ from llm.nim import call, call_stream
 from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, WEB_SEARCH_TOOL_SCHEMA, FETCH_URL_TOOL_SCHEMA, WRITE_MEMORY_SCHEMA, DRIVE_TOOL_SCHEMAS, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX
 
 from models import ExternalSource
-from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, _needs_web_search, _needs_drive_tools, apply_context_budget
+from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, _needs_web_search, _needs_drive_tools, _wants_drive_read, apply_context_budget
 
 MAX_TOOL_ITERATIONS = 60
 # Runaway-loop guard: abort when the SAME tool is called with the SAME args
@@ -181,8 +181,10 @@ async def generate_stream(
                 _drive_cache_active = await get_redis().exists(f"drive_listing:{conv_id}")
             except Exception:
                 pass
-        if _drive_active and (_needs_drive_tools(message) or _drive_cache_active):
+        if _drive_active and _needs_drive_tools(message):
             drive_tools = DRIVE_TOOL_SCHEMAS
+        elif _drive_active and _drive_cache_active and _wants_drive_read(message):
+            drive_tools = [t for t in DRIVE_TOOL_SCHEMAS if t["function"]["name"] == "drive_read_file"]
 
     # deduplicate by tool name
     _seen, tools_list = set(), []

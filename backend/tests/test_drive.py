@@ -14,18 +14,28 @@ os.environ.setdefault("DATABASE_URL",   "postgresql+asyncpg://u:p@localhost/db")
 os.environ.setdefault("REDIS_URL",      "redis://localhost:6379/0")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 
-from llm.service.context import _needs_drive_tools
+from llm.service.context import _needs_drive_tools, _wants_drive_read
 
 
 class TestKeywordGating:
-    def test_drive_specific_triggers(self):
+    def test_drive_noun_action_pair(self):
         assert _needs_drive_tools("check my drive")
         assert _needs_drive_tools("open gdrive")
         assert _needs_drive_tools("show sheets")
-        assert _needs_drive_tools("my spreadsheet")
-        assert _needs_drive_tools("google slides")
+        assert _needs_drive_tools("list spreadsheet")
+        assert _needs_drive_tools("find slides")
         assert _needs_drive_tools("presentation file")
         assert _needs_drive_tools("list folders")
+        assert _needs_drive_tools("list my google drive files")
+        assert _needs_drive_tools("browse gdoc")
+        assert _needs_drive_tools("search gdocs")
+
+    def test_noun_only_no_match(self):
+        assert not _needs_drive_tools("my spreadsheet")
+        assert not _needs_drive_tools("google slides")
+        assert not _needs_drive_tools("a drive document")
+        assert not _needs_drive_tools("M1 Live Drive reads poison persistent memory")
+        assert not _needs_drive_tools("the issue is backend, stale memory with 6 symptoms")
 
     def test_no_false_positive_google(self):
         assert not _needs_drive_tools("search google for news")
@@ -38,6 +48,22 @@ class TestKeywordGating:
 
     def test_unrelated_message(self):
         assert not _needs_drive_tools("what is the weather today")
+
+    def test_read_intent(self):
+        assert _wants_drive_read("read JARVIS Test Note")
+        assert _wants_drive_read("open my file")
+        assert _wants_drive_read("show the document")
+        assert _wants_drive_read("view that sheet")
+        assert _wants_drive_read("what's in my drive")
+
+    def test_read_intent_unrelated(self):
+        assert not _wants_drive_read("list my drive files")
+        assert not _wants_drive_read("search for notes")
+        assert not _wants_drive_read("check my drive")
+        assert not _wants_drive_read("")
+
+    def test_apostrophe_stripping(self):
+        assert _needs_drive_tools("what's in my drive")
 
 
 @pytest.mark.asyncio

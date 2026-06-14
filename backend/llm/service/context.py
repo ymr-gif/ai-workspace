@@ -8,17 +8,43 @@ _FILE_OP_KEYWORDS = frozenset({
     "correct", "improve", "refactor", "rename", "review", "check",
 })
 
-_DRIVE_KEYWORDS = frozenset({
+_DRIVE_NOUNS = frozenset({
     "drive", "gdrive",
-    "sheets", "spreadsheet", "spreadsheets",
+    "sheet", "sheets", "spreadsheet", "spreadsheets",
     "slides", "presentation", "presentations",
     "folder", "folders",
+    "gdoc", "gdocs",
+})
+
+_DRIVE_ACTIONS = frozenset({
+    "list", "show", "open", "read", "find", "browse",
+    "search", "check", "files", "file", "view", "fetch",
+    "get", "enumerate", "contents", "what",
+})
+
+_DRIVE_READ_VERBS = frozenset({
+    "read", "open", "show", "view", "display",
+    "summarize", "summarise", "fetch", "get",
+    "contents", "content", "what",
 })
 
 
 def _needs_drive_tools(message: str) -> bool:
-    tokens = set(message.lower().split())
-    return bool(tokens & _DRIVE_KEYWORDS)
+    tokens = set()
+    for t in message.lower().split():
+        tokens.add(t)
+        if t.endswith("'s"):
+            tokens.add(t[:-2])
+    return bool(tokens & _DRIVE_NOUNS) and bool(tokens & _DRIVE_ACTIONS)
+
+
+def _wants_drive_read(message: str) -> bool:
+    tokens = set()
+    for t in message.lower().split():
+        tokens.add(t)
+        if t.endswith("'s"):
+            tokens.add(t[:-2])
+    return bool(tokens & _DRIVE_READ_VERBS)
 
 
 _MEMORY_WRITE_VERBS = frozenset({

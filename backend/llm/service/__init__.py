@@ -1,4 +1,4 @@
-from .context import build_context_messages, _needs_file_tools, _needs_web_search
+from .context import build_context_messages, _needs_file_tools, _needs_web_search, _needs_drive_tools, _wants_drive_read
 from .stream import generate_stream, generate_response, MAX_TOOL_ITERATIONS
 from .compare import compare_streams
 

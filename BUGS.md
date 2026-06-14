@@ -94,3 +94,32 @@ instead of reading. The name→id resolver was invisible to the model.
 - Files: `backend/llm/tools/schemas.py`, `backend/llm/service/stream.py`
 
 ---
+
+## N — Drive listing dumped on non-Drive turns (2026-06-14) — regression from M-series Fix 2
+
+**N1** `[x]` **Full Drive file listing returned in response to unrelated messages** — fixed + verified live
+(A2 "stale memory with 6 symptoms" in a cache-active conv → no tools, no dump; B1 incidental "drive"
+mention → no listing; A3 follow-up "read X" → drive_read_file still works)
+Reproduced in live JARVIS chat: messages with no Drive request ("the issue is backend, stale memory
+with 6 symptoms"; pasted BUGS.md M1 text) caused the model to dump the entire 60-file Drive listing.
+
+Two confirmed triggers:
+- **Cache-active over-injection (regression from §M Fix 2):** Drive tools are injected whenever
+  `drive_listing:{conversation_id}` exists in Redis. That cache has a 3600s TTL, so for ~1h after one
+  listing, EVERY message in the conversation gets the full Drive toolset (incl. `drive_list_files`).
+  The 70B, with the list tool available + history saturated with prior listings, re-lists compulsively.
+  Verified: `_needs_drive_tools("the issue is backend...")=False`, yet listing still dumped → cache path.
+- **Keyword fires on incidental mentions:** `_needs_drive_tools("M1 Live Drive reads poison memory")=True`
+  — the bare word "drive" anywhere triggers a listing even when the user is *discussing* Drive, not
+  requesting files.
+- Compounding: 60-file listings persist verbatim as assistant messages → poison history → bias to re-list.
+
+Fix (planned, HANDOFF — scope 1–3):
+- Cache-active path injects ONLY `drive_read_file` (not list/search) — cache exists ⇒ listing already
+  happened ⇒ follow-up is a read, never a re-list.
+- Gate cache-active read tool behind read-intent (`_wants_drive_read`).
+- Tighten `_needs_drive_tools`: require Drive noun + action verb, not bare "drive".
+- (deferred) de-poison history by persisting listings as a compact reference.
+- Files: `backend/llm/service/stream.py`, `backend/llm/service/context.py`
+
+---
