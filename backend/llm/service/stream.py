@@ -21,6 +21,10 @@ MAX_TOOL_ITERATIONS = 60
 # freely while a true loop (identical repeated call) still trips. Distinct-arg
 # volume is bounded by MAX_TOOL_ITERATIONS.
 _MAX_IDENTICAL_CALLS = 3
+# Listing tools should never need a second identical call — calling the same
+# listing twice in a turn is always a loop.
+_MAX_IDENTICAL_CALLS_LIST = 1
+_LIST_TOOLS = frozenset({"drive_list_files", "drive_search", "list_files"})
 
 logger = logging.getLogger("service")
 
@@ -199,9 +203,18 @@ async def generate_stream(
     else:
         user_msg = {"role": "user", "content": message}
 
+    # Strip aborted-turn markers from history — they confuse the model into
+    # re-calling the same tool trying to "fix" the previous failure.
+    _clean_history = []
+    for msg in (history or []):
+        if msg.get("role") == "assistant" and isinstance(msg.get("content"), str) and msg["content"].startswith("⚠️ Turn aborted"):
+            _clean_history.append({"role": "assistant", "content": "I encountered an error on that request. Please try again."})
+        else:
+            _clean_history.append(msg)
+
     base_messages = build_context_messages(
         memory_sheet, project_summary, retrieved_chunks, history_summary,
-        history, system_prompt, file_chunks, file_names, file_ids,
+        _clean_history, system_prompt, file_chunks, file_names, file_ids,
         graph_context=graph_context,
         graph_facts=graph_facts, active_goals=active_goals,
         conflicted_facts=conflicted_facts, last_session=last_session,
@@ -302,7 +315,8 @@ async def generate_stream(
                     _norm = {k: v for k, v in args.items() if v is not None}
                     sig = (fn_name, json.dumps(_norm, sort_keys=True, default=str))
                     tool_call_counts[sig] = tool_call_counts.get(sig, 0) + 1
-                    if tool_call_counts[sig] > _MAX_IDENTICAL_CALLS:
+                    _call_limit = _MAX_IDENTICAL_CALLS_LIST if fn_name in _LIST_TOOLS else _MAX_IDENTICAL_CALLS
+                    if tool_call_counts[sig] > _call_limit:
                         logger.warning("[service] tool_loop_guard: %s called %d times with identical args, aborting", fn_name, tool_call_counts[sig])
                         yield {"type": "error", "message": f"Tool loop detected: {fn_name} called repeatedly with the same arguments"}
                         return
@@ -344,6 +358,19 @@ async def generate_stream(
                     yield {"type": "tool_result", "name": fn_name, "content": result[:500]}
                     tool_messages.append({"role": "assistant", "tool_calls": [tc]})
                     tool_messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result[:12000]})
+
+                    # After a listing tool returns, force the model to respond in text.
+                    # Without this the 70B model re-calls the listing tool instead of presenting.
+                    if fn_name in ("drive_list_files", "drive_search"):
+                        tool_messages.append({
+                            "role": "system",
+                            "content": (
+                                "You have the Drive file listing above. "
+                                "Respond NOW in plain text: present the file names and types to the user. "
+                                "Note any [unreadable] files. Ask which file(s) they want opened. "
+                                "Do NOT call any tool. Do NOT call drive_list_files again."
+                            ),
+                        })
 
                 if ask_user_triggered:
                     return

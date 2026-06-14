@@ -138,6 +138,8 @@ async def _drive_read_file(db: AsyncSession, user_id: int, file_id: str, max_cha
         src.status = "needs_reauth"
         await db.commit()
         return "Google Drive access expired. Please reconnect via the Integrations panel."
+    if content_resp.status_code == 400:
+        return f"Cannot export '{name}': this file type ({mime_type}) cannot be converted to text. Try a different file."
     content_resp.raise_for_status()
 
     content = content_resp.text
