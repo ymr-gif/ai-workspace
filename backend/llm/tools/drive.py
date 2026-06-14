@@ -13,6 +13,13 @@ logger = logging.getLogger("tools.drive")
 
 DRIVE_API = "https://www.googleapis.com/drive/v3"
 
+_READABLE_MIME_PREFIXES = ("application/vnd.google-apps", "text/")
+_READABLE_MIME_EXACT = {"application/json", "application/xml", "application/javascript"}
+
+
+def _is_readable(mime_type: str) -> bool:
+    return any(mime_type.startswith(p) for p in _READABLE_MIME_PREFIXES) or mime_type in _READABLE_MIME_EXACT
+
 
 async def _load_credentials(db: AsyncSession, user_id: int) -> tuple[ExternalSource | None, dict | None]:
     src = await db.scalar(
@@ -56,7 +63,11 @@ async def _drive_list_files(db: AsyncSession, user_id: int, query: str | None = 
         return "Google Drive access expired. Please reconnect via the Integrations panel."
 
     headers = {"Authorization": f"Bearer {creds['access_token']}"}
-    params = {"fields": "nextPageToken,files(id,name,mimeType,modifiedTime)", "pageSize": 100}
+    params = {
+        "fields": "nextPageToken,files(id,name,mimeType,modifiedTime)",
+        "pageSize": 100,
+        "orderBy": "modifiedTime desc",
+    }
     if query:
         params["q"] = query
 
@@ -78,7 +89,9 @@ async def _drive_list_files(db: AsyncSession, user_id: int, query: str | None = 
 
     lines = []
     for f in files:
-        lines.append(f"- {f['name']} (id={f['id']}, type={f['mimeType']}, modified={f.get('modifiedTime', '?')})")
+        readable = _is_readable(f["mimeType"])
+        tag = "" if readable else " [unreadable — binary format]"
+        lines.append(f"- {f['name']}{tag} (id={f['id']}, type={f['mimeType']}, modified={f.get('modifiedTime', '?')})")
 
     if data.get("nextPageToken"):
         lines.append(f"\n[Showing first {len(files)} files — more exist. Use drive_search to find specific files by content or name. Do not call drive_list_files again. Only call drive_read_file for files directly relevant to the user's request.]")
@@ -109,7 +122,10 @@ async def _drive_read_file(db: AsyncSession, user_id: int, file_id: str, max_cha
     mime_type = meta.get("mimeType", "")
     name = meta.get("name", file_id)
 
-    if mime_type.startswith("application/vnd.google-apps"):
+    if mime_type == "application/vnd.google-apps.spreadsheet":
+        export_url = f"{DRIVE_API}/files/{file_id}/export?mimeType=text/csv"
+        content_resp = await client.get(export_url, headers=headers)
+    elif mime_type.startswith("application/vnd.google-apps"):
         export_url = f"{DRIVE_API}/files/{file_id}/export?mimeType=text/plain"
         content_resp = await client.get(export_url, headers=headers)
     elif mime_type.startswith("text/") or mime_type in ("application/json", "application/xml", "application/javascript"):

@@ -207,6 +207,20 @@ async def generate_stream(
         conflicted_facts=conflicted_facts, last_session=last_session,
     ) + [user_msg]
 
+    if drive_tools:
+        base_messages.insert(1, {
+            "role": "system",
+            "content": (
+                "Rules for Google Drive tools:\n"
+                "- After drive_list_files: present the file names and types to the user. "
+                "Note any marked as [unreadable]. Then ASK the user which file(s) to open — "
+                "do NOT automatically call drive_read_file on any file.\n"
+                "- Only call drive_read_file when the user explicitly names or requests a specific file.\n"
+                "- If drive_read_file returns an error or [unreadable], tell the user and stop — do not retry.\n"
+                "- Never chain drive_list_files → drive_read_file without the user explicitly asking to open a file."
+            ),
+        })
+
     for idx, current_model in enumerate(fallback_chain):
         fallback_used  = idx > 0
         if fallback_used:

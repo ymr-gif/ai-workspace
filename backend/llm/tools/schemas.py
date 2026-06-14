@@ -103,8 +103,8 @@ DRIVE_TOOL_SCHEMAS = [
           []),
     _tool("drive_read_file",
           "Read the full content of a Google Drive file by its ID. "
-          "Only call this for files directly relevant to the user's question. "
-          "Do not read every file from a listing — be selective.",
+          "ONLY call this when the user explicitly names or requests a specific file to read. "
+          "NEVER call this automatically after drive_list_files — always present the list and ask the user first.",
           {"file_id": {"type": "string", "description": "The Drive file ID from drive_list_files or drive_search"}},
           ["file_id"]),
     _tool("drive_search",
