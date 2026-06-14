@@ -52,7 +52,9 @@ async def _read_file(db: AsyncSession, user_id: int, file_id: uuid.UUID) -> str:
         truncated = len(content) == MAX_FILE_READ
         logger.info("[tools] read_file file_id=%s chars=%d truncated=%s", file_id, len(content), truncated)
         if truncated:
-            content += f"\n\n[File truncated at {MAX_FILE_READ:,} characters]"
+            content += f"\n\n[File truncated at {MAX_FILE_READ:,} characters — use search_in_file to find specific sections]"
+        else:
+            content += f"\n\n[Complete file — {len(content):,} chars. No further reads needed.]"
         return content
     except Exception as e:
         logger.warning("[tools] read_file failed file_id=%s err=%s", file_id, e)
