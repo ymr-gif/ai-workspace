@@ -84,40 +84,5 @@ class GoogleDriveConnector(AbstractConnector):
     async def iter_chunks(
         self, credentials: ConnectorCredentials, resource_id: str | None = None
     ) -> AsyncIterator[SyncedChunk]:
-        headers = {"Authorization": f"Bearer {credentials['access_token']}"}
-        folder_id = resource_id or "root"
-
-        q = f"'{folder_id}' in parents and mimeType contains 'text'"
-        url = "https://www.googleapis.com/drive/v3/files"
-        page_token = None
-
-        while True:
-            params: dict = {
-                "q": q,
-                "fields": "nextPageToken,files(id,name,mimeType)",
-                "pageSize": 100,
-            }
-            if page_token:
-                params["pageToken"] = page_token
-
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url, headers=headers, params=params)
-                resp.raise_for_status()
-                data = resp.json()
-
-            for f in data.get("files", []):
-                file_id = f["id"]
-                name = f["name"]
-
-                content_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-                async with httpx.AsyncClient() as client:
-                    content_resp = await client.get(content_url, headers=headers)
-                    if content_resp.status_code != 200:
-                        continue
-                    text = content_resp.text
-
-                yield SyncedChunk(text=text, filename=name, mime_type="text/plain")
-
-            page_token = data.get("nextPageToken")
-            if not page_token:
-                break
+        return
+        yield  # satisfies AsyncIterator type hint

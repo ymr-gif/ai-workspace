@@ -93,6 +93,21 @@ FETCH_URL_TOOL_SCHEMA = [_tool(
     ["url"],
 )]
 
+DRIVE_TOOL_SCHEMAS = [
+    _tool("drive_list_files",
+          "List files in the user's Google Drive. Optionally filter by name or type.",
+          {"query": {"type": "string", "description": "Optional filter (e.g. 'name contains goal')"}},
+          []),
+    _tool("drive_read_file",
+          "Read the full content of a Google Drive file by its ID.",
+          {"file_id": {"type": "string", "description": "The Drive file ID from drive_list_files or drive_search"}},
+          ["file_id"]),
+    _tool("drive_search",
+          "Search Google Drive for files matching a query by content or name.",
+          {"query": {"type": "string", "description": "What to search for"}},
+          ["query"]),
+]
+
 WRITE_MEMORY_SCHEMA = _tool("write_memory", (
     "Propose saving a significant, durable fact about the user to long-term memory. "
     "ONLY call this when the user explicitly says 'remember', 'save', 'store', 'keep in memory', or similar direct instructions. "

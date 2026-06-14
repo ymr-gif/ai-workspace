@@ -3,13 +3,16 @@ import logging
 import time
 import uuid
 
+from sqlalchemy import select
+
 from config import FALLBACK_ORDER, MODEL_VISION, MODELS, WEB_SEARCH_ENABLED
 from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route, get_context_limit
 from llm.nim import call, call_stream
-from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, WEB_SEARCH_TOOL_SCHEMA, FETCH_URL_TOOL_SCHEMA, WRITE_MEMORY_SCHEMA, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX
+from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, WEB_SEARCH_TOOL_SCHEMA, FETCH_URL_TOOL_SCHEMA, WRITE_MEMORY_SCHEMA, DRIVE_TOOL_SCHEMAS, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX
 
+from models import ExternalSource
 from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, _needs_web_search, apply_context_budget
 
 MAX_TOOL_ITERATIONS = 60
@@ -158,9 +161,21 @@ async def generate_stream(
     import re as _re
     fetch_url_tools = FETCH_URL_TOOL_SCHEMA if _re.search(r'https?://', message) else []
 
+    drive_tools = []
+    if db is not None:
+        _drive_active = await db.scalar(
+            select(ExternalSource.id).where(
+                ExternalSource.user_id == user_id,
+                ExternalSource.connector_type == "google_drive",
+                ExternalSource.status == "active",
+            )
+        )
+        if _drive_active:
+            drive_tools = DRIVE_TOOL_SCHEMAS
+
     # deduplicate by tool name
     _seen, tools_list = set(), []
-    for t in (file_tools + web_tools + fetch_url_tools + mem_tools):
+    for t in (file_tools + web_tools + fetch_url_tools + mem_tools + drive_tools):
         n = t["function"]["name"]
         if n not in _seen:
             _seen.add(n)

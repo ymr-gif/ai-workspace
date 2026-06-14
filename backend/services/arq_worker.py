@@ -233,10 +233,7 @@ async def sync_external_source_job(ctx, *, source_id: str) -> None:
     from datetime import datetime
     from core.encryption import decrypt_token, encrypt_token
     from services.integrations.registry import get_connector
-    from services.processor import process_file_async
-    from storage.storage_manager import StorageManager
 
-    _storage = StorageManager()
     attempt = ctx.get("job_try", 1)
 
     async with AsyncSessionLocal() as db:
@@ -276,38 +273,13 @@ async def sync_external_source_job(ctx, *, source_id: str) -> None:
                     src.credentials["refresh_token"] = encrypt_token(credentials["refresh_token"])
                 await db.commit()
 
-            connector = connector_cls()
-            chunk_count = 0
-            async for chunk in connector.iter_chunks(credentials, src.resource_id):
-                storage_path, size_bytes, sha256 = await _storage.save_text(chunk["text"], chunk["filename"])
-
-                existing = await db.scalar(
-                    select(File).where(File.user_id == src.user_id, File.sha256_hash == sha256)
-                )
-                if existing:
-                    from pathlib import Path
-                    Path(storage_path).unlink(missing_ok=True)
-                    continue
-
-                file_record = File(
-                    user_id=src.user_id,
-                    filename=chunk["filename"],
-                    mime_type=chunk["mime_type"],
-                    size_bytes=size_bytes,
-                    storage_path=storage_path,
-                    upload_status="uploaded",
-                    sha256_hash=sha256,
-                )
-                db.add(file_record)
-                await db.flush()
-                await ctx["redis"].enqueue_job("process_file_job", str(file_record.id), storage_path, chunk["mime_type"])
-                chunk_count += 1
+            logger.info("[arq] sync_external_source_oauth_refresh id=%s", source_id)
 
             src.last_sync_at = datetime.utcnow()
             src.status = "active"
             src.error = None
             await db.commit()
-            logger.info("[arq] sync_source done id=%s chunks=%d", source_id, chunk_count)
+            logger.info("[arq] sync_source done id=%s", source_id)
 
         except Exception as e:
             await db.rollback()

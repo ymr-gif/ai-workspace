@@ -59,6 +59,15 @@ async def execute_tool(
             from llm.graph_memory import query_by_term
             term   = args.get("query", "")
             result = (await query_by_term(user_id, term)) or "No entities found for that query."
+        elif name == "drive_list_files":
+            from .drive import _drive_list_files
+            result = await _drive_list_files(db, user_id, args.get("query"))
+        elif name == "drive_read_file":
+            from .drive import _drive_read_file
+            result = await _drive_read_file(db, user_id, args["file_id"])
+        elif name == "drive_search":
+            from .drive import _drive_search
+            result = await _drive_search(db, user_id, args["query"])
     except Exception as e:
         logger.warning("[tools] execute_tool failed name=%s err=%s", name, e)
         result = f"Error: {e}"
