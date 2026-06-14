@@ -56,7 +56,7 @@ async def _drive_list_files(db: AsyncSession, user_id: int, query: str | None = 
         return "Google Drive access expired. Please reconnect via the Integrations panel."
 
     headers = {"Authorization": f"Bearer {creds['access_token']}"}
-    params = {"fields": "files(id,name,mimeType,modifiedTime)", "pageSize": 50}
+    params = {"fields": "nextPageToken,files(id,name,mimeType,modifiedTime)", "pageSize": 100}
     if query:
         params["q"] = query
 
@@ -80,7 +80,10 @@ async def _drive_list_files(db: AsyncSession, user_id: int, query: str | None = 
     for f in files:
         lines.append(f"- {f['name']} (id={f['id']}, type={f['mimeType']}, modified={f.get('modifiedTime', '?')})")
 
-    lines.append(f"\n[{len(files)} file(s). Use drive_read_file with the id to get content.]")
+    if data.get("nextPageToken"):
+        lines.append(f"\n[Showing first {len(files)} files — more exist. Use drive_search to find specific files by content or name. Only call drive_read_file for files directly relevant to the user's request.]")
+    else:
+        lines.append(f"\n[{len(files)} file(s) total. Only call drive_read_file for files directly relevant to the user's request — do not read every file.]")
     return "\n".join(lines)
 
 
@@ -136,7 +139,8 @@ async def _drive_search(db: AsyncSession, user_id: int, query: str) -> str:
         return "Google Drive access expired. Please reconnect via the Integrations panel."
 
     headers = {"Authorization": f"Bearer {creds['access_token']}"}
-    params = {"q": f"fullText contains '{query}'", "fields": "files(id,name,mimeType,modifiedTime)", "pageSize": 50}
+    q_escaped = query.replace("'", "\\'")
+    params = {"q": f"fullText contains '{q_escaped}'", "fields": "nextPageToken,files(id,name,mimeType,modifiedTime)", "pageSize": 100}
 
     client = llm_client.client
     if not client:
@@ -158,5 +162,8 @@ async def _drive_search(db: AsyncSession, user_id: int, query: str) -> str:
     for f in files:
         lines.append(f"- {f['name']} (id={f['id']}, type={f['mimeType']}, modified={f.get('modifiedTime', '?')})")
 
-    lines.append(f"\n[{len(files)} file(s). Use drive_read_file with the id to get content.]")
+    if data.get("nextPageToken"):
+        lines.append(f"\n[Showing first {len(files)} matches — more exist. Refine your query to narrow results. Only call drive_read_file for files directly relevant to the user's request.]")
+    else:
+        lines.append(f"\n[{len(files)} file(s) matched. Only call drive_read_file for files directly relevant to the user's request — do not read every result.]")
     return "\n".join(lines)

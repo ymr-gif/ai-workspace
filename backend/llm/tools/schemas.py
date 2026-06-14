@@ -95,16 +95,23 @@ FETCH_URL_TOOL_SCHEMA = [_tool(
 
 DRIVE_TOOL_SCHEMAS = [
     _tool("drive_list_files",
-          "List files in the user's Google Drive. Optionally filter by name or type.",
-          {"query": {"type": "string", "description": "Optional filter (e.g. 'name contains goal')"}},
+          "List files in the user's Google Drive. The optional query filters by file NAME or type "
+          "(e.g. 'name contains goal') — it is NOT a content search. For content search use drive_search. "
+          "After listing, call drive_read_file ONLY for files directly relevant to the user's request — "
+          "do NOT read every file in the list.",
+          {"query": {"type": "string", "description": "Optional Drive API name/type filter (e.g. \"name contains 'goal'\")"}},
           []),
     _tool("drive_read_file",
-          "Read the full content of a Google Drive file by its ID.",
+          "Read the full content of a Google Drive file by its ID. "
+          "Only call this for files directly relevant to the user's question. "
+          "Do not read every file from a listing — be selective.",
           {"file_id": {"type": "string", "description": "The Drive file ID from drive_list_files or drive_search"}},
           ["file_id"]),
     _tool("drive_search",
-          "Search Google Drive for files matching a query by content or name.",
-          {"query": {"type": "string", "description": "What to search for"}},
+          "Search Google Drive for files containing specific content or matching a name. "
+          "Use this when you need to find files by what they contain. "
+          "After searching, call drive_read_file ONLY for files directly relevant to the user's request.",
+          {"query": {"type": "string", "description": "What to search for in file content or names"}},
           ["query"]),
 ]
 
