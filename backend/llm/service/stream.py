@@ -13,7 +13,7 @@ from llm.nim import call, call_stream
 from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, WEB_SEARCH_TOOL_SCHEMA, FETCH_URL_TOOL_SCHEMA, WRITE_MEMORY_SCHEMA, DRIVE_TOOL_SCHEMAS, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX
 
 from models import ExternalSource
-from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, _needs_web_search, apply_context_budget
+from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, _needs_web_search, _needs_drive_tools, apply_context_budget
 
 MAX_TOOL_ITERATIONS = 60
 # Runaway-loop guard: abort when the SAME tool is called with the SAME args
@@ -170,7 +170,7 @@ async def generate_stream(
                 ExternalSource.status == "active",
             )
         )
-        if _drive_active:
+        if _drive_active and _needs_drive_tools(message):
             drive_tools = DRIVE_TOOL_SCHEMAS
 
     # deduplicate by tool name

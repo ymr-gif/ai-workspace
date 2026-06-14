@@ -8,6 +8,20 @@ _FILE_OP_KEYWORDS = frozenset({
     "correct", "improve", "refactor", "rename", "review", "check",
 })
 
+_DRIVE_KEYWORDS = frozenset({
+    "drive", "gdrive", "google",
+    "docs", "document", "documents",
+    "sheets", "spreadsheet", "spreadsheets",
+    "slides", "presentation", "presentations",
+    "folder", "folders",
+})
+
+
+def _needs_drive_tools(message: str) -> bool:
+    tokens = set(message.lower().split())
+    return bool(tokens & _DRIVE_KEYWORDS)
+
+
 _MEMORY_WRITE_VERBS = frozenset({
     "save", "add", "store", "write", "put", "keep", "insert",
     "remember", "memorize", "record",
