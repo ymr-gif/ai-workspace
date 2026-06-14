@@ -1,21 +1,17 @@
-import json
-import logging
+"""Back-compat entry point for executing a tool by name.
+
+All tools now live in the registry (`builtin/` modules register them). This is a
+thin shim that builds a `ToolContext` and dispatches through `run_tool`, which
+owns the error/result/logging envelope. `ASK_USER_PREFIX` / `CONFIRM_WRITE_PREFIX`
+are re-exported here for existing importers.
+"""
+
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import ToolCallLog
-
-from .file_ops import (
-    _list_files, _read_file, _write_file, _create_file,
-    _append_to_file, _patch_file,
-)
-from .search import _search_in_file, _search_across_files
-
-logger = logging.getLogger("tools")
-
-ASK_USER_PREFIX = "__ASK_USER__:"
-CONFIRM_WRITE_PREFIX = "__CONFIRM_WRITE_MEMORY__:"
+from .registry import run_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX  # noqa: F401 (re-exported)
+from .context_types import ToolContext
 
 
 async def execute_tool(
@@ -25,70 +21,4 @@ async def execute_tool(
     user_id: int,
     conv_id: uuid.UUID,
 ) -> str:
-    result = f"Unknown tool: {name}"
-    try:
-        if name == "list_files":
-            result = await _list_files(db, conv_id, user_id)
-        elif name == "read_file":
-            result = await _read_file(db, user_id, uuid.UUID(args["file_id"]))
-        elif name == "write_file":
-            result = await _write_file(db, user_id, uuid.UUID(args["file_id"]), args["content"])
-        elif name == "create_file":
-            result = await _create_file(db, user_id, conv_id, args["name"], args["content"])
-        elif name == "append_to_file":
-            result = await _append_to_file(db, user_id, uuid.UUID(args["file_id"]), args["content"])
-        elif name == "patch_file":
-            result = await _patch_file(db, user_id, uuid.UUID(args["file_id"]), args["old_text"], args["new_text"])
-        elif name == "search_in_file":
-            result = await _search_in_file(db, user_id, uuid.UUID(args["file_id"]), args["query"])
-        elif name == "search_across_files":
-            result = await _search_across_files(db, conv_id, args["query"], user_id)
-        elif name == "ask_user":
-            result = f"{ASK_USER_PREFIX}{args.get('question', '')}"
-        elif name == "write_memory":
-            result = f"{CONFIRM_WRITE_PREFIX}{args.get('fact', '')}"
-        elif name == "web_search":
-            from llm.tools.web_search import run_web_search
-            results = await run_web_search(args.get("query", ""))
-            lines = [f"[{i+1}] {r['title']}\n{r['url']}\n{r['snippet']}" for i, r in enumerate(results)]
-            return "\n\n".join(lines) if lines else "No results found."
-        elif name == "fetch_url":
-            from llm.tools.fetch_url import run_fetch_url
-            return await run_fetch_url(args.get("url", ""))
-        elif name == "query_graph":
-            from llm.graph_memory import query_by_term
-            term   = args.get("query", "")
-            result = (await query_by_term(user_id, term)) or "No entities found for that query."
-        elif name == "drive_list_files":
-            from .drive import _drive_list_files
-            result = await _drive_list_files(db, user_id, conv_id, args.get("query"))
-        elif name == "drive_read_file":
-            from .drive import _drive_read_file
-            result = await _drive_read_file(db, user_id, conv_id, args["file_id"])
-        elif name == "drive_search":
-            from .drive import _drive_search
-            result = await _drive_search(db, user_id, conv_id, args["query"])
-    except Exception as e:
-        logger.warning("[tools] execute_tool failed name=%s err=%s", name, e)
-        result = f"Error: {e}"
-
-    if result is None:
-        result = "ok"
-    elif not isinstance(result, str):
-        result = json.dumps(result)
-
-    try:
-        preview = result if (result.startswith(ASK_USER_PREFIX) or result.startswith(CONFIRM_WRITE_PREFIX)) else result[:500]
-        db.add(ToolCallLog(
-            user_id=user_id,
-            conversation_id=conv_id,
-            tool_name=name,
-            args=args,
-            result_preview=preview,
-        ))
-        await db.flush()
-    except Exception:
-        await db.rollback()
-        pass
-
-    return result
+    return await run_tool(name, args, ToolContext(db=db, user_id=user_id, conv_id=conv_id))

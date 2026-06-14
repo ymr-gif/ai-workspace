@@ -10,10 +10,10 @@ from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route, get_context_limit
 from llm.nim import call, call_stream
-from llm.tools import TOOL_SCHEMAS, FILE_TOOL_SCHEMAS, WEB_SEARCH_TOOL_SCHEMA, FETCH_URL_TOOL_SCHEMA, WRITE_MEMORY_SCHEMA, DRIVE_TOOL_SCHEMAS, execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX
+from llm.tools import execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX, TOOL_REGISTRY, ToolContext, get_tool
 
 from models import ExternalSource
-from .context import build_context_messages, _needs_file_tools, _needs_memory_tool, _needs_web_search, _needs_drive_tools, _wants_drive_read, apply_context_budget
+from .context import build_context_messages, apply_context_budget, _needs_memory_tool
 
 MAX_TOOL_ITERATIONS = 60
 # Runaway-loop guard: abort when the SAME tool is called with the SAME args
@@ -21,10 +21,7 @@ MAX_TOOL_ITERATIONS = 60
 # freely while a true loop (identical repeated call) still trips. Distinct-arg
 # volume is bounded by MAX_TOOL_ITERATIONS.
 _MAX_IDENTICAL_CALLS = 3
-# Listing tools should never need a second identical call — calling the same
-# listing twice in a turn is always a loop.
-_MAX_IDENTICAL_CALLS_LIST = 1
-_LIST_TOOLS = frozenset({"drive_list_files", "drive_search", "list_files"})
+# Per-tool overrides (e.g. listing tools → 1) come from Tool.max_identical_calls.
 
 logger = logging.getLogger("service")
 
@@ -155,45 +152,41 @@ async def generate_stream(
 
     yield {"type": "status", "stage": "route", "detail": f"Routing → {fallback_chain[0]} ({route_reason})", "level": "info"}
 
-    file_tools = FILE_TOOL_SCHEMAS if (file_ids and db is not None) else []
-
-    # write_memory: reasoning model only + user must explicitly request save (prevents 70B saving on its own initiative)
+    # Resolve async Drive flags ONCE here so each tool's should_inject() stays a
+    # pure, synchronous predicate. Then offer whichever registered tools opt in.
     _is_reasoning = fallback_chain[0] == MODELS["reasoning"]
-    mem_tools = [WRITE_MEMORY_SCHEMA] if (db is not None and _is_reasoning and _needs_memory_tool(message)) else []
-
-    web_tools = WEB_SEARCH_TOOL_SCHEMA if (WEB_SEARCH_ENABLED and _needs_web_search(message)) else []
-    import re as _re
-    fetch_url_tools = FETCH_URL_TOOL_SCHEMA if _re.search(r'https?://', message) else []
-
-    drive_tools = []
+    _drive_active = False
+    _drive_cache_active = False
     if db is not None:
-        _drive_active = await db.scalar(
+        _drive_active = bool(await db.scalar(
             select(ExternalSource.id).where(
                 ExternalSource.user_id == user_id,
                 ExternalSource.connector_type == "google_drive",
                 ExternalSource.status == "active",
             )
-        )
-        _drive_cache_active = False
+        ))
         if _drive_active and conv_id and USE_REDIS:
             try:
                 from core.redis_client import get_redis
-                _drive_cache_active = await get_redis().exists(f"drive_listing:{conv_id}")
+                _drive_cache_active = bool(await get_redis().exists(f"drive_listing:{conv_id}"))
             except Exception:
                 pass
-        if _drive_active and _needs_drive_tools(message):
-            drive_tools = DRIVE_TOOL_SCHEMAS
-        elif _drive_active and _drive_cache_active and _wants_drive_read(message):
-            drive_tools = [t for t in DRIVE_TOOL_SCHEMAS if t["function"]["name"] == "drive_read_file"]
 
-    # deduplicate by tool name
-    _seen, tools_list = set(), []
-    for t in (file_tools + web_tools + fetch_url_tools + mem_tools + drive_tools):
-        n = t["function"]["name"]
-        if n not in _seen:
-            _seen.add(n)
-            tools_list.append(t)
-    tools = tools_list or None
+    _tool_ctx = ToolContext(
+        message=message,
+        history=history or [],
+        db=db,
+        user_id=user_id,
+        conv_id=conv_id,
+        file_ids=tuple(file_ids or ()),
+        is_reasoning=_is_reasoning,
+        web_search_enabled=WEB_SEARCH_ENABLED,
+        use_redis=USE_REDIS,
+        drive_active=_drive_active,
+        drive_cache_active=_drive_cache_active,
+    )
+    injected_tools = [t for t in TOOL_REGISTRY.values() if t.should_inject(_tool_ctx)]
+    tools = [t.schema for t in injected_tools] or None
 
     # Tool-required turns (file ops) must not degrade to 8B — it emits tool
     # calls as plain text instead of using the tool-calling API. Drop llama from the
@@ -229,22 +222,12 @@ async def generate_stream(
         conflicted_facts=conflicted_facts, last_session=last_session,
     ) + [user_msg]
 
-    if drive_tools:
-        base_messages.insert(1, {
-            "role": "system",
-            "content": (
-                "Rules for Google Drive tools:\n"
-                "- After drive_list_files: present the file names and types to the user. "
-                "Note any marked as [unreadable]. Then ASK the user which file(s) to open — "
-                "do NOT automatically call drive_read_file on any file.\n"
-                "- When the user names a file to read or open, call drive_read_file directly with that "
-                "file NAME (the system resolves it to an ID). If files were already listed or searched "
-                "earlier in this conversation, do NOT call drive_list_files again just to get the ID.\n"
-                "- Only call drive_read_file when the user explicitly names or requests a specific file.\n"
-                "- If drive_read_file returns an error or [unreadable], tell the user and stop — do not retry.\n"
-                "- Do not call drive_read_file on files the user has not asked for."
-            ),
-        })
+    # Inject each active tool's behavioral rules once (de-duped) at base_messages[1].
+    _seen_rules: set[str] = set()
+    for t in injected_tools:
+        if t.behavioral_rules and t.behavioral_rules not in _seen_rules:
+            _seen_rules.add(t.behavioral_rules)
+            base_messages.insert(1, {"role": "system", "content": t.behavioral_rules})
 
     for idx, current_model in enumerate(fallback_chain):
         fallback_used  = idx > 0
@@ -329,7 +312,8 @@ async def generate_stream(
                     _norm = {k: v for k, v in args.items() if v is not None}
                     sig = (fn_name, json.dumps(_norm, sort_keys=True, default=str))
                     tool_call_counts[sig] = tool_call_counts.get(sig, 0) + 1
-                    _call_limit = _MAX_IDENTICAL_CALLS_LIST if fn_name in _LIST_TOOLS else _MAX_IDENTICAL_CALLS
+                    _tool_def = get_tool(fn_name)
+                    _call_limit = _tool_def.max_identical_calls if (_tool_def and _tool_def.max_identical_calls is not None) else _MAX_IDENTICAL_CALLS
                     if tool_call_counts[sig] > _call_limit:
                         logger.warning("[service] tool_loop_guard: %s called %d times with identical args, aborting", fn_name, tool_call_counts[sig])
                         yield {"type": "error", "message": f"Tool loop detected: {fn_name} called repeatedly with the same arguments"}
@@ -377,18 +361,11 @@ async def generate_stream(
                     tool_messages.append({"role": "assistant", "tool_calls": [tc]})
                     tool_messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result[:12000]})
 
-                    # After a listing tool returns, force the model to respond in text.
-                    # Without this the 70B model re-calls the listing tool instead of presenting.
-                    if fn_name in ("drive_list_files", "drive_search"):
-                        tool_messages.append({
-                            "role": "system",
-                            "content": (
-                                "You have the Drive file listing above. "
-                                "Respond NOW in plain text: present the file names and types to the user. "
-                                "Note any [unreadable] files. Ask which file(s) they want opened. "
-                                "Do NOT call any tool. Do NOT call drive_list_files again."
-                            ),
-                        })
+                    # After a listing tool returns, force the model to respond in text
+                    # (declared per-tool via post_call_system_msg) — without this the 70B
+                    # re-calls the listing tool instead of presenting.
+                    if _tool_def and _tool_def.post_call_system_msg:
+                        tool_messages.append({"role": "system", "content": _tool_def.post_call_system_msg})
 
                 if ask_user_triggered:
                     return

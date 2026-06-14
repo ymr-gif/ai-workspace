@@ -125,3 +125,16 @@ WRITE_MEMORY_SCHEMA = _tool("write_memory", (
 ), {
     "fact": {"type": "string", "description": "The fact about the user to record."},
 }, ["fact"])
+
+
+# name → schema dict, for the tool registry (builtin tools reference these; zero retyping/drift).
+SCHEMA_BY_NAME = {
+    s["function"]["name"]: s
+    for s in [
+        *TOOL_SCHEMAS,
+        *WEB_SEARCH_TOOL_SCHEMA,
+        *FETCH_URL_TOOL_SCHEMA,
+        *DRIVE_TOOL_SCHEMAS,
+        WRITE_MEMORY_SCHEMA,
+    ]
+}
