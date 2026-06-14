@@ -246,6 +246,60 @@ async def merge_duplicate_entities(user_id: int) -> int:
                 )
             merged += len(to_delete)
 
+    # Second pass: substring/token-subset merge for same-type entities
+    async with driver.session() as session:
+        result = await session.run(
+            "MATCH (e:Entity {user_id: $uid}) RETURN e.name AS name, e.type AS type",
+            uid=user_id,
+        )
+        rows2 = await result.data()
+
+    by_type: dict[str, list[dict]] = {}
+    for row in (rows2 or []):
+        t = row.get("type", "OTHER") or "OTHER"
+        if t == "OTHER":
+            continue
+        by_type.setdefault(t, []).append(row)
+
+    ts2 = datetime.now(timezone.utc).isoformat()
+    for etype, group in by_type.items():
+        if len(group) < 2:
+            continue
+        sorted_group = sorted(group, key=lambda r: len(r["name"]), reverse=True)
+        keep_name = sorted_group[0]["name"]
+        keep_norm = _norm(keep_name)
+        keep_tokens = set(keep_norm.split())
+        to_delete: list[str] = []
+        for row in sorted_group[1:]:
+            name = row["name"]
+            norm = _norm(name)
+            tokens = set(norm.split())
+            if norm in keep_norm or keep_norm in norm or tokens <= keep_tokens or keep_tokens <= tokens:
+                to_delete.append(name)
+        if not to_delete:
+            continue
+        async with driver.session() as session:
+            for del_name in to_delete:
+                await session.run(
+                    "MATCH (dup:Entity {user_id: $uid, name: $del_name})-[r:RELATED_TO]->(target:Entity {user_id: $uid}) "
+                    "MATCH (keep:Entity {user_id: $uid, name: $keep_name}) "
+                    "MERGE (keep)-[:RELATED_TO {type: r.type}]->(target) "
+                    "DELETE r",
+                    uid=user_id, keep_name=keep_name, del_name=del_name,
+                )
+                await session.run(
+                    "MATCH (source:Entity {user_id: $uid})-[r:RELATED_TO]->(dup:Entity {user_id: $uid, name: $del_name}) "
+                    "MATCH (keep:Entity {user_id: $uid, name: $keep_name}) "
+                    "MERGE (source)-[:RELATED_TO {type: r.type}]->(keep) "
+                    "DELETE r",
+                    uid=user_id, keep_name=keep_name, del_name=del_name,
+                )
+                await session.run(
+                    "MATCH (n:Entity {user_id: $uid, name: $del_name}) DETACH DELETE n",
+                    uid=user_id, del_name=del_name,
+                )
+            merged += len(to_delete)
+
     if merged > 0:
         await _cache_del_user(user_id)
 

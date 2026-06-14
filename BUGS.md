@@ -164,4 +164,13 @@ default, reversible (`UserMemoryVersion` + export ZIP + graph dump); `soft` prun
   Verified: dry-run returns report; soft reset archives+prunes+dedups; v67 snapshot preserved.
   Follow-up: `POST /admin/memory/restore` not implemented (manual restore via versions possible).
 
+**O7** `[x]` **Soft-reset prune too narrow — leaves session/node/topic cruft + canvas graph entities** — fixed (60 tests green; live dry-run clean)
+After `level=soft` "succeeded", the sheet `[CORRECTIONS]` still held session/node/topic/tool-loop
+entries (prune only matched literal `canvas`/`session node`/`workspace node`/`output node`), 20+
+canvas entities remained in Neo4j (soft reset dedups but never purges dead-feature entities), and the
+Xeon spec stayed duplicated across 3 prefixed variants (normalizer can't merge prefixed names). Root
+hand-cleaned user_id=1 (sheet 2010→806, graph 259→230). Durable fix delegated (HANDOFF): widen prune
+terms, add graph canvas-purge to soft reset, merge substring/prefixed variants preserving rels.
+- Files: `backend/llm/summarizer/compact.py`, admin memory-reset handler, `backend/llm/graph_memory.py`
+
 ---

@@ -21,16 +21,17 @@
 ├── alembic/versions/       — 042 migrations; latest: 042_external_sources.py (external_sources table)
 ├── auth/                   — JWT, bcrypt (direct, no passlib), API key fallback (SHA-256 hashed), invite validation
 ├── tests/
-│   └── test.py + retrieval/conftest.py + test_hybrid_eval.py — 47 tests, mock DB, no NIM
+│   ├── test.py + test_memory_hygiene.py + test_content_filter.py + test_drive.py — 60 tests (36 memory hygiene, 12 content filter, 11 drive, 1 circuit breaker)
+│   └── retrieval/conftest.py + test_hybrid_eval.py — 26 tests, mock DB, no NIM
 ├── llm/
 │   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=60)
 │   ├── nim.py              — NIM API call, accumulates tool_call deltas
 │   ├── tools/              — 12 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
 │   │   └── schemas.py, executor.py, file_ops.py, search.py
-│   ├── graph_memory.py     — Neo4j extraction (70B model) + query_by_keywords; entity caps: _MAX_ENTITY_NAME_LEN=200, _MAX_ENTITIES_PER_CALL=30, _MAX_RELS_PER_CALL=60, _MAX_USER_ENTITIES=500 (evicts oldest by updated_at); cache key SHA256[:32]; _cache_del_user() busts on write; skips if compact:running:{user_id} Redis lock held; MERGE SET preserves specific type over OTHER
+│   ├── graph_memory.py     — Neo4j extraction (70B model) + query_by_keywords; entity caps: _MAX_ENTITY_NAME_LEN=200, _MAX_ENTITIES_PER_CALL=30, _MAX_RELS_PER_CALL=60, _MAX_USER_ENTITIES=500 (evicts oldest by updated_at); cache key SHA256[:32]; _cache_del_user() busts on write; skips if compact:running:{user_id} Redis lock held; MERGE SET preserves specific type over OTHER; merge_duplicate_entities() has second pass for substring/token-subset same-type dedup with rel preservation
 │   ├── router.py / circuit_breaker.py / embeddings.py — classify, circuit, embed
 │   ├── retriever/          — hybrid vector+BM25 fusion (rrf|weighted); debug param; fusion.py, queries.py, main.py, attachments.py
-│   ├── summarizer/         — memory compression, compaction; prompts.py, memory.py, history.py, project.py, compact.py
+│   ├── summarizer/         — memory compression, compaction; prompts.py, memory.py, history.py, project.py, compact.py; compact.py:_prune_canvas_corrections uses _CANVAS_BLOCKLIST regex + _ALLOWLIST_SUBSTRINGS guard
 │   └── agency.py           — proactive suggestions + insight generation (ARQ)
 ├── cache/                  — Redis primary + LRU fallback; cache-bypass on file/image/model-param
 ├── core/                   — db (pgbouncer: prepared_statement_cache_size=0), redis, arq, neo4j (get_health; pool size=20, timeout=5s)
@@ -55,7 +56,8 @@
 │   │   ├── users.py        — GET/PATCH user routes
 │   │   ├── audit.py        — GET /audit-log
 │   │   ├── env.py          — GET/PUT env vars, reload
-│   │   └── system.py       — POST /re-embed
+│   │   ├── system.py       — POST /re-embed
+│   │   └── memory.py       — POST /memory/reset (soft/hard); _soft_reset includes _purge_canvas_entities() Neo4j cleanup
 │   ├── graph.py            — /graph/stats, /health, /sample (?limit=1-200, ?entity_type=); DELETE /graph/entities/{name}; POST /graph/prune (removes long names + stale OTHER-type entities >7 days)
 │   ├── system.py           — /health, /metrics, /hardware + /system/hardware alias (both serve CPU/RAM/GPU/disk/uptime — psutil + pynvml); probe_models_on_startup() pings all MODELS, pre-trips circuit on failure
 │   ├── memory.py           — GET /memory returns active_conflicts count; scan_conflicts sets expires_at=+7d; conflicts auto-resolved keep_a after expiry

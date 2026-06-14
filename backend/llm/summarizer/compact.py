@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy import text
@@ -16,17 +17,27 @@ logger = logging.getLogger("summarizer")
 
 _MODEL = MODELS["llama"]
 
-_CANVAS_TERMS = frozenset({
-    "canvas", "session node", "workspace node", "output node", "canvas node",
+_CANVAS_BLOCKLIST = re.compile(
+    r'(?i)'
+    r'(?:'
+    r'\bcanvas\b|'
+    r'\bsessions?\b|'
+    r'\bnode[s]?\b|'
+    r'\bworkspace\b|'
+    r'\btopic[s]?\b|'
+    r'\bpanel[s]?\b|'
+    r'Tool loop detected'
+    r')'
+)
+_ALLOWLIST_SUBSTRINGS = frozenset({
+    "node.js", "nodejs", "node version", "node package",
+    "session management", "session timeout", "session key", "session token",
+    "topic model", "topic modeling",
 })
 
 
 def _prune_canvas_corrections(content: str, max_entries: int = 20) -> str:
     import re
-
-    _CANVAS_TERMS = frozenset({
-        "canvas", "session node", "workspace node", "output node", "canvas node",
-    })
 
     corr_pos = content.find("[CORRECTIONS]")
     if corr_pos == -1:
@@ -74,7 +85,9 @@ def _prune_canvas_corrections(content: str, max_entries: int = 20) -> str:
     filtered = []
     pruned = 0
     for entry in raw_entries:
-        if any(term in entry.lower() for term in _CANVAS_TERMS):
+        if _CANVAS_BLOCKLIST.search(entry) and not any(
+            a in entry.lower() for a in _ALLOWLIST_SUBSTRINGS
+        ):
             pruned += 1
         else:
             filtered.append(entry)
