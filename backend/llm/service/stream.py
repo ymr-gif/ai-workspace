@@ -5,7 +5,7 @@ import uuid
 
 from sqlalchemy import select
 
-from config import FALLBACK_ORDER, MODEL_VISION, MODELS, WEB_SEARCH_ENABLED
+from config import FALLBACK_ORDER, MODEL_VISION, MODELS, USE_REDIS, WEB_SEARCH_ENABLED
 from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route, get_context_limit
@@ -174,7 +174,14 @@ async def generate_stream(
                 ExternalSource.status == "active",
             )
         )
-        if _drive_active and _needs_drive_tools(message):
+        _drive_cache_active = False
+        if _drive_active and conv_id and USE_REDIS:
+            try:
+                from core.redis_client import get_redis
+                _drive_cache_active = await get_redis().exists(f"drive_listing:{conv_id}")
+            except Exception:
+                pass
+        if _drive_active and (_needs_drive_tools(message) or _drive_cache_active):
             drive_tools = DRIVE_TOOL_SCHEMAS
 
     # deduplicate by tool name
@@ -253,6 +260,8 @@ async def generate_stream(
         tool_call_counts: dict[tuple[str, str], int] = {}
         _web_searched = False
         _url_fetched  = False
+        _drive_read = False
+        _drive_file_name = ""
 
         for _tool_iter in range(MAX_TOOL_ITERATIONS):
             accumulated      = []
@@ -333,7 +342,7 @@ async def generate_stream(
                     if result.startswith(ASK_USER_PREFIX):
                         question = result[len(ASK_USER_PREFIX):]
                         yield {"type": "ask_user", "question": question}
-                        done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched, "url_fetched": _url_fetched}
+                        done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched, "url_fetched": _url_fetched, "drive_read": _drive_read, "drive_file_name": _drive_file_name}
                         if nim_usage:
                             done_ev["usage"] = nim_usage
                         yield done_ev
@@ -343,7 +352,7 @@ async def generate_stream(
                     if result.startswith(CONFIRM_WRITE_PREFIX):
                         fact = result[len(CONFIRM_WRITE_PREFIX):]
                         yield {"type": "confirm_write_memory", "fact": fact}
-                        done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched, "url_fetched": _url_fetched}
+                        done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched, "url_fetched": _url_fetched, "drive_read": _drive_read, "drive_file_name": _drive_file_name}
                         if nim_usage:
                             done_ev["usage"] = nim_usage
                         yield done_ev
@@ -354,6 +363,10 @@ async def generate_stream(
                         _web_searched = True
                     if fn_name == "fetch_url":
                         _url_fetched = True
+                    if fn_name == "drive_read_file":
+                        _drive_read = True
+                        if result.startswith("--- ") and " ---" in result:
+                            _drive_file_name = result[4:result.index(" ---")]
 
                     yield {"type": "tool_result", "name": fn_name, "content": result[:500]}
                     tool_messages.append({"role": "assistant", "tool_calls": [tc]})
@@ -403,7 +416,7 @@ async def generate_stream(
             if fallback_used:
                 metrics.record_fallback()
 
-            done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched, "url_fetched": _url_fetched}
+            done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched, "url_fetched": _url_fetched, "drive_read": _drive_read, "drive_file_name": _drive_file_name}
             if nim_usage:
                 done_ev["usage"] = nim_usage
             yield done_ev

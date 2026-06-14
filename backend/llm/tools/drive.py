@@ -1,9 +1,14 @@
+import asyncio
+import json
+import re
 import time
 import logging
+import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import USE_REDIS
 from core.encryption import decrypt_token, encrypt_token
 from llm import client as llm_client
 from models import ExternalSource
@@ -55,7 +60,40 @@ async def _load_credentials(db: AsyncSession, user_id: int) -> tuple[ExternalSou
     return src, creds
 
 
-async def _drive_list_files(db: AsyncSession, user_id: int, query: str | None = None) -> str:
+_GOOGLE_DRIVE_ID_RE = re.compile(r'^[A-Za-z0-9_-]{20,}$')
+
+
+async def _cache_drive_listing(conv_id: uuid.UUID, files: list[dict]) -> None:
+    if not USE_REDIS:
+        return
+    try:
+        from core.redis_client import get_redis
+        redis = get_redis()
+        mapping = {f["name"]: json.dumps({"id": f["id"], "mimeType": f.get("mimeType", ""), "modifiedTime": f.get("modifiedTime", "")}) for f in files}
+        key = f"drive_listing:{conv_id}"
+        await redis.hset(key, mapping=mapping)
+        await redis.expire(key, 3600)
+    except Exception:
+        logger.warning("[drive] cache failed conv=%s", conv_id)
+
+
+async def _lookup_drive_id(conv_id: uuid.UUID, name_or_id: str) -> str | None:
+    if _GOOGLE_DRIVE_ID_RE.match(name_or_id):
+        return name_or_id
+    if not USE_REDIS or not conv_id:
+        return None
+    try:
+        from core.redis_client import get_redis
+        redis = get_redis()
+        data = await redis.hget(f"drive_listing:{conv_id}", name_or_id)
+        if data:
+            return json.loads(data)["id"]
+    except Exception:
+        pass
+    return None
+
+
+async def _drive_list_files(db: AsyncSession, user_id: int, conv_id: uuid.UUID, query: str | None = None) -> str:
     src, creds = await _load_credentials(db, user_id)
     if not src:
         return "Google Drive not connected. Please connect via the Integrations panel."
@@ -87,6 +125,8 @@ async def _drive_list_files(db: AsyncSession, user_id: int, query: str | None = 
     if not files:
         return "No files found."
 
+    asyncio.create_task(_cache_drive_listing(conv_id, files))
+
     lines = []
     for f in files:
         readable = _is_readable(f["mimeType"])
@@ -100,7 +140,11 @@ async def _drive_list_files(db: AsyncSession, user_id: int, query: str | None = 
     return "\n".join(lines)
 
 
-async def _drive_read_file(db: AsyncSession, user_id: int, file_id: str, max_chars: int = 12000) -> str:
+async def _drive_read_file(db: AsyncSession, user_id: int, conv_id: uuid.UUID, file_id: str, max_chars: int = 12000) -> str:
+    resolved = await _lookup_drive_id(conv_id, file_id)
+    if resolved:
+        file_id = resolved
+
     src, creds = await _load_credentials(db, user_id)
     if not src:
         return "Google Drive not connected. Please connect via the Integrations panel."
@@ -149,7 +193,7 @@ async def _drive_read_file(db: AsyncSession, user_id: int, file_id: str, max_cha
     return f"--- {name} ---\n{content}"
 
 
-async def _drive_search(db: AsyncSession, user_id: int, query: str) -> str:
+async def _drive_search(db: AsyncSession, user_id: int, conv_id: uuid.UUID, query: str) -> str:
     src, creds = await _load_credentials(db, user_id)
     if not src:
         return "Google Drive not connected. Please connect via the Integrations panel."
@@ -175,6 +219,8 @@ async def _drive_search(db: AsyncSession, user_id: int, query: str) -> str:
     files = data.get("files", [])
     if not files:
         return "No files found matching that query."
+
+    asyncio.create_task(_cache_drive_listing(conv_id, files))
 
     lines = []
     for f in files:

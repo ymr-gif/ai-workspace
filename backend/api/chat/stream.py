@@ -248,6 +248,8 @@ async def chat_stream(
                     cache_hit     = event.get("cache_hit", False)
                     fallback_used = event.get("fallback_used", False)
                     full_response = "".join(accumulated)
+                    drive_read    = event.get("drive_read", False)
+                    drive_file_name = event.get("drive_file_name", "")
 
                     try:
                         pt, ct, tt, cost = _calculate_tokens_and_cost(event, ctx, req, full_response, model_used)
@@ -263,9 +265,19 @@ async def chat_stream(
                         await db.commit()
                         turn_recorded = True
                         record_tokens(model_used, pt, ct, cost)
-                        asyncio.create_task(_embed_exchange(asst_msg.id, conv.id, req.message, full_response))
-                        from llm.graph_memory import extract_and_store as _graph_extract
-                        asyncio.create_task(_graph_extract(current_user.id, req.message, full_response))
+
+                        # Drive-read turns: write a REFERENCE, not the body, to avoid
+                        # poisoning persistent memory with stale snapshots. The live
+                        # tool is the only source of Drive content.
+                        if drive_read:
+                            _drive_ref = f"User viewed Drive file '{drive_file_name}' — content fetched live, not cached." if drive_file_name else "User viewed a Drive file — content fetched live, not cached."
+                            asyncio.create_task(_embed_exchange(asst_msg.id, conv.id, req.message, _drive_ref))
+                            from llm.graph_memory import extract_and_store as _graph_extract
+                            asyncio.create_task(_graph_extract(current_user.id, req.message, _drive_ref))
+                        else:
+                            asyncio.create_task(_embed_exchange(asst_msg.id, conv.id, req.message, full_response))
+                            from llm.graph_memory import extract_and_store as _graph_extract
+                            asyncio.create_task(_graph_extract(current_user.id, req.message, full_response))
 
                         cnt       = await db.execute(select(func.count()).select_from(Message).where(Message.conversation_id == conv.id))
                         all_count = cnt.scalar_one()
@@ -279,11 +291,12 @@ async def chat_stream(
                             ctx["memory_sheet"], ctx["project_summary"], ctx["history_summary"],
                             *[m["content"] for m in ctx["history"]], req.message, full_response,
                         )
-                        if ctx_tokens > 4000 or (all_count > 10 and all_count % 15 == 0):
-                            asyncio.create_task(compress_history(conv.id))
-                            asyncio.create_task(update_project_summary(current_user.id))
-                        if ctx_tokens > 3000 or asst_count % 10 == 0:
-                            asyncio.create_task(update_memory(current_user.id, conv.id))
+                        if not drive_read:
+                            if ctx_tokens > 4000 or (all_count > 10 and all_count % 15 == 0):
+                                asyncio.create_task(compress_history(conv.id))
+                                asyncio.create_task(update_project_summary(current_user.id))
+                            if ctx_tokens > 3000 or asst_count % 10 == 0:
+                                asyncio.create_task(update_memory(current_user.id, conv.id))
 
                         # Enqueue background insight every 10 assistant messages
                         if asst_count % 10 == 0:

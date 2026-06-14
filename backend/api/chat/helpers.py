@@ -13,6 +13,7 @@ from llm import retriever
 from llm.embeddings import embed as embed_text
 from llm.router import classify_query
 from llm.retriever.policy import get_policy
+from llm.service.context import _needs_file_tools
 from llm.summarizer.salience import bump_fact_saliences, compute_salience, score_facts
 from models import Conversation, File, MemoryConflict, Message, User, UserGoal, UserMemory
 
@@ -238,7 +239,7 @@ async def _build_stream_context(
         file_ids   = [fid for fid in req_fids if fid in name_map]
         file_names = [name_map[fid] for fid in file_ids]
 
-    if not file_ids and query_emb:
+    if not file_ids and query_emb and _needs_file_tools(req.message):
         all_res = await db.execute(
             select(File.id, File.filename)
             .where(File.user_id == current_user.id, File.upload_status == "ready")

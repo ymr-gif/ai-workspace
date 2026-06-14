@@ -9,8 +9,7 @@ _FILE_OP_KEYWORDS = frozenset({
 })
 
 _DRIVE_KEYWORDS = frozenset({
-    "drive", "gdrive", "google",
-    "docs", "document", "documents",
+    "drive", "gdrive",
     "sheets", "spreadsheet", "spreadsheets",
     "slides", "presentation", "presentations",
     "folder", "folders",
