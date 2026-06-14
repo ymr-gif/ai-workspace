@@ -81,9 +81,9 @@ async def _drive_list_files(db: AsyncSession, user_id: int, query: str | None = 
         lines.append(f"- {f['name']} (id={f['id']}, type={f['mimeType']}, modified={f.get('modifiedTime', '?')})")
 
     if data.get("nextPageToken"):
-        lines.append(f"\n[Showing first {len(files)} files — more exist. Use drive_search to find specific files by content or name. Only call drive_read_file for files directly relevant to the user's request.]")
+        lines.append(f"\n[Showing first {len(files)} files — more exist. Use drive_search to find specific files by content or name. Do not call drive_list_files again. Only call drive_read_file for files directly relevant to the user's request.]")
     else:
-        lines.append(f"\n[{len(files)} file(s) total. Only call drive_read_file for files directly relevant to the user's request — do not read every file.]")
+        lines.append(f"\n[{len(files)} file(s) total. This listing is complete — do not call drive_list_files again. Only call drive_read_file for files directly relevant to the user's request.]")
     return "\n".join(lines)
 
 
@@ -163,7 +163,7 @@ async def _drive_search(db: AsyncSession, user_id: int, query: str) -> str:
         lines.append(f"- {f['name']} (id={f['id']}, type={f['mimeType']}, modified={f.get('modifiedTime', '?')})")
 
     if data.get("nextPageToken"):
-        lines.append(f"\n[Showing first {len(files)} matches — more exist. Refine your query to narrow results. Only call drive_read_file for files directly relevant to the user's request.]")
+        lines.append(f"\n[Showing first {len(files)} matches — more exist. Refine your query to narrow results. Do not repeat this search. Only call drive_read_file for files directly relevant to the user's request.]")
     else:
-        lines.append(f"\n[{len(files)} file(s) matched. Only call drive_read_file for files directly relevant to the user's request — do not read every result.]")
+        lines.append(f"\n[{len(files)} file(s) matched. Search complete — do not call drive_search again with the same query. Only call drive_read_file for files directly relevant to the user's request.]")
     return "\n".join(lines)
