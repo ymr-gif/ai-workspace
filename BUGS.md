@@ -122,6 +122,18 @@ Fix (planned, HANDOFF — scope 1–3):
 - (deferred) de-poison history by persisting listings as a compact reference.
 - Files: `backend/llm/service/stream.py`, `backend/llm/service/context.py`
 
+**N2** `[x]` **Drive request ending in punctuation didn't trigger Drive tools** — found verifying the
+old tool-loop is gone. The M2/N1 noun+action gate matched exact whitespace tokens (only `'s` stripped),
+so `"drive?"`/`"drive!"` ≠ `"drive"` → `"can you check my drive?"`, `"...inside my google drive?"`
+silently produced no tools (soft "I'm not aware of your Drive files"). Strictly better than the old
+loop, but breaks casual phrasing.
+- Fix: `_drive_tokens()` strips surrounding punctuation (`"'.,!?;:()[]{}…`) before noun/action/read
+  matching; both `_needs_drive_tools` + `_wants_drive_read` route through it.
+- Verified live: old loop triggers (`listing down my files in google drive?`, `check 5 files inside my
+  google drive?`, `can you check my drive?`, `read JARVIS Test Note.`) → single correct tool call,
+  no loop/abort/denial. 14 drive tests green.
+- Files: `backend/llm/service/context.py`
+
 ---
 
 ## O — Memory hygiene epic (2026-06-14) — diagnosed from realtime JARVIS chat

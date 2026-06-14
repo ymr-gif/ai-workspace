@@ -29,22 +29,29 @@ _DRIVE_READ_VERBS = frozenset({
 })
 
 
-def _needs_drive_tools(message: str) -> bool:
-    tokens = set()
-    for t in message.lower().split():
-        tokens.add(t)
+_DRIVE_STRIP = "\"'.,!?;:()[]{}…"
+
+
+def _drive_tokens(message: str) -> set[str]:
+    # whitespace split + strip surrounding punctuation so "drive?" matches "drive"
+    out: set[str] = set()
+    for raw in message.lower().split():
+        t = raw.strip(_DRIVE_STRIP)
+        if not t:
+            continue
+        out.add(t)
         if t.endswith("'s"):
-            tokens.add(t[:-2])
+            out.add(t[:-2])
+    return out
+
+
+def _needs_drive_tools(message: str) -> bool:
+    tokens = _drive_tokens(message)
     return bool(tokens & _DRIVE_NOUNS) and bool(tokens & _DRIVE_ACTIONS)
 
 
 def _wants_drive_read(message: str) -> bool:
-    tokens = set()
-    for t in message.lower().split():
-        tokens.add(t)
-        if t.endswith("'s"):
-            tokens.add(t[:-2])
-    return bool(tokens & _DRIVE_READ_VERBS)
+    return bool(_drive_tokens(message) & _DRIVE_READ_VERBS)
 
 
 _MEMORY_WRITE_VERBS = frozenset({
