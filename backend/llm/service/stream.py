@@ -235,9 +235,12 @@ async def generate_stream(
                 "- After drive_list_files: present the file names and types to the user. "
                 "Note any marked as [unreadable]. Then ASK the user which file(s) to open — "
                 "do NOT automatically call drive_read_file on any file.\n"
+                "- When the user names a file to read or open, call drive_read_file directly with that "
+                "file NAME (the system resolves it to an ID). If files were already listed or searched "
+                "earlier in this conversation, do NOT call drive_list_files again just to get the ID.\n"
                 "- Only call drive_read_file when the user explicitly names or requests a specific file.\n"
                 "- If drive_read_file returns an error or [unreadable], tell the user and stop — do not retry.\n"
-                "- Never chain drive_list_files → drive_read_file without the user explicitly asking to open a file."
+                "- Do not call drive_read_file on files the user has not asked for."
             ),
         })
 

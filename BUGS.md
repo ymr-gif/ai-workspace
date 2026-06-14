@@ -81,4 +81,16 @@ OAuth + sets `last_sync_at`. The stale doc is why HANDOFF authors kept assuming 
 - Followup (minor, non-blocking): one test (`test_drive_read_file_resolves_name_from_cache`) emits a
   RuntimeWarning from an un-awaited AsyncMock in the fixture — production code awaits correctly; tidy the mock.
 
+**M6** `[x]` **Follow-up "read X" re-listed instead of reading** — found by live freshness check, fixed
+The L1/L2 plumbing worked (tools injected on follow-up, server-side name→id resolver present) but the
+model never reached the read path: `drive_read_file`'s schema said `file_id` must be "the ID from
+drive_list_files", so on a follow-up turn the model re-called `drive_list_files` to obtain an ID
+instead of reading. The name→id resolver was invisible to the model.
+- Fix: `schemas.py` — advertise that `drive_read_file` accepts the exact file NAME from a prior
+  listing (system resolves it); `stream.py` injected rules — add "name a file → call drive_read_file
+  directly with the name; do not re-list".
+- Verified live: turn 2 "read JARVIS Test Note" (no Drive keyword) → single `drive_read_file`,
+  `drive_read=True`, fresh body returned; pgvector stored only a reference, not the body.
+- Files: `backend/llm/tools/schemas.py`, `backend/llm/service/stream.py`
+
 ---

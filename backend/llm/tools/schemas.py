@@ -102,10 +102,12 @@ DRIVE_TOOL_SCHEMAS = [
           {"query": {"type": "string", "description": "Optional Drive API name/type filter (e.g. \"name contains 'goal'\")"}},
           []),
     _tool("drive_read_file",
-          "Read the full content of a Google Drive file by its ID. "
-          "ONLY call this when the user explicitly names or requests a specific file to read. "
-          "NEVER call this automatically after drive_list_files — always present the list and ask the user first.",
-          {"file_id": {"type": "string", "description": "The Drive file ID from drive_list_files or drive_search"}},
+          "Read the full content of a Google Drive file. Accepts the file's Drive ID, OR — if files were "
+          "already listed or searched earlier in this conversation — the exact file NAME (the system resolves "
+          "the name to its ID). When the user names a file to read, call this DIRECTLY with that name; do NOT "
+          "call drive_list_files again just to obtain an ID you can already resolve. "
+          "ONLY call this when the user explicitly names or requests a specific file to read.",
+          {"file_id": {"type": "string", "description": "The Drive file ID, or the exact file name from a prior listing/search in this conversation"}},
           ["file_id"]),
     _tool("drive_search",
           "Search Google Drive for files containing specific content or matching a name. "
