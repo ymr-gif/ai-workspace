@@ -52,8 +52,8 @@ async def _compress_history(db: AsyncSession, conversation_id: uuid.UUID) -> Non
 
     summary = (result.get("content") or "").strip()
     words   = summary.split()
-    if len(words) > 200:
-        summary = " ".join(words[:200])
+    if len(words) > 500:
+        summary = " ".join(words[:500])
 
     conv = await db.get(Conversation, conversation_id)
     if conv:

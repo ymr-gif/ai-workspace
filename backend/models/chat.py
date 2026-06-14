@@ -17,6 +17,8 @@ class Conversation(Base):
     memory_enabled: Mapped[bool]        = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     system_prompt:  Mapped[str | None]  = mapped_column(Text, nullable=True)
     locked_model:   Mapped[str | None]  = mapped_column(String(100), nullable=True)
+    is_archived:    Mapped[bool]        = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    archived_at:    Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at:     Mapped[datetime]    = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at:     Mapped[datetime]    = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

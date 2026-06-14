@@ -26,7 +26,10 @@ async def list_conversations(
 ):
     stmt = (
         select(Conversation)
-        .where(Conversation.user_id == current_user.id)
+        .where(
+            Conversation.user_id == current_user.id,
+            Conversation.is_archived == False,
+        )
         .order_by(Conversation.updated_at.desc())
         .limit(100)
     )

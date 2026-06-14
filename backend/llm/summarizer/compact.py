@@ -16,6 +16,97 @@ logger = logging.getLogger("summarizer")
 
 _MODEL = MODELS["llama"]
 
+_CANVAS_TERMS = frozenset({
+    "canvas", "session node", "workspace node", "output node", "canvas node",
+})
+
+
+def _prune_canvas_corrections(content: str, max_entries: int = 20) -> str:
+    import re
+
+    _CANVAS_TERMS = frozenset({
+        "canvas", "session node", "workspace node", "output node", "canvas node",
+    })
+
+    corr_pos = content.find("[CORRECTIONS]")
+    if corr_pos == -1:
+        return content
+
+    after_corr = content[corr_pos + len("[CORRECTIONS]"):]
+
+    next_sec = re.search(r'\[[A-Z][A-Z_]+\]', after_corr)
+    if next_sec:
+        corr_body = after_corr[:next_sec.start()].strip()
+        suffix = after_corr[next_sec.start():]
+    else:
+        corr_body = after_corr.strip()
+        suffix = ""
+
+    if not corr_body:
+        return content
+
+    body_lines = corr_body.split("\n")
+
+    is_inline = len(body_lines) <= 1 and " - " in corr_body
+
+    if is_inline:
+        parts = corr_body.split(" - ")
+        descriptor = parts[0]
+        raw_entries = parts[1:]
+    else:
+        descriptor = ""
+        raw_entries = []
+        for ln in body_lines:
+            s = ln.strip()
+            if not s:
+                continue
+            if s.startswith("- "):
+                s = s[2:]
+            elif s.startswith("-"):
+                s = s[1:]
+            if not descriptor and not s.startswith("-") and (
+                s.endswith(":") or "errors" in s or "corrections" in s or "corrected" in s
+            ):
+                descriptor = s
+                continue
+            raw_entries.append(s)
+
+    filtered = []
+    pruned = 0
+    for entry in raw_entries:
+        if any(term in entry.lower() for term in _CANVAS_TERMS):
+            pruned += 1
+        else:
+            filtered.append(entry)
+
+    if pruned == 0:
+        return content
+
+    to_keep = filtered[-max_entries:]
+
+    if is_inline:
+        if not to_keep:
+            new_corr = ""
+            result = content[:corr_pos].rstrip() + suffix
+        else:
+            new_corr = "[CORRECTIONS] " + descriptor + " - " + " - ".join(to_keep)
+            result = content[:corr_pos] + new_corr + suffix
+    else:
+        if not to_keep:
+            new_corr = ""
+            result = content[:corr_pos].rstrip() + suffix
+        else:
+            lines = []
+            if descriptor:
+                lines.append(descriptor)
+            for e in to_keep:
+                lines.append("- " + e)
+            new_corr = "[CORRECTIONS]\n" + "\n".join(lines)
+            result = content[:corr_pos] + new_corr + "\n" + suffix
+
+    result = re.sub(r'\n{3,}', "\n\n", result)
+    return result
+
 
 async def compact_memory(user_id: int) -> None:
     lock_key = f"compact:running:{user_id}"
@@ -54,6 +145,12 @@ async def _compact_memory(db: AsyncSession, user_id: int) -> None:
     if len(current.split()) < 100:
         logger.info("[summarizer] compact skip user_id=%s too small (%d words)", user_id, len(current.split()))
         return
+
+    pruned = _prune_canvas_corrections(current)
+    if pruned != current:
+        row.content = pruned
+        current = pruned
+        logger.info("[summarizer] pruned Canvas corrections user_id=%s", user_id)
 
     row.salience = decay_salience(row.salience)
     row.fact_saliences = decay_fact_saliences(row.fact_saliences or {})

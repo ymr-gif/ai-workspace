@@ -123,3 +123,45 @@ Fix (planned, HANDOFF — scope 1–3):
 - Files: `backend/llm/service/stream.py`, `backend/llm/service/context.py`
 
 ---
+
+## O — Memory hygiene epic (2026-06-14) — diagnosed from realtime JARVIS chat
+
+Surfaced by the live JARVIS chat (off-by-one symptom recital, lost thread, canvas bleed). Verified
+against DB/graph. Epic plan + safe-reset tooling in HANDOFF.md (delegated to backend). Evidence:
+mega-conversation `c01258e8` = 9 days / 206 msgs / 335k tokens / 16 tool-loop aborts (72% of all
+admin msgs); 816-char summary; sheet `[CORRECTIONS]` ~80% dead Canvas errors; duplicate Neo4j
+entities (5 Xeon/P40 variants); `message_embeddings` global per user → cross-conversation bleed.
+
+**O1** `[x]` **Sheet choked by dead-Canvas `[CORRECTIONS]`** (Canvas removed 2026-06-09; never purged)
+→ crowds out current facts; compaction doesn't prune obsolete/removed-feature entries.
+— Fixed by S1: `_prune_canvas_corrections()` (including inline-format bug fix 2026-06-14).
+  Verified: memory sheet pruned 3460→2009 chars, 0 canvas terms remain.
+
+**O2** `[x]` **Cross-conversation RAG bleed** — `message_embeddings` is global per user, no
+conversation scoping/recency weighting → other threads' content recalled as if in this one.
+— Fixed by S2: `retrieve_global()` filters `Conversation.is_archived == False`.
+  Verified: 5 archived convs excluded from RAG pool.
+
+**O3** `[x]` **Bulky tool outputs persisted verbatim** (Drive/file listings) → history poison
+(formerly N1 deferred #4). Store a compact reference for history context.
+— Fixed by S3: `compress_tool_dumps()` in `content_filter.py`, wired in `stream.py:256`.
+  Verified: 10 unit tests pass; large code blocks (>20 lines) replaced with `[~s3~]` references.
+
+**O4** `[x]` **Unbounded conversations + over-lossy summaries (highest impact)** — no rotation/length
+cap; one thread accrues days of content; 816-char summary can't recover detail → context degrades
+(off-by-one, lost thread, pre-emption).
+— Fixed by S4: rotation thresholds (msgs>80 OR tokens>120k OR idle>3d); summary budget 200→500 words.
+  Verified: `c01258e8` (206 msgs, 335k tokens) archived at reset; 5 convs rotated total.
+
+**O5** `[x]` **Graph entity duplication** — case/format variants stored as distinct entities; needs
+normalized MERGE + a dedup pass.
+— Fixed by `merge_duplicate_entities()` called during soft reset + normal compaction.
+  Verified: 33 Xeon/P40 variants merged to one each. 258 entities remain.
+
+**O6** `[x]` **Safe Memory Reset / fresh start** (new tooling) — admin-only, backup-first, dry-run
+default, reversible (`UserMemoryVersion` + export ZIP + graph dump); `soft` prune vs `hard` reset.
+— Fixed by Phase 1: `POST /admin/memory/reset` endpoint; backup ZIP + graph dump written.
+  Verified: dry-run returns report; soft reset archives+prunes+dedups; v67 snapshot preserved.
+  Follow-up: `POST /admin/memory/restore` not implemented (manual restore via versions possible).
+
+---

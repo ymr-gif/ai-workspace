@@ -119,6 +119,7 @@ async def retrieve_global(
             .where(
                 Conversation.user_id == user_id,
                 MessageEmbedding.conversation_id != exclude_conv_id,
+                Conversation.is_archived == False,
             )
             .order_by(MessageEmbedding.embedding.cosine_distance(query_embedding))
             .limit(k_dense)
@@ -135,6 +136,7 @@ async def retrieve_global(
                             select(Conversation.id)
                             .where(Conversation.user_id == user_id)
                             .where(Conversation.id != exclude_conv_id)
+                            .where(Conversation.is_archived == False)
                         )
                     ],
                     query_text,

@@ -69,7 +69,7 @@ async def _resolve_conversation(
     req:          ChatRequest,
     current_user: User,
     db:           AsyncSession,
-) -> Conversation:
+) -> tuple[Conversation, dict | None]:
     if req.conversation_id:
         try:
             cid = uuid.UUID(req.conversation_id)
@@ -78,12 +78,87 @@ async def _resolve_conversation(
         conv = await db.get(Conversation, cid)
         if not conv or conv.user_id != current_user.id:
             raise HTTPException(status_code=404, detail="Conversation not found")
-        return conv
+
+        if conv.is_archived:
+            new_conv = Conversation(
+                user_id=conv.user_id,
+                title=conv.title,
+                system_prompt=conv.system_prompt,
+                locked_model=conv.locked_model,
+            )
+            db.add(new_conv)
+            await db.flush()
+            await db.commit()
+            return new_conv, {"rotated": True, "new_conversation_id": str(new_conv.id), "old_conversation_id": str(conv.id)}
+
+        rotated = await _check_rotation(conv, db)
+        if rotated:
+            return rotated, {"rotated": True, "new_conversation_id": str(rotated.id), "old_conversation_id": str(conv.id)}
+        return conv, None
 
     conv = Conversation(user_id=current_user.id, title=req.message[:60].strip())
     db.add(conv)
     await db.flush()
-    return conv
+    return conv, None
+
+
+async def _check_rotation(conv: Conversation, db: AsyncSession) -> Conversation | None:
+    if conv.is_archived:
+        return None
+    now = datetime.now(timezone.utc)
+
+    msg_cnt = await db.execute(
+        select(func.count()).select_from(Message)
+        .where(Message.conversation_id == conv.id)
+    )
+    total_msgs = msg_cnt.scalar_one()
+
+    tok_result = await db.execute(
+        select(func.coalesce(func.sum(Message.total_tokens), 0))
+        .where(Message.conversation_id == conv.id, Message.role == "assistant")
+    )
+    total_tok = int(tok_result.scalar_one() or 0)
+
+    age_days = (now - conv.updated_at).days if conv.updated_at else 0
+
+    if total_msgs <= 80 and total_tok <= 120000 and age_days <= 3:
+        return None
+
+    recent = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == conv.id)
+        .order_by(Message.created_at.desc())
+        .limit(5)
+    )
+    recent_msgs = list(reversed(recent.scalars().all()))
+
+    handoff_parts = []
+    if conv.history_summary:
+        handoff_parts.append(f"Previous conversation summary:\n{conv.history_summary}")
+    for m in recent_msgs:
+        label = "User" if m.role == "user" else "Assistant"
+        handoff_parts.append(f"{label}: {m.content[:500]}")
+    handoff = "\n\n".join(handoff_parts)
+
+    conv.is_archived = True
+    conv.archived_at = now
+
+    new_conv = Conversation(
+        user_id=conv.user_id,
+        title=conv.title,
+        system_prompt=conv.system_prompt,
+        locked_model=conv.locked_model,
+    )
+    db.add(new_conv)
+    await db.flush()
+
+    new_conv.history_summary = handoff[:2000]
+
+    await db.commit()
+    logger.info("[rotation] conv=%s archived -> new=%s (msgs=%d, tok=%d, days=%d)",
+                conv.id, new_conv.id, total_msgs, total_tok, age_days)
+
+    return new_conv
 
 
 async def _build_stream_context(

@@ -21,6 +21,7 @@ from observability.prom_metrics import (
 from observability.token_metrics import record_tokens
 from rate_limiter import limit, check_model_rate
 
+from llm.service.content_filter import compress_tool_dumps
 from llm.summarizer.history import compress_history
 from llm.summarizer.memory import update_memory
 from llm.summarizer.project import update_project_summary
@@ -51,7 +52,7 @@ async def chat_stream(
 
     await _check_cost_cap(current_user, db)
 
-    conv            = await _resolve_conversation(req, current_user, db)
+    conv, rotation_info = await _resolve_conversation(req, current_user, db)
     model_params    = _extract_model_params(req)
     effective_model = _resolve_model(req.model_override) or _resolve_model(conv.locked_model)
     if effective_model:
@@ -200,6 +201,10 @@ async def chat_stream(
                 await db.rollback()
                 logger.warning("[chat/stream] abort-persist failed rid=%s", rid)
 
+        # Emit rotation event if conversation was just archived
+        if rotation_info:
+            yield f"data: {_json.dumps({'type': 'rotated', **rotation_info})}\n\n"
+
         # Emit the context-build burst as ordered status events before the stream.
         for _st in activity:
             yield f"data: {_json.dumps({'type': 'status', **_st})}\n\n"
@@ -248,15 +253,17 @@ async def chat_stream(
                     cache_hit     = event.get("cache_hit", False)
                     fallback_used = event.get("fallback_used", False)
                     full_response = "".join(accumulated)
+                    # S3: compress tool-output regurgitation before persisting
+                    persisted_content = compress_tool_dumps(full_response) or pending_question
                     drive_read    = event.get("drive_read", False)
                     drive_file_name = event.get("drive_file_name", "")
-
+ 
                     try:
                         pt, ct, tt, cost = _calculate_tokens_and_cost(event, ctx, req, full_response, model_used)
-
+ 
                         asst_msg = Message(
                             conversation_id=conv.id, role="assistant",
-                            content=full_response or pending_question, model=model_used,
+                            content=persisted_content, model=model_used,
                             prompt_tokens=pt, completion_tokens=ct,
                             total_tokens=tt, cost_usd=cost,
                             activity_trace=activity or None,
