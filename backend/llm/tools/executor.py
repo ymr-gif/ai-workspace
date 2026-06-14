@@ -88,6 +88,7 @@ async def execute_tool(
         ))
         await db.flush()
     except Exception:
+        await db.rollback()
         pass
 
     return result

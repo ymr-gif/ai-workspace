@@ -109,9 +109,11 @@ async def _drive_read_file(db: AsyncSession, user_id: int, file_id: str, max_cha
     if mime_type.startswith("application/vnd.google-apps"):
         export_url = f"{DRIVE_API}/files/{file_id}/export?mimeType=text/plain"
         content_resp = await client.get(export_url, headers=headers)
-    else:
+    elif mime_type.startswith("text/") or mime_type in ("application/json", "application/xml", "application/javascript"):
         download_url = f"{DRIVE_API}/files/{file_id}?alt=media"
         content_resp = await client.get(download_url, headers=headers)
+    else:
+        return f"Cannot read '{name}': binary format ({mime_type}). Only Google Docs and plain-text files are supported."
 
     if content_resp.status_code == 401:
         src.status = "needs_reauth"
