@@ -49,6 +49,75 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 
 ---
 
+## Fixed — Google Drive integration pipeline (2026-06-13)
+
+### K1 · [x] Google Drive 401 loop — missing `prompt=consent` in OAuth URL
+
+- **Symptom:** Every sync attempt sets `needs_reauth`. Re-authenticating fixes it for ~1 hour then loops again.
+- **Root cause:** Google only returns `refresh_token` on first auth OR when `prompt=consent` is in the URL. Without it, re-auth returns only `access_token` → expires in 1h → no way to refresh → 401.
+- **Fix:** Added `&prompt=consent` to `get_auth_url()` in `services/integrations/google_drive.py`. (`65624d0`)
+
+### K2 · [x] Sync job proceeds with guaranteed-stale token when no refresh_token
+
+- **Symptom:** Sync job calls Drive API with expired token, wastes a round-trip, gets 401.
+- **Root cause:** When `expires_at < now` and `refresh_token is None`, `refresh_tokens()` returned unchanged expired credentials silently.
+- **Fix:** Added early-exit guard in `sync_external_source_job` — fast-fails to `needs_reauth` when expired + no refresh_token. (`65624d0`)
+
+### K3 · [x] `process_file_job` never fired after sync
+
+- **Symptom:** Files created in DB after sync but never chunked/embedded — `upload_status` stuck at `uploaded`.
+- **Root cause:** `asyncio.create_task(process_file_async(...))` used in ARQ worker. `get_arq_pool()` returns `None` in worker process → tasks abandoned silently.
+- **Fix:** Replaced with `await ctx["redis"].enqueue_job("process_file_job", ...)`. (`1a16c84`)
+
+### K4 · [x] `[embeddings] HTTP client not initialized` in ARQ worker
+
+- **Symptom:** Embedding calls fail in worker process with "HTTP client not initialized".
+- **Root cause:** `llm.client.client` (global `httpx.AsyncClient`) initialized in `main.py` lifespan only — ARQ worker is a separate process with no lifespan hook.
+- **Fix:** Added `on_startup`/`on_shutdown` to `WorkerSettings` in `arq_worker.py`. (`1a16c84`)
+
+### K5 · [x] File search always empty — `row.file_id` KeyError
+
+- **Symptom:** `_search_files` in `api/search.py` always returns empty. Log: `_search_files failed: file_id`.
+- **Root cause:** `select(FileChunk.id, FileModel.id, ...)` — both columns named `id` in result row, `row.file_id` doesn't exist.
+- **Fix:** `FileModel.id.label("file_id")`. (`1a16c84`)
+
+### K6 · [x] Drive-synced files not searchable in chat — embed_task gated
+
+- **Symptom:** Chat RAG returns `provenance: 0 sources` even with Drive files synced and ready.
+- **Root cause (A):** `embed_task` only created when `req.conversation_id or is_ref or req.file_ids` — fresh chats with no conversation_id never embedded the query.
+- **Root cause (B):** No global file fallback — RAG only searched conversation-attached files, never all user's ready files.
+- **Fix:** Always create `embed_task`; added global file fallback in `helpers.py` querying all user's `ready` files when none attached. (`1a16c84`)
+
+---
+
+## Fixed — File tool loop bugs (2026-06-13)
+
+### K7 · [x] `search_in_file` / `search_across_files` crash with TypeError
+
+- **Symptom:** Tool call returns `Error: sequence item 0: expected str instance, dict found`.
+- **Root cause:** `retrieve_from_files()` returns `list[dict]`. Both functions passed raw list to `str.join()`.
+- **Fix:** `"\n\n---\n\n".join(c["content"] for c in chunks)`. (`436554a`)
+
+### K8 · [x] `list_files` returns "No files attached" when global fallback files exist
+
+- **Symptom:** Agent sees file tools injected (global fallback found files) but `list_files` returns "No files attached to this conversation" → agent loops.
+- **Root cause:** `_list_files` and `_search_across_files` only queried `ConversationFile` (conversation-attached), not the global fallback scope used by helpers.py.
+- **Fix:** Added `user_id` param + fallback to all user's `ready` files when `ConversationFile` is empty. (`436554a`)
+
+### K9 · [x] Agent retries identical `search_in_file` calls — no result count hint
+
+- **Symptom:** `search_in_file` returns 1 chunk; agent calls it again with same args 3+ more times → loop guard fires.
+- **Root cause:** No indication of whether 1 chunk is the complete result or partial — agent retried hoping for more.
+- **Fix:** Appended `[N chunk(s) matched. Use read_file for full file content.]` to search responses. (`5b29500`)
+
+### K10 · [x] Agent re-lists files repeatedly — `list_files` has no args so loop guard always fires at 4th call
+
+- **Symptom:** `list_files called 4 times with identical args, aborting` — agent re-lists after every read/search cycle.
+- **Root cause:** No completeness signal — agent treats `list_files` as a "reset" when confused.
+- **Fix:** Appended `[N file(s) total. This list is complete — use search_in_file or read_file to access content.]` to response. (`9d4876b`)
+
+---
+
 ## Fixed — Tool-loop errors + false creation framing (2026-06-04)
 
 ### J1 · [x] Model calls canvas tools repeatedly on benign messages, hits tool-loop abort
