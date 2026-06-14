@@ -284,7 +284,9 @@ async def generate_stream(
                     # Signature = name + canonical args. Identical repeats are a
                     # loop (same delete/create/query over and over); distinct
                     # args (bulk delete of different node_ids) are legit work.
-                    sig = (fn_name, json.dumps(args, sort_keys=True, default=str))
+                    # Strip None values so {"query": null} and {} hash identically.
+                    _norm = {k: v for k, v in args.items() if v is not None}
+                    sig = (fn_name, json.dumps(_norm, sort_keys=True, default=str))
                     tool_call_counts[sig] = tool_call_counts.get(sig, 0) + 1
                     if tool_call_counts[sig] > _MAX_IDENTICAL_CALLS:
                         logger.warning("[service] tool_loop_guard: %s called %d times with identical args, aborting", fn_name, tool_call_counts[sig])
