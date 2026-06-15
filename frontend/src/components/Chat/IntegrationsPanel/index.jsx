@@ -4,8 +4,10 @@ import { usePanelProps } from '../PanelPropsContext.js'
 export default function IntegrationsPanel() {
   const p = usePanelProps()
   const { integOpen, setIntegOpen, sources, loading, syncing, errorMsg, popupBlocked,
-    connectedTypes, CONNECTOR_LABELS, CONNECTOR_TYPES,
+    connectedTypes, CONNECTOR_LABELS, CONNECTOR_TYPES, ENABLED_CONNECTOR_TYPES,
     deleteSource, syncSource, startOAuth, statusLabel, loadSources } = p.integ
+
+  const upcoming = CONNECTOR_TYPES.filter(t => !ENABLED_CONNECTOR_TYPES.includes(t))
 
   const panelStyle = {
     ...s.toolLogPanel,
@@ -113,7 +115,7 @@ export default function IntegrationsPanel() {
         )}
 
         <div style={{ ...sectionLabel, marginTop: '1.2rem' }}>Available Connectors</div>
-        {CONNECTOR_TYPES.map(type => {
+        {ENABLED_CONNECTOR_TYPES.map(type => {
           const connected = connectedTypes.has(type)
           return (
             <div key={type} style={{ ...s.toolLogRow, marginBottom: '6px' }}>
@@ -132,6 +134,21 @@ export default function IntegrationsPanel() {
             </div>
           )
         })}
+
+        {upcoming.length > 0 && (
+          <>
+            <div style={{ ...sectionLabel, marginTop: '1.2rem' }}>More integrations on the way</div>
+            {upcoming.map(type => (
+              <div key={type} style={{ ...s.toolLogRow, marginBottom: '6px', opacity: 0.6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '1rem' }}>{connectorIcon[type] || '🔌'}</span>
+                  <span style={{ flex: 1, fontSize: '16px', color: FG4, fontWeight: 600 }}>{CONNECTOR_LABELS[type]}</span>
+                  <span style={{ ...s.statusBadge, color: FG4, borderColor: LINE2 }}>Soon</span>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
       </div>
     </div>
   )

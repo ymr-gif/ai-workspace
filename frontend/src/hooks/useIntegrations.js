@@ -8,6 +8,9 @@ const CONNECTOR_LABELS = {
 
 const CONNECTOR_TYPES = ['google_drive', 'notion', 'github']
 
+// Connectors with a live OAuth flow. Others render as "coming soon" placeholders.
+const ENABLED_CONNECTOR_TYPES = ['google_drive']
+
 export default function useIntegrations(token) {
   const [integOpen, setIntegOpen] = useState(false)
   const [sources, setSources] = useState([])
@@ -93,7 +96,7 @@ export default function useIntegrations(token) {
     integOpen, setIntegOpen,
     sources, loading, syncing, errorMsg, popupBlocked,
     connectedTypes,
-    CONNECTOR_LABELS, CONNECTOR_TYPES,
+    CONNECTOR_LABELS, CONNECTOR_TYPES, ENABLED_CONNECTOR_TYPES,
     loadSources, deleteSource, syncSource, startOAuth, statusLabel,
   }
 }
