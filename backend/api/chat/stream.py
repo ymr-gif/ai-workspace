@@ -39,6 +39,34 @@ router = APIRouter()
 logger = logging.getLogger("chat")
 
 
+def _compute_grounding(provenance: list[dict], top_k: int) -> dict:
+    """Grounding confidence from retrieval (Dim 3).
+
+    Uses dense_score (cosine similarity, 0–1, fusion-mode-independent) — NOT
+    final_score, which is not comparable across weighted vs RRF fusion. Combines
+    top-chunk similarity with coverage (how full the result set is).
+    """
+    if not provenance:
+        return {"level": "none", "score": None, "sources": []}
+    top = sorted(provenance, key=lambda p: p.get("dense_score", 0.0), reverse=True)[:max(top_k, 1)]
+    avg_dense = sum(p.get("dense_score", 0.0) for p in top) / len(top)
+    coverage  = min(len(provenance) / max(top_k, 1), 1.0)
+    score     = round(100 * (0.7 * avg_dense + 0.3 * coverage))
+    level     = "high" if score >= 70 else "medium" if score >= 40 else "low"
+    return {
+        "level": level,
+        "score": score,
+        "sources": [
+            {
+                "source_id":      p.get("source_id"),
+                "dense_score":    round(p.get("dense_score", 0.0), 3),
+                "retrieval_type": p.get("retrieval_type", ""),
+            }
+            for p in top
+        ],
+    }
+
+
 @router.post("/chat/stream")
 async def chat_stream(
     req:          ChatRequest,
@@ -225,6 +253,7 @@ async def chat_stream(
                 conflicted_facts=ctx.get("conflicted_facts", frozenset()),
                 fact_saliences=ctx.get("fact_saliences", {}),
                 last_session=last_session,
+                intent=ctx.get("intent", "question"),
             ):
                 if event["type"] == "token":
                     accumulated.append(event["content"])
@@ -383,6 +412,11 @@ async def chat_stream(
                     event["query_type"]   = ctx.get("policy_used", "")
                     event["src_count"]    = len(provenance)
                     event["last_session"] = ctx.get("last_session", "")
+                    # Reasoning-loop disclosure (Dim 3): grounding confidence +
+                    # detected intent + the full pipeline trace, all on one event.
+                    event["grounding"] = _compute_grounding(provenance, ctx.get("retrieval_top_k", 5))
+                    event["intent"]    = ctx.get("intent", "question")
+                    event["activity"]  = activity
 
                     event["conversation_id"] = conv_id_str
                     yield f"data: {_json.dumps(event)}\n\n"

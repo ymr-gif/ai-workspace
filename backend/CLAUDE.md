@@ -21,7 +21,7 @@
 ├── alembic/versions/       — 042 migrations; latest: 042_external_sources.py (external_sources table)
 ├── auth/                   — JWT, bcrypt (direct, no passlib), API key fallback (SHA-256 hashed), invite validation
 ├── tests/
-│   ├── test.py + test_memory_hygiene.py + test_content_filter.py + test_drive.py — 60 tests (36 memory hygiene, 12 content filter, 11 drive, 1 circuit breaker)
+│   ├── test.py + test_memory_hygiene.py + test_content_filter.py + test_drive.py + test_reasoning_loop.py — 71 tests (36 memory hygiene, 12 content filter, 11 drive, 11 reasoning loop [grounding + intent], 1 circuit breaker)
 │   └── retrieval/conftest.py + test_hybrid_eval.py — 26 tests, mock DB, no NIM
 ├── llm/
 │   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=60)
@@ -29,7 +29,7 @@
 │   ├── tools/              — 12 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
 │   │   └── schemas.py, executor.py, file_ops.py, search.py
 │   ├── graph_memory.py     — Neo4j extraction (70B model) + query_by_keywords; entity caps: _MAX_ENTITY_NAME_LEN=200, _MAX_ENTITIES_PER_CALL=30, _MAX_RELS_PER_CALL=60, _MAX_USER_ENTITIES=500 (evicts oldest by updated_at); cache key SHA256[:32]; _cache_del_user() busts on write; skips if compact:running:{user_id} Redis lock held; MERGE SET preserves specific type over OTHER; merge_duplicate_entities() has second pass for substring/token-subset same-type dedup with rel preservation
-│   ├── router.py / circuit_breaker.py / embeddings.py — classify, circuit, embed
+│   ├── router.py / circuit_breaker.py / embeddings.py — classify, circuit, embed; `classify_intent()` keyword fast-path + `classify_intent_hybrid()` (one cheap 8B call only on ambiguous/no-signal; try/except → "question") → task|exploration|question
 │   ├── retriever/          — hybrid vector+BM25 fusion (rrf|weighted); debug param; fusion.py, queries.py, main.py, attachments.py
 │   ├── summarizer/         — memory compression, compaction; prompts.py, memory.py, history.py, project.py, compact.py; compact.py:_prune_canvas_corrections uses _CANVAS_BLOCKLIST regex + _ALLOWLIST_SUBSTRINGS guard
 │   └── agency.py           — proactive suggestions + insight generation (ARQ)
@@ -148,6 +148,9 @@ Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACT
 - Chunk quality states: `upload_status` values are `uploaded|processing|ready|partial|failed|error`; `partial` = some chunks embedded, some failed; `File` has `chunk_total`, `chunk_embedded`, `embed_fail_count`; status reset and counts cleared on file edit
 - Retrieval: vector + BM25 parallel → RRF (k=60) or weighted fusion; fallback to pure vector
 - Adaptive policy: `classify_query(msg)` in `router.py` returns `factual|relational|temporal|broad`; mapped in `retriever/policy.py` to fusion_mode/alpha/k values (factual=weighted 0.7, relational=RRF, temporal=RRF low-k, broad=weighted 0.3); applied per-query in `_build_stream_context()`; logged with query_type + params; also emitted in `done` SSE event as `query_type` + `src_count` (number of retrieved provenance chunks)
+- **Reasoning Loop / intent (Dim 3):** `_build_stream_context()` calls `classify_intent_hybrid()` → tunes a **copy** of the policy dict (exploration → `top_k`+4, `k_dense`≥20; question → `top_k`−1; task → unchanged — never mutates shared `POLICY_MAP`); sets `ctx["intent"]` + `ctx["retrieval_top_k"]`; appends an `Intent: <x>` row to the activity trace. `intent` threads into `generate_stream(intent=…)` where `intent=="task"` adds a `task-intent` model branch preferring the reasoning model (tool-eager; 8B emits tool calls as plain text). `done` SSE now also carries: `intent`, `grounding`, `activity`.
+- **Grounding confidence (Dim 3):** `_compute_grounding(provenance, top_k)` in `api/chat/stream.py` → `{level: high/medium/low/none, score: int|null, sources:[…]}`. Uses `dense_score` (cosine sim, 0–1, fusion-mode-independent) — **NOT** `final_score`, which is not comparable across weighted (~0–1) vs RRF (~0.016) fusion. `score = round(100*(0.7*avg_top_dense + 0.3*coverage))`; empty provenance → `level:"none"`. Tested in `tests/test_reasoning_loop.py` (11 tests, no NIM).
+- **Reasoning trace (Dim 3):** the `activity[]` trace (already built in `_build_stream_context` + appended live in `generate_stream`, persisted as `messages.activity_trace`) is now also emitted in the `done` SSE event so the frontend renders it without a refetch. Pipeline-level trace, **not** model chain-of-thought.
 - Status SSE: polls `db.refresh` + Redis `proc_progress:{file_id}` every 0.8s → terminates on ready/error
 - `file_service`: save_version before every mutation; `_fuzzy_replace`: exact → `\r\n` norm → stripped edges
 

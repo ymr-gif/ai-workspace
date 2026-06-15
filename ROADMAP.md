@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-06-12 (P0 + P1 + P2 complete; P3 live webpage ingestion + external integrations done)
+Last updated: 2026-06-15 (P0 + P1 + P2 complete; P3 live webpage ingestion + external integrations done; Reasoning Loop / Dim 3 hardened — intent classification + grounding confidence + pipeline trace)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -97,9 +97,9 @@ Last updated: 2026-06-12 (P0 + P1 + P2 complete; P3 live webpage ingestion + ext
 ### Dimension 3 — Reasoning Loop
 | Gap | Notes |
 |-----|-------|
-| Intent classification | Router picks model type only; no user intent classification (question/task/exploration) |
-| Grounding confidence signal | No indication to user of retrieval confidence or hallucination risk |
-| Reasoning trace exposure | No chain-of-thought or intermediate reasoning steps in UI |
+| ~~Intent classification~~ | ~~Router picks model type only; no user intent (question/task/exploration)~~ ✅ hybrid keyword + 8B fallback (`classify_intent_hybrid`); tunes retrieval breadth + tool eagerness |
+| ~~Grounding confidence signal~~ | ~~No indication to user of retrieval confidence~~ ✅ `grounding` in `done` SSE (level + %); computed from `dense_score` (mode-independent), not skewed `final_score` |
+| ~~Reasoning trace exposure~~ | ~~No intermediate reasoning steps in UI~~ ✅ `activity[]` pipeline trace in `done` SSE, expands from grounding badge. NOTE: pipeline-level trace, not model chain-of-thought (llama-3.3-70b emits no native thinking tokens) |
 
 ### Dimension 4 — Autonomous Agency
 | Gap | Notes |
@@ -306,7 +306,7 @@ P3 — future
 |-----------|----------|---------|
 | 1. Persistent Memory | 97% | P0 complete |
 | 2. Unified Interface | 90% | Cross-conversation knowledge propagation remaining |
-| 3. Reasoning Loop | 65% | No grounding confidence, no intent classification |
+| 3. Reasoning Loop | 90% | Intent + grounding confidence + pipeline trace shipped; model chain-of-thought still not exposed (no native thinking tokens) |
 | 4. Autonomous Agency | 90% | P2 complete; cross-conversation propagation remaining |
 | 5. Real-Time Perception | 70% | Web search + live fetch + OAuth integrations done; no calendar/email connectors |
-| **Overall** | **~95%** | P0 + P1 + P2 complete; P3 live ingestion + external integrations done |
+| **Overall** | **~96%** | P0 + P1 + P2 complete; P3 live ingestion + external integrations done; Reasoning Loop hardened (intent + grounding + trace) |

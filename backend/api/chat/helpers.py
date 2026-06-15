@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import MODELS
 from llm import retriever
 from llm.embeddings import embed as embed_text
-from llm.router import classify_query
+from llm.router import classify_intent_hybrid, classify_query
 from llm.retriever.policy import get_policy
 from llm.service.context import _needs_file_tools
 from llm.summarizer.salience import bump_fact_saliences, compute_salience, score_facts
@@ -211,8 +211,18 @@ async def _build_stream_context(
 
     is_ref    = retriever.is_reference_query(req.message)
     query_type = classify_query(req.message)
-    policy     = get_policy(query_type)
+    policy     = get_policy(query_type)  # already a copy — safe to mutate
     _act("classify", f"Query type: {query_type}" + (" · reference" if is_ref else ""))
+
+    # User-intent (Dim 3): tunes retrieval breadth here; tool eagerness downstream.
+    intent = await classify_intent_hybrid(req.message, rid)
+    if intent == "exploration":
+        policy["top_k"]   = policy["top_k"] + 4
+        policy["k_dense"] = max(policy["k_dense"], 20)
+    elif intent == "question":
+        policy["top_k"]   = max(2, policy["top_k"] - 1)
+    # task → leave retrieval as-is
+    _act("intent", f"Intent: {intent}")
 
     embed_task = asyncio.create_task(embed_text(req.message, input_type="query"))
 
@@ -452,6 +462,8 @@ async def _build_stream_context(
         "active_goals":        active_goals,
         "conflicted_facts":    conflicted_facts,
         "policy_used":         query_type,
+        "intent":              intent,
+        "retrieval_top_k":     top_k,
         "fact_saliences":      fact_saliences,
         "last_session":        last_session,
         "activity":            activity,

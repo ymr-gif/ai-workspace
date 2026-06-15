@@ -80,6 +80,34 @@ export default function MessageList({
             {m.urlFetched && (
               <span style={{ background:'#0369a1', color:'white', fontSize:'0.65rem', padding:'1px 5px', borderRadius:'3px', marginLeft:'4px' }}>url</span>
             )}
+            {!m.streaming && m.role === 'ai' && m.grounding && m.grounding.level !== 'none' && (() => {
+              const lvl = m.grounding.level
+              const c = lvl === 'high' ? GRN : lvl === 'medium' ? AMB : RED
+              const dot = lvl === 'high' ? '🟢' : lvl === 'medium' ? '🟡' : '🔴'
+              const label = lvl.charAt(0).toUpperCase() + lvl.slice(1)
+              const hasTrace = (m.activity && m.activity.length > 0)
+              return (
+                <>
+                  <span
+                    onClick={hasTrace ? () => setMessages(prev => prev.map(msg => msg.id === m.id ? { ...msg, traceExpanded: !msg.traceExpanded } : msg)) : undefined}
+                    style={{ fontSize:'14px', marginLeft:'0.35rem', color:c, cursor: hasTrace ? 'pointer' : 'default', userSelect:'none' }}
+                    title="Grounding confidence — how well retrieval supports this answer"
+                  >
+                    {dot} {label} · {m.grounding.score}%{hasTrace ? (m.traceExpanded ? ' ▴' : ' ▾') : ''}
+                  </span>
+                  {m.traceExpanded && hasTrace && (
+                    <div style={{ marginTop:'0.4rem', borderLeft:`2px solid ${LINE}`, paddingLeft:'0.6rem' }}>
+                      <div style={{ fontSize:'10px', color:FG5, letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:'0.25rem' }}>Reasoning steps</div>
+                      {m.activity.map((a, i) => (
+                        <div key={i} style={{ fontSize:'13px', color: a.level === 'error' ? RED : a.level === 'warn' ? AMB : FG4, lineHeight:1.5 }}>
+                          {a.detail}{typeof a.ms === 'number' ? <span style={{ color:FG5 }}> · {a.ms}ms</span> : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )
+            })()}
           </div>
         </Fragment>
         )

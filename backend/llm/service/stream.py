@@ -111,6 +111,7 @@ async def generate_stream(
     conflicted_facts: frozenset         = frozenset(),
     fact_saliences:   dict | None       = None,
     last_session:     str               = "",
+    intent:           str               = "question",
 ):
     # Cache excludes file/image/custom-params requests; history + model included in key
     use_cache = not file_chunks and not image_b64 and not model_params
@@ -145,6 +146,11 @@ async def generate_stream(
     elif _needs_memory_tool(message):
         fallback_chain = [MODELS["reasoning"]] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != MODELS["reasoning"]]
         route_reason = "memory"
+    elif intent == "task":
+        # Task intent → tool-eager. Prefer the reasoning model (8B emits tool
+        # calls as plain text); keep the rest of the chain as fallback.
+        fallback_chain = [MODELS["reasoning"]] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != MODELS["reasoning"]]
+        route_reason = "task-intent"
     else:
         model, _ = await route(message, request_id)
         fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]

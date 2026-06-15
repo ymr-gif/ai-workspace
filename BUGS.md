@@ -30,3 +30,9 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
   (18 more in archived = already filtered). Low impact; left as-is.
 - `[ ]` **Test-mock tidy** — `test_drive.py::test_drive_read_file_resolves_name_from_cache` emits a
   benign `AsyncMock never awaited` RuntimeWarning; production code awaits correctly.
+- `[ ]` **Reasoning trace is pipeline-level, not model chain-of-thought** — the `activity[]` trace in
+  the `done` SSE (grounding badge → "Reasoning steps") shows the pipeline (retrieval/intent/route/
+  budget/model/tools), not the model's internal deliberation. `meta/llama-3.3-70b-instruct` emits no
+  native thinking tokens. Not a defect — closes the practical Dim-3 gap. Real CoT would need either a
+  prompt-based `<thinking>` block (cheap, +tokens/latency, narrated not faithful) or a NIM reasoning-tier
+  model that emits traces (model/cost change). Revisit only if users ask "why did it answer that."
