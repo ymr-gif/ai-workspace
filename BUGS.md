@@ -36,13 +36,11 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
   native thinking tokens. Not a defect — closes the practical Dim-3 gap. Real CoT would need either a
   prompt-based `<thinking>` block (cheap, +tokens/latency, narrated not faithful) or a NIM reasoning-tier
   model that emits traces (model/cost change). Revisit only if users ask "why did it answer that."
-- `[ ]` **Grounding/queryType/src badges wiped on new-conversation refetch** — the badges are live-only.
-  Persisted message shape (`GET /conversations/{id}/messages`) carries `activity_trace` but NOT
-  `grounding`/`query_type`/`src_count`. On the **first** message of a new conversation, the `done` SSE
-  returns a fresh `conversation_id` → `useStreamChat` calls `setActiveConvId` → the message list refetches
-  and replaces the live message (with badge) with the persisted one (no badge), so the grounding badge
-  disappears. It persists fine for later messages in an already-active conversation (verified live:
-  msg-2 badge stayed; msg-1 badge wiped). Pre-existing behavior — `queryType`/`src` badges always behaved
-  this way; the new grounding badge inherits it. Fix path: either include `grounding`/`query_type`/
-  `src_count` in the persisted message API (also enables history badges), or skip/merge the refetch when
-  the live message already holds them. Low impact (badge is informational).
+- `[x]` **Grounding/queryType/src badges wiped on new-conversation refetch** — FIXED via full
+  persistence (migration 044). `messages.render_meta` JSONB now stores `{grounding, query_type,
+  src_count}`, built once in `api/chat/stream.py` (`_build_provenance` + `_build_render_meta`) before the
+  assistant-message persist and reused for the `done` SSE (no double-compute). `GET /conversations/{id}/
+  messages` returns those fields; `useConversations.js` maps them + `activity_trace` on refetch. Badge +
+  expandable trace now survive the new-conversation refetch, full page reload, and cold history load —
+  verified live (badge `🔴 Low · 20%` + Intent/Routing/RAG/Loaded trace rows loaded from `GET messages`,
+  no live SSE).

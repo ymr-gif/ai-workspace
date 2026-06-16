@@ -67,6 +67,36 @@ def _compute_grounding(provenance: list[dict], top_k: int) -> dict:
     }
 
 
+def _build_provenance(ctx: dict) -> list[dict]:
+    """Dedup retrieved + file chunks into the provenance list (scores per source)."""
+    seen: set = set()
+    provenance = []
+    for hit in ctx.get("retrieved", []) + ctx.get("file_chunks", []):
+        cid = str(hit.get("chunk_id", ""))
+        if not cid or cid in seen:
+            continue
+        seen.add(cid)
+        provenance.append({
+            "chunk_id":       cid,
+            "source_id":      str(hit["source_id"]) if hit.get("source_id") is not None else None,
+            "dense_score":    hit.get("dense_score", 0.0),
+            "sparse_score":   hit.get("sparse_score", 0.0),
+            "final_score":    hit.get("final_score", 0.0),
+            "retrieval_type": hit.get("retrieval_type", ""),
+        })
+    return provenance
+
+
+def _build_render_meta(ctx: dict, provenance: list[dict]) -> dict:
+    """Grounding badge payload persisted on the message so badges survive the
+    post-send refetch + reload + history (not just the live SSE)."""
+    return {
+        "grounding":  _compute_grounding(provenance, ctx.get("retrieval_top_k", 5)),
+        "query_type": ctx.get("policy_used", ""),
+        "src_count":  len(provenance),
+    }
+
+
 @router.post("/chat/stream")
 async def chat_stream(
     req:          ChatRequest,
@@ -287,15 +317,22 @@ async def chat_stream(
                     drive_read    = event.get("drive_read", False)
                     drive_file_name = event.get("drive_file_name", "")
  
+                    # Build provenance + grounding badge payload once, before the
+                    # persist, so render_meta is stored on the message and reused
+                    # for the done event (no double compute).
+                    provenance  = _build_provenance(ctx)
+                    render_meta = _build_render_meta(ctx, provenance)
+
                     try:
                         pt, ct, tt, cost = _calculate_tokens_and_cost(event, ctx, req, full_response, model_used)
- 
+
                         asst_msg = Message(
                             conversation_id=conv.id, role="assistant",
                             content=persisted_content, model=model_used,
                             prompt_tokens=pt, completion_tokens=ct,
                             total_tokens=tt, cost_usd=cost,
                             activity_trace=activity or None,
+                            render_meta=render_meta,
                         )
                         db.add(asst_msg)
                         await db.commit()
@@ -393,28 +430,14 @@ async def chat_stream(
                     except Exception:
                         pass
 
-                    seen: set = set()
-                    provenance = []
-                    for hit in ctx.get("retrieved", []) + ctx.get("file_chunks", []):
-                        cid = str(hit.get("chunk_id", ""))
-                        if not cid or cid in seen:
-                            continue
-                        seen.add(cid)
-                        provenance.append({
-                            "chunk_id":       cid,
-                            "source_id":      str(hit["source_id"]) if hit.get("source_id") is not None else None,
-                            "dense_score":    hit.get("dense_score", 0.0),
-                            "sparse_score":   hit.get("sparse_score", 0.0),
-                            "final_score":    hit.get("final_score", 0.0),
-                            "retrieval_type": hit.get("retrieval_type", ""),
-                        })
+                    # Reuse the provenance + render_meta built above for the persist.
                     event["provenance"]  = provenance
-                    event["query_type"]   = ctx.get("policy_used", "")
-                    event["src_count"]    = len(provenance)
+                    event["query_type"]   = render_meta["query_type"]
+                    event["src_count"]    = render_meta["src_count"]
                     event["last_session"] = ctx.get("last_session", "")
                     # Reasoning-loop disclosure (Dim 3): grounding confidence +
                     # detected intent + the full pipeline trace, all on one event.
-                    event["grounding"] = _compute_grounding(provenance, ctx.get("retrieval_top_k", 5))
+                    event["grounding"] = render_meta["grounding"]
                     event["intent"]    = ctx.get("intent", "question")
                     event["activity"]  = activity
 

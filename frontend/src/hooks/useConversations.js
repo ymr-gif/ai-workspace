@@ -41,7 +41,7 @@ export default function useConversations(token) {
     if (!activeConvId) return
     fetch(`/api/conversations/${activeConvId}/messages`, { headers: authHeaders })
       .then(r => r.ok ? r.json() : [])
-      .then(msgs => setMessages(msgs.map(m => ({ id: nextId.current++, role: m.role === 'assistant' ? 'ai' : 'user', text: m.content, model: m.model, streaming: false, promptTokens: m.prompt_tokens, completionTokens: m.completion_tokens, totalTokens: m.total_tokens, costUsd: m.cost_usd }))))
+      .then(msgs => setMessages(msgs.map(m => ({ id: nextId.current++, role: m.role === 'assistant' ? 'ai' : 'user', text: m.content, model: m.model, streaming: false, promptTokens: m.prompt_tokens, completionTokens: m.completion_tokens, totalTokens: m.total_tokens, costUsd: m.cost_usd, grounding: m.grounding || null, queryType: m.query_type || '', srcCount: m.src_count ?? 0, activity: m.activity_trace || [] }))))
       .catch(() => {})
   }, [activeConvId])
 

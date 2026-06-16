@@ -88,6 +88,9 @@ async def get_messages(
             "total_tokens":      m.total_tokens,
             "cost_usd":          m.cost_usd,
             "activity_trace":    m.activity_trace,
+            "grounding":         (m.render_meta or {}).get("grounding"),
+            "query_type":        (m.render_meta or {}).get("query_type", ""),
+            "src_count":         (m.render_meta or {}).get("src_count", 0),
         }
         for m in msgs
     ]

@@ -38,6 +38,9 @@ class Message(Base):
     # Ordered "behind the scenes" trace for this turn (pipeline stages, tools,
     # errors) — surfaced live + persisted for the collapsible Activity strip.
     activity_trace:    Mapped[list | None]  = mapped_column(JSONB,   nullable=True)
+    # Grounding badge payload (grounding/query_type/src_count) — persisted so the
+    # confidence badge survives the post-send message refetch + page reload + history.
+    render_meta:       Mapped[dict | None]  = mapped_column(JSONB,   nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
