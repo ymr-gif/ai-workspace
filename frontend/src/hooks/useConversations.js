@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 
 export default function useConversations(token) {
   const [conversations, setConversations] = useState([])
-  const [activeConvId, setActiveConvId] = useState(null)
+  const [activeConvId, setActiveConvId] = useState(() => localStorage.getItem('nim_active_conv') || null)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -36,6 +36,11 @@ export default function useConversations(token) {
       .then(r => r.ok ? r.json() : [])
       .then(setConversations).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (activeConvId) localStorage.setItem('nim_active_conv', activeConvId)
+    else localStorage.removeItem('nim_active_conv')
+  }, [activeConvId])
 
   useEffect(() => {
     if (!activeConvId) return
