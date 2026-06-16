@@ -83,7 +83,6 @@ export default function MessageList({
             {!m.streaming && m.role === 'ai' && m.grounding && m.grounding.level !== 'none' && (() => {
               const lvl = m.grounding.level
               const c = lvl === 'high' ? GRN : lvl === 'medium' ? AMB : RED
-              const dot = lvl === 'high' ? '🟢' : lvl === 'medium' ? '🟡' : '🔴'
               const label = lvl.charAt(0).toUpperCase() + lvl.slice(1)
               const hasTrace = (m.activity && m.activity.length > 0)
               return (
@@ -93,7 +92,8 @@ export default function MessageList({
                     style={{ fontSize:'14px', marginLeft:'0.35rem', color:c, cursor: hasTrace ? 'pointer' : 'default', userSelect:'none' }}
                     title="Grounding confidence — how well retrieval supports this answer"
                   >
-                    {dot} {label} · {m.grounding.score}%{hasTrace ? (m.traceExpanded ? ' ▴' : ' ▾') : ''}
+                    <span style={{ display:'inline-block', width:'7px', height:'7px', borderRadius:'50%', background:c, marginRight:'0.35rem', verticalAlign:'middle' }} />
+                    {label} · {m.grounding.score}%{hasTrace ? (m.traceExpanded ? ' ▴' : ' ▾') : ''}
                   </span>
                   {m.traceExpanded && hasTrace && (
                     <div style={{ marginTop:'0.4rem', borderLeft:`2px solid ${LINE}`, paddingLeft:'0.6rem' }}>

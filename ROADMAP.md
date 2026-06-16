@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-06-15 (P0 + P1 + P2 complete; P3 live webpage ingestion + external integrations done; Reasoning Loop / Dim 3 hardened — intent classification + grounding confidence + pipeline trace)
+Last updated: 2026-06-16 (P0 + P1 + P2 complete; P3 live webpage ingestion + external integrations done; Reasoning Loop / Dim 3 hardened — intent classification + grounding confidence + pipeline trace, now persisted via `messages.render_meta` so badge + trace survive refetch/reload/history)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -98,8 +98,8 @@ Last updated: 2026-06-15 (P0 + P1 + P2 complete; P3 live webpage ingestion + ext
 | Gap | Notes |
 |-----|-------|
 | ~~Intent classification~~ | ~~Router picks model type only; no user intent (question/task/exploration)~~ ✅ hybrid keyword + 8B fallback (`classify_intent_hybrid`); tunes retrieval breadth + tool eagerness |
-| ~~Grounding confidence signal~~ | ~~No indication to user of retrieval confidence~~ ✅ `grounding` in `done` SSE (level + %); computed from `dense_score` (mode-independent), not skewed `final_score` |
-| ~~Reasoning trace exposure~~ | ~~No intermediate reasoning steps in UI~~ ✅ `activity[]` pipeline trace in `done` SSE, expands from grounding badge. NOTE: pipeline-level trace, not model chain-of-thought (llama-3.3-70b emits no native thinking tokens) |
+| ~~Grounding confidence signal~~ | ~~No indication to user of retrieval confidence~~ ✅ `grounding` in `done` SSE (level + %); computed from `dense_score` (mode-independent), not skewed `final_score`. Persisted on `messages.render_meta` (migration 044) → badge survives refetch/reload/history. Themed dot, no emoji |
+| ~~Reasoning trace exposure~~ | ~~No intermediate reasoning steps in UI~~ ✅ `activity[]` pipeline trace in `done` SSE + persisted `activity_trace`, expands from grounding badge (survives reload/history). NOTE: pipeline-level trace, not model chain-of-thought (llama-3.3-70b emits no native thinking tokens) |
 
 ### Dimension 4 — Autonomous Agency
 | Gap | Notes |

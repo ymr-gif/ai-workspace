@@ -42,5 +42,5 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
   assistant-message persist and reused for the `done` SSE (no double-compute). `GET /conversations/{id}/
   messages` returns those fields; `useConversations.js` maps them + `activity_trace` on refetch. Badge +
   expandable trace now survive the new-conversation refetch, full page reload, and cold history load —
-  verified live (badge `🔴 Low · 20%` + Intent/Routing/RAG/Loaded trace rows loaded from `GET messages`,
+  verified live (badge `Low · 20%` + Intent/Routing/RAG/Loaded trace rows loaded from `GET messages`,
   no live SSE).
