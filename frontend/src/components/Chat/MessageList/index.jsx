@@ -98,11 +98,14 @@ export default function MessageList({
                   {m.traceExpanded && hasTrace && (
                     <div style={{ marginTop:'0.4rem', borderLeft:`2px solid ${LINE}`, paddingLeft:'0.6rem' }}>
                       <div style={{ fontSize:'10px', color:FG5, letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:'0.25rem' }}>Reasoning steps</div>
-                      {m.activity.map((a, i) => (
-                        <div key={i} style={{ fontSize:'13px', color: a.level === 'error' ? RED : a.level === 'warn' ? AMB : FG4, lineHeight:1.5 }}>
-                          {a.detail}{typeof a.ms === 'number' ? <span style={{ color:FG5 }}> · {a.ms}ms</span> : null}
-                        </div>
-                      ))}
+                      {(() => {
+                        const stagePrefix = (s) => s === 'tool' ? '→ ' : s === 'tool_result' ? '← ' : ''
+                        return m.activity.map((a, i) => (
+                          <div key={i} style={{ fontSize:'13px', color: a.level === 'error' ? RED : a.level === 'warn' ? AMB : FG4, lineHeight:1.5, ...((a.stage === 'tool' || a.stage === 'tool_result') ? { paddingLeft:'12px' } : {}) }}>
+                            <span>{stagePrefix(a.stage)}{a.detail}</span>{typeof a.ms === 'number' ? <span style={{ color:FG5 }}> · {a.ms}ms</span> : null}
+                          </div>
+                        ))
+                      })()}
                     </div>
                   )}
                 </>

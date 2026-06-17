@@ -111,6 +111,7 @@ def build_context_messages(
     graph_context:    str             = "",
     graph_facts:      str             = "",
     active_goals:     str             = "",
+    recent_insights:  list[str]       = (),
     conflicted_facts: frozenset[str]  = frozenset(),
     last_session:     str             = "",
 ) -> list[dict]:
@@ -173,6 +174,9 @@ def build_context_messages(
     if active_goals:
         messages.append({"role": "user",      "content": _format_active_goals(active_goals)})
         messages.append({"role": "assistant", "content": "Understood."})
+    if recent_insights:
+        messages.append({"role": "user",      "content": "[RECENT INSIGHTS]\n" + "\n".join(recent_insights)})
+        messages.append({"role": "assistant", "content": "Understood."})
     if project_summary:
         messages.append({"role": "user",      "content": f"[PROJECT STATE]\n{project_summary}"})
         messages.append({"role": "assistant", "content": "Understood."})
@@ -207,6 +211,7 @@ _TIER_PREFIXES = [
     (5, re.compile(r'^\[EARLIER IN THIS CONVERSATION\]')),            # conv summary
     (4, re.compile(r'^\[GRAPH (?:CONTEXT|FACTS)\]')),                 # graph
     (3, re.compile(r'^\[ACTIVE GOALS\]')),                            # goals
+    (2, re.compile(r'^\[RECENT INSIGHTS\]')),                         # recent insights
     (2, re.compile(r'^\[PROJECT STATE\]')),                           # project
     (1, re.compile(r'^\[USER STATE\]')),                              # user state (keep)
 ]

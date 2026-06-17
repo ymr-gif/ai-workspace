@@ -108,6 +108,7 @@ async def generate_stream(
     graph_context:    str               = "",
     graph_facts:      str               = "",
     active_goals:     str               = "",
+    recent_insights:  list[str]         = (),
     conflicted_facts: frozenset         = frozenset(),
     fact_saliences:   dict | None       = None,
     last_session:     str               = "",
@@ -225,6 +226,7 @@ async def generate_stream(
         _clean_history, system_prompt, file_chunks, file_names, file_ids,
         graph_context=graph_context,
         graph_facts=graph_facts, active_goals=active_goals,
+        recent_insights=recent_insights,
         conflicted_facts=conflicted_facts, last_session=last_session,
     ) + [user_msg]
 
@@ -326,13 +328,13 @@ async def generate_stream(
                         return
 
                     yield {"type": "tool_call", "name": fn_name, "args": args}
+                    args_summary = json.dumps(args, sort_keys=True)[:80]
+                    yield {"type": "status", "stage": "tool", "detail": f"Called: {fn_name}({args_summary})", "level": "info"}
                     _t_tool = time.monotonic()
                     result = await execute_tool(fn_name, args, db, user_id, conv_id)
                     _tool_ms = int((time.monotonic() - _t_tool) * 1000)
-                    _tool_failed = isinstance(result, str) and result.startswith("Error:")
-                    yield {"type": "status", "stage": "tool",
-                           "detail": f"tool {fn_name} {'✗' if _tool_failed else '✓'}",
-                           "level": "error" if _tool_failed else "info", "ms": _tool_ms}
+                    result_snippet = str(result)[:100]
+                    yield {"type": "status", "stage": "tool_result", "detail": f"{fn_name}: {result_snippet}", "level": "info", "ms": _tool_ms}
 
                     if result.startswith(ASK_USER_PREFIX):
                         question = result[len(ASK_USER_PREFIX):]

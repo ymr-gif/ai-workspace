@@ -10,6 +10,7 @@
 - `src/components/Chat/*/index.jsx` — 15 sub-components: Sidebar, MessageList, ModelToolbar, SettingsModal, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel, AutomationsPanel, GoalsPanel, IntegrationsPanel
 - **All fetch calls must use `/api/` prefix** — bare paths bypass proxy and 404 silently
 - **JWT flow:** login → `POST /api/auth/token` → store token as `nim_token` in localStorage → `Authorization: Bearer` on all fetch calls
+- **Open-conversation persistence:** `useConversations.js` stores `activeConvId` in localStorage as `nim_active_conv` (init from it, write on change, removed when null) → a full tab refresh reopens the same conversation (badge + history restored) instead of an empty chat. Browser-local only; a missing/deleted id fetches `[]` harmlessly
 
 ---
 

@@ -15,7 +15,7 @@ from llm.router import classify_intent_hybrid, classify_query
 from llm.retriever.policy import get_policy
 from llm.service.context import _needs_file_tools
 from llm.summarizer.salience import bump_fact_saliences, compute_salience, score_facts
-from models import Conversation, File, MemoryConflict, Message, User, UserGoal, UserMemory
+from models import Conversation, File, MemoryConflict, Message, User, UserGoal, UserMemory, UserInsight
 
 from .schemas import ChatRequest
 
@@ -209,6 +209,20 @@ async def _build_stream_context(
         fact_saliences = {}
         _act("memory", "No stored memory")
 
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    insights_result = await db.execute(
+        select(UserInsight.content)
+        .where(UserInsight.user_id == current_user.id,
+               UserInsight.created_at >= cutoff)
+        .order_by(UserInsight.created_at.desc())
+        .limit(3)
+    )
+    recent_insights: list[str] = list(insights_result.scalars().all())
+    if recent_insights:
+        _act("insights", f"Loaded {len(recent_insights)} recent insight{'s' if len(recent_insights) != 1 else ''}")
+    else:
+        _act("insights", "No recent insights")
+
     is_ref    = retriever.is_reference_query(req.message)
     query_type = classify_query(req.message)
     policy     = get_policy(query_type)  # already a copy — safe to mutate
@@ -274,7 +288,11 @@ async def _build_stream_context(
                     fusion_mode=policy["fusion_mode"], k_dense=policy["k_dense"],
                     k_sparse=policy["k_sparse"], alpha=policy["alpha"],
                 )
-            _act("retrieval", f"RAG: {len(retrieved)} doc{'s' if len(retrieved) != 1 else ''} · {policy['fusion_mode']}",
+            chunk_detail = ""
+            if retrieved:
+                top3 = sorted(retrieved, key=lambda c: c.get("dense_score", 0), reverse=True)[:3]
+                chunk_detail = " · scores: " + " | ".join(f"{c.get('dense_score', 0):.2f}" for c in top3)
+            _act("retrieval", f"RAG: {len(retrieved)} doc{'s' if len(retrieved) != 1 else ''} · {policy['fusion_mode']}{chunk_detail}",
                  ms=int((time.monotonic() - _t_rag) * 1000))
         except Exception as e:
             logger.exception("[rag] retrieve failed rid=%s", rid)
@@ -460,6 +478,7 @@ async def _build_stream_context(
         "graph_context":       graph_context,
         "graph_facts":         graph_facts,
         "active_goals":        active_goals,
+        "recent_insights":     recent_insights,
         "conflicted_facts":    conflicted_facts,
         "policy_used":         query_type,
         "intent":              intent,

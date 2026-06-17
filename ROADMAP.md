@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-06-16 (P0 + P1 + P2 complete; P3 live webpage ingestion + external integrations done; Reasoning Loop / Dim 3 hardened — intent classification + grounding confidence + pipeline trace, now persisted via `messages.render_meta` so badge + trace survive refetch/reload/history)
+Last updated: 2026-06-16 (P0 + P1 + P2 complete; P3 live webpage ingestion + external integrations done; Reasoning Loop / Dim 3 hardened — intent + grounding + pipeline trace persisted; Dim 2 closed — cross-conv insight propagation + tool trace + retrieval scores added)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 ---
@@ -92,14 +92,14 @@ Last updated: 2026-06-16 (P0 + P1 + P2 complete; P3 live webpage ingestion + ext
 | ~~Unified search~~ | ~~No single endpoint spanning files + conversations + memory + graph~~ ✅ |
 | ~~Knowledge graph explorer (UI)~~ | ~~Frontend shows entity/relation counts only; no visual graph~~ ✅ |
 | ~~Memory timeline view (UI)~~ | ~~No chronological view of memory evolution in frontend~~ ✅ |
-| Cross-conversation knowledge propagation | Insights from conversations don't auto-write to memory |
+| ~~Cross-conversation knowledge propagation~~ | ~~Insights from conversations don't auto-write to memory~~ ✅ top-3 `UserInsight` rows (30-day window) injected as `[RECENT INSIGHTS]` block between `[ACTIVE GOALS]` and `[PROJECT STATE]`; `stage:"insights"` in activity trace |
 
 ### Dimension 3 — Reasoning Loop
 | Gap | Notes |
 |-----|-------|
 | ~~Intent classification~~ | ~~Router picks model type only; no user intent (question/task/exploration)~~ ✅ hybrid keyword + 8B fallback (`classify_intent_hybrid`); tunes retrieval breadth + tool eagerness |
 | ~~Grounding confidence signal~~ | ~~No indication to user of retrieval confidence~~ ✅ `grounding` in `done` SSE (level + %); computed from `dense_score` (mode-independent), not skewed `final_score`. Persisted on `messages.render_meta` (migration 044) → badge survives refetch/reload/history. Themed dot, no emoji |
-| ~~Reasoning trace exposure~~ | ~~No intermediate reasoning steps in UI~~ ✅ `activity[]` pipeline trace in `done` SSE + persisted `activity_trace`, expands from grounding badge (survives reload/history). NOTE: pipeline-level trace, not model chain-of-thought (llama-3.3-70b emits no native thinking tokens) |
+| ~~Reasoning trace exposure~~ | ~~No intermediate reasoning steps in UI~~ ✅ `activity[]` pipeline trace in `done` SSE + persisted `activity_trace`, expands from grounding badge (survives reload/history). Enhanced: `stage:"tool"` / `stage:"tool_result"` events emitted per tool call; retrieval detail includes top-3 `dense_score` values. NOTE: pipeline-level trace, not model chain-of-thought (llama-3.3-70b emits no native thinking tokens) |
 
 ### Dimension 4 — Autonomous Agency
 | Gap | Notes |
@@ -305,8 +305,8 @@ P3 — future
 | Dimension | Coverage | Blocker |
 |-----------|----------|---------|
 | 1. Persistent Memory | 97% | P0 complete |
-| 2. Unified Interface | 90% | Cross-conversation knowledge propagation remaining |
-| 3. Reasoning Loop | 90% | Intent + grounding confidence + pipeline trace shipped; model chain-of-thought still not exposed (no native thinking tokens) |
-| 4. Autonomous Agency | 90% | P2 complete; cross-conversation propagation remaining |
+| 2. Unified Interface | 100% | Cross-conversation insight propagation shipped (`[RECENT INSIGHTS]` block) |
+| 3. Reasoning Loop | ~97% | Tool call trace + retrieval scores added; model chain-of-thought not exposed (no native thinking tokens — hard model constraint) |
+| 4. Autonomous Agency | 90% | P2 complete; goal tracker ✅ |
 | 5. Real-Time Perception | 70% | Web search + live fetch + OAuth integrations done; no calendar/email connectors |
-| **Overall** | **~96%** | P0 + P1 + P2 complete; P3 live ingestion + external integrations done; Reasoning Loop hardened (intent + grounding + trace) |
+| **Overall** | **~97%** | P0 + P1 + P2 complete; P3 done; Dim 2 closed; Dim 3 at ~97% (model CoT ceiling) |
