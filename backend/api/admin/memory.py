@@ -25,6 +25,12 @@ class MemoryResetRequest(BaseModel):
     confirm: str = ""
 
 
+class MemoryRestoreRequest(BaseModel):
+    user_id: int
+    version_id: int
+    confirm: str = ""
+
+
 async def _build_reset_report(user_id: int) -> dict:
     async with AsyncSessionLocal() as db:
         mem = await db.get(UserMemory, user_id)
@@ -326,3 +332,97 @@ async def memory_reset(
     await db.commit()
 
     return {"ok": True, "level": body.level, "result": result}
+
+
+@router.get("/memory/versions")
+async def memory_versions(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_role("admin")),
+):
+    """List a user's memory snapshots (newest first) so an admin can pick one to restore."""
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    rows = await db.execute(
+        select(
+            UserMemoryVersion.id,
+            UserMemoryVersion.version,
+            UserMemoryVersion.created_at,
+            func.length(UserMemoryVersion.content).label("content_len"),
+        )
+        .where(UserMemoryVersion.user_id == user_id)
+        .order_by(UserMemoryVersion.created_at.desc())
+        .limit(50)
+    )
+    versions = [
+        {
+            "id": r.id,
+            "version": r.version,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "content_len": int(r.content_len or 0),
+        }
+        for r in rows
+    ]
+    return {"user_id": user_id, "versions": versions}
+
+
+@router.post("/memory/restore")
+async def memory_restore(
+    body: MemoryRestoreRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_role("admin")),
+):
+    """Roll a user's memory back to a `user_memory_versions` snapshot.
+
+    The current sheet is snapshotted first, so a restore is itself reversible.
+    """
+    user = await db.get(User, body.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if body.confirm != f"RESTORE {body.user_id}":
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid confirmation. Use confirm=\"RESTORE <user_id>\"",
+        )
+
+    snapshot = await db.get(UserMemoryVersion, body.version_id)
+    if not snapshot or snapshot.user_id != body.user_id:
+        raise HTTPException(status_code=404, detail="Memory version not found for this user")
+
+    mem = await db.get(UserMemory, body.user_id)
+    if not mem:
+        raise HTTPException(status_code=404, detail="User has no memory sheet to restore into")
+
+    # Snapshot the current state before overwriting (reversible restore).
+    db.add(UserMemoryVersion(
+        user_id=body.user_id,
+        version=mem.version,
+        content=mem.content or "",
+        project_summary=mem.project_summary or "",
+    ))
+
+    restored_from_version = mem.version
+    mem.content = snapshot.content
+    mem.project_summary = snapshot.project_summary or ""
+    mem.version += 1
+    mem.updated_at = datetime.now(timezone.utc)
+
+    await _audit(db, admin, "memory.restore",
+                 target_user_id=body.user_id,
+                 detail={
+                     "snapshot_id": body.version_id,
+                     "snapshot_version": snapshot.version,
+                     "from_version": restored_from_version,
+                     "new_version": mem.version,
+                 })
+    await db.commit()
+
+    return {
+        "ok": True,
+        "restored_from_snapshot_id": body.version_id,
+        "snapshot_version": snapshot.version,
+        "new_version": mem.version,
+    }

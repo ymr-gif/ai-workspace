@@ -1,5 +1,6 @@
 import logging
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,22 @@ from .fusion import _RRF_K, _weighted_merge, _rrf_merge
 from .queries import _bm25_file_chunks, _bm25_message_embeddings
 
 logger = logging.getLogger("retriever")
+
+# Cross-conversation pool weighting (retrieve_global only). The global pool mixes
+# every active conversation, so a bare cosine ranking lets stale, weakly-related
+# exchanges bleed into context. Drop hits below the floor, and decay older ones so
+# recent context wins ties.
+_GLOBAL_SIM_FLOOR = 0.30          # cosine sim below this is treated as noise
+_RECENCY_HALF_LIFE_DAYS = 14.0    # weight halves every two weeks
+
+
+def _recency_weight(created_at: datetime | None, now: datetime) -> float:
+    if created_at is None:
+        return 1.0
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    age_days = max(0.0, (now - created_at).total_seconds() / 86400.0)
+    return 0.5 ** (age_days / _RECENCY_HALF_LIFE_DAYS)
 
 _REFERENCE_KEYWORDS = {
     "earlier", "before", "you said", "remember", "last time",
@@ -113,7 +130,8 @@ async def retrieve_global(
         vec_result = await db.execute(
             select(
                 MessageEmbedding.id, MessageEmbedding.conversation_id, MessageEmbedding.content_snippet,
-                (1.0 - MessageEmbedding.embedding.cosine_distance(query_embedding)).label("sim")
+                (1.0 - MessageEmbedding.embedding.cosine_distance(query_embedding)).label("sim"),
+                MessageEmbedding.created_at,
             )
             .join(Conversation, MessageEmbedding.conversation_id == Conversation.id)
             .where(
@@ -124,7 +142,17 @@ async def retrieve_global(
             .order_by(MessageEmbedding.embedding.cosine_distance(query_embedding))
             .limit(k_dense)
         )
-        vector_rows = [(r.id, r.conversation_id, r.content_snippet, float(r.sim)) for r in vec_result.all()]
+        # Apply the similarity floor + recency decay, then re-rank by the weighted
+        # score so the strongest *recent* hits lead the fusion step.
+        now = datetime.now(timezone.utc)
+        vector_rows = []
+        for r in vec_result.all():
+            sim = float(r.sim)
+            if sim < _GLOBAL_SIM_FLOOR:
+                continue
+            weighted = sim * _recency_weight(r.created_at, now)
+            vector_rows.append((r.id, r.conversation_id, r.content_snippet, weighted))
+        vector_rows.sort(key=lambda row: row[3], reverse=True)
 
         bm25_rows: list[tuple] = []
         if query_text.strip():

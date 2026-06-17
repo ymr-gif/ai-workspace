@@ -135,7 +135,7 @@ async def test_drive_read_file_resolves_name_from_cache():
     with patch("llm.tools.drive.USE_REDIS", True), \
          patch("llm.tools.drive._load_credentials", AsyncMock(return_value=(cred_ctx, fake_creds))), \
          patch("llm.tools.drive.llm_client.client", mock_client), \
-         patch("core.redis_client.get_redis", AsyncMock(return_value=mock_redis)):
+         patch("core.redis_client.get_redis", MagicMock(return_value=mock_redis)):
         from llm.tools.drive import _drive_read_file
         result = await _drive_read_file(mock_db, user_id, conv_id, file_name)
 
@@ -204,7 +204,7 @@ async def test_drive_search_caches_listing():
     with patch("llm.tools.drive.USE_REDIS", True), \
          patch("llm.tools.drive._load_credentials", AsyncMock(return_value=(cred_ctx, fake_creds))), \
          patch("llm.tools.drive.llm_client.client", mock_client), \
-         patch("core.redis_client.get_redis", AsyncMock(return_value=mock_redis)):
+         patch("core.redis_client.get_redis", MagicMock(return_value=mock_redis)):
         from llm.tools.drive import _drive_search
         result = await _drive_search(mock_db, user_id, conv_id, "notes")
 

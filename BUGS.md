@@ -20,16 +20,22 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 
 ## Open follow-ups
 
-- `[ ]` **`POST /admin/memory/restore` endpoint** — safe-reset rollback is currently manual (restore
-  `user_memory.content` from a `user_memory_versions` snapshot). Backup-on-reset works; only the
-  one-click restore is missing.
-- `[~]` **Cross-conversation RAG scoping** — archived conversations are excluded from the global
-  embedding pool (O2), but active conversations still share one pool with no recency-decay /
-  similarity-threshold weighting. Low impact for single-thread use; revisit if multi-thread bleed appears.
-- `[ ]` **Embedding hygiene** — 9 canvas-tainted `message_embeddings` remain in active convs
-  (18 more in archived = already filtered). Low impact; left as-is.
-- `[ ]` **Test-mock tidy** — `test_drive.py::test_drive_read_file_resolves_name_from_cache` emits a
-  benign `AsyncMock never awaited` RuntimeWarning; production code awaits correctly.
+- `[x]` **`POST /admin/memory/restore` endpoint** — FIXED (2026-06-17). `api/admin/memory.py` adds
+  `GET /admin/memory/versions?user_id=` (lists snapshots, newest first: id/version/created_at/content_len)
+  and `POST /admin/memory/restore {user_id, version_id, confirm:"RESTORE <id>"}`. Restore snapshots the
+  current sheet first (itself reversible), then sets `content`/`project_summary` from the chosen
+  `user_memory_versions` row, bumps `version`, audits `memory.restore`. Guards verified live (bad confirm
+  → 400, missing version → 404).
+- `[x]` **Cross-conversation RAG scoping** — FIXED (2026-06-17). `retriever/main.py::retrieve_global` now
+  applies a similarity floor (`_GLOBAL_SIM_FLOOR=0.30`) + recency decay (`_RECENCY_HALF_LIFE_DAYS=14`,
+  `0.5 ** (age_days/half_life)` on `MessageEmbedding.created_at`) and re-ranks by the weighted score before
+  fusion. Cross-conv pool only — within-conv `retrieve()` unchanged. No migration (created_at already exists).
+- `[x]` **Embedding hygiene** — FIXED (2026-06-17). The 9 canvas-tainted `message_embeddings` in active
+  convs were deleted via live SQL (matched `(canvas|session node|workspace|output node|input node)`, verified
+  0 remain). Canvas feature is removed so none regenerate; archived-conv copies stay filtered by retrieval.
+- `[x]` **Test-mock tidy** — FIXED (2026-06-17). `test_drive.py` patched `get_redis` (a *sync* fn) with
+  `AsyncMock`, leaking an un-awaited coroutine. Swapped to `MagicMock(return_value=mock_redis)` in the
+  cache-resolution + search tests. Full suite green under `-W error::RuntimeWarning` (107 passed, 1 skipped).
 - `[ ]` **Reasoning trace is pipeline-level, not model chain-of-thought** — the `activity[]` trace in
   the `done` SSE (grounding badge → "Reasoning steps") shows the pipeline (retrieval/intent/route/
   budget/model/tools), not the model's internal deliberation. `meta/llama-3.3-70b-instruct` emits no

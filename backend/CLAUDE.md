@@ -30,7 +30,7 @@
 │   │   └── schemas.py, executor.py, file_ops.py, search.py
 │   ├── graph_memory.py     — Neo4j extraction (70B model) + query_by_keywords; entity caps: _MAX_ENTITY_NAME_LEN=200, _MAX_ENTITIES_PER_CALL=30, _MAX_RELS_PER_CALL=60, _MAX_USER_ENTITIES=500 (evicts oldest by updated_at); cache key SHA256[:32]; _cache_del_user() busts on write; skips if compact:running:{user_id} Redis lock held; MERGE SET preserves specific type over OTHER; merge_duplicate_entities() has second pass for substring/token-subset same-type dedup with rel preservation
 │   ├── router.py / circuit_breaker.py / embeddings.py — classify, circuit, embed; `classify_intent()` keyword fast-path + `classify_intent_hybrid()` (one cheap 8B call only on ambiguous/no-signal; try/except → "question") → task|exploration|question
-│   ├── retriever/          — hybrid vector+BM25 fusion (rrf|weighted); debug param; fusion.py, queries.py, main.py, attachments.py
+│   ├── retriever/          — hybrid vector+BM25 fusion (rrf|weighted); debug param; fusion.py, queries.py, main.py, attachments.py. `retrieve_global` (cross-conv pool) applies a similarity floor (_GLOBAL_SIM_FLOOR=0.30) + recency decay (_RECENCY_HALF_LIFE_DAYS=14, 0.5^(age_days/half_life) on MessageEmbedding.created_at) and re-ranks by weighted score before fusion; within-conv `retrieve()` unweighted
 │   ├── summarizer/         — memory compression, compaction; prompts.py, memory.py, history.py, project.py, compact.py; compact.py:_prune_canvas_corrections uses _CANVAS_BLOCKLIST regex + _ALLOWLIST_SUBSTRINGS guard
 │   └── agency.py           — proactive suggestions + insight generation (ARQ)
 ├── cache/                  — Redis primary + LRU fallback; cache-bypass on file/image/model-param
@@ -57,7 +57,7 @@
 │   │   ├── audit.py        — GET /audit-log
 │   │   ├── env.py          — GET/PUT env vars, reload
 │   │   ├── system.py       — POST /re-embed
-│   │   └── memory.py       — POST /memory/reset (soft/hard); _soft_reset includes _purge_canvas_entities() Neo4j cleanup
+│   │   └── memory.py       — POST /memory/reset (soft/hard); _soft_reset includes _purge_canvas_entities() Neo4j cleanup; GET /memory/versions?user_id= (snapshot list) + POST /memory/restore {user_id,version_id,confirm:"RESTORE <id>"} (reversible rollback — snapshots current sheet before overwriting from a user_memory_versions row; audits memory.restore)
 │   ├── graph.py            — /graph/stats, /health, /sample (?limit=1-200, ?entity_type=); DELETE /graph/entities/{name}; POST /graph/prune (removes long names + stale OTHER-type entities >7 days)
 │   ├── system.py           — /health, /metrics, /hardware + /system/hardware alias (both serve CPU/RAM/GPU/disk/uptime — psutil + pynvml); probe_models_on_startup() pings all MODELS, pre-trips circuit on failure
 │   ├── memory.py           — GET /memory returns active_conflicts count; scan_conflicts sets expires_at=+7d; conflicts auto-resolved keep_a after expiry
