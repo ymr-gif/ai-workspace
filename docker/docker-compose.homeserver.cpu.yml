@@ -9,18 +9,27 @@
 # Usage:
 #   1. Put a small GGUF in backend/storage/models/, e.g.
 #      mistral-7b-instruct-v0.3.Q4_K_M.gguf
-#   2. docker compose -f docker-compose.yml -f docker-compose.homeserver.cpu.yml \
+#   2. Supply a TOOL-AWARE chat template (see caveat below) into models/:
+#      curl -fsS https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3/raw/main/tokenizer_config.json \
+#        | python3 -c 'import json,sys;print(json.load(sys.stdin)["chat_template"])' \
+#        > backend/storage/models/mistral-v3-tool.jinja
+#   3. docker compose -f docker-compose.yml -f docker-compose.homeserver.cpu.yml \
 #        --profile homeserver up -d llamacpp
-#   3. Probe tool_calls (no GPU needed):
-#      curl -s http://localhost:8080/v1/chat/completions -H 'Content-Type: application/json' -d '{
-#        "model":"mixtral","messages":[{"role":"user","content":"What is the weather in Paris? Use the tool."}],
-#        "tools":[{"type":"function","function":{"name":"get_weather",
-#          "parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],
-#        "tool_choice":"auto"}' | jq '.choices[0].message.tool_calls'
-#      → a non-null tool_calls array = gate PASSED (the GGUF emits OpenAI tool calls).
-#      → null / prose-only = gate FAILED → prompt-based tool fallback (BUGS Q-A2).
-#   4. Repoint the API at it to run the real agent loop end-to-end:
+#   4. Probe tool_calls (no GPU needed):  ./probe_tool_calls.sh
+#      (CPU warmup is slow — ~5 min for a 7B Q4 on this box; use WAIT=360.)
+#      → exit 0 / non-null tool_calls array = gate PASSED (server emits OpenAI tool calls).
+#      → exit 1 / prose-only = gate FAILED → prompt-based tool fallback (BUGS Q-A2).
+#   5. Repoint the API at it to run the real agent loop end-to-end:
 #      NIM_URL=http://llamacpp:8080/v1/chat/completions
+#
+# ⚑ CAVEAT (verified 2026-06-18): `--jinja` alone is NOT enough. It emits tool_calls
+#   from the model's *embedded* chat template — and many GGUFs (e.g. bartowski
+#   Mistral-7B-v0.3) ship only the basic `[INST]…[/INST]` template with NO tool
+#   branch, so the probe FAILs as prose. Supplying the official tool-aware template
+#   via `--chat-template-file` flips it to PASS (get_weather + {"city":"Paris"}).
+#   → Always verify the SERVED Mixtral GGUF's embedded template, and if it lacks
+#     tools, hand llama.cpp a tool-aware `.jinja` (same as below). This applies to
+#     the GPU base service too.
 #
 # This override drops the GPU image + reservation and loads a CPU model.
 
@@ -33,6 +42,7 @@ services:
       --host 0.0.0.0 --port 8080
       --ctx-size ${LLAMACPP_CPU_CTX:-8192}
       --jinja
+      --chat-template-file /models/${LLAMACPP_CHAT_TEMPLATE:-mistral-v3-tool.jinja}
       --parallel 1
     deploy:
       resources:

@@ -227,6 +227,12 @@ services:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
     profiles: [homeserver]
     restart: unless-stopped
+    # tool_calls gate (verified 2026-06-18, CPU): `--jinja` emits OpenAI tool_calls
+    # ONLY if the served GGUF's embedded chat template has a tool branch. If the
+    # probe (docker/probe_tool_calls.sh) FAILs as prose, the GGUF ships a basic
+    # template — hand llama.cpp a tool-aware one by adding to the command below:
+    #   --chat-template-file /models/<tool-template>.jinja
+    # (see docker-compose.homeserver.cpu.yml header for fetching the Mistral template).
     command: >
       --model /models/${LLAMACPP_MODEL:-mixtral-8x7b-instruct-v0.1.Q4_K_M.gguf}
       --alias mixtral
