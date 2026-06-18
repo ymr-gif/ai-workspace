@@ -4,6 +4,10 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
 
 **Backend:** Python / FastAPI · **Frontend:** React / Vite · **Infra:** PostgreSQL + pgvector, Redis, Neo4j, Prometheus, Grafana
 
+> **Deployment direction:** NVIDIA NIM is a test backend. The app targets a self-hosted home
+> server (llama.cpp/GGUF; Mixtral → eventual MoE) via one OpenAI-compatible endpoint — porting is
+> a config repoint, not a rewrite. See `BUGS.md` → "Decisions — Home-Server Port & #19 Vision".
+
 ---
 
 ## Architecture
@@ -34,7 +38,7 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
 │  Graph Memory  ──► Neo4j                                    │
 │    entity + relation extraction (70B) · 500 entity cap     │
 │                                                             │
-│  Agent Tool Loop (13 tools, max 60 iterations)             │
+│  Agent Tool Loop (16 tools, max 60 iterations)             │
 │    file I/O · fuzzy patch · graph query · memory write     │
 │    web search · fetch URL · ask_user · identical-sig abort │
 │                                                             │
@@ -45,8 +49,8 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
        PostgreSQL     Redis        Neo4j     Prometheus
        + pgvector   (cache,      (entity      + Grafana
        + pgBouncer   rate limit,   graph)     (24 panels,
-       41 migrations  circuit                  2 alerts)
-       22 ORM models  breaker)
+       44 migrations  circuit                  2 alerts)
+       24 ORM models  breaker)
 ```
 
 ---

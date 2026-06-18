@@ -218,6 +218,77 @@ services:
     networks:
       - backend
 
+  # ── Home-server model serving (Q1 — llama.cpp/GGUF) ──────────────────────────
+  # Opt-in only: `docker compose --profile homeserver up -d`. NOT started by the
+  # default stack, so the live NIM backend is untouched until you repoint NIM_URL.
+  # Drop GGUF weights into backend/storage/models/ first. On the home server the
+  # GPU reservation needs the nvidia container runtime configured on the host.
+  llamacpp:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    profiles: [homeserver]
+    restart: unless-stopped
+    command: >
+      --model /models/${LLAMACPP_MODEL:-mixtral-8x7b-instruct-v0.1.Q4_K_M.gguf}
+      --alias mixtral
+      --host 0.0.0.0 --port 8080
+      --ctx-size ${LLAMACPP_CTX:-32768}
+      --n-gpu-layers ${LLAMACPP_NGL:-999}
+      --cache-type-k q4_0 --cache-type-v q4_0
+      --flash-attn
+      --jinja
+      --parallel ${LLAMACPP_PARALLEL:-2}
+    volumes:
+      - ../backend/storage/models:/models:ro
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - backend
+
+  llamacpp-embed:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    profiles: [homeserver]
+    restart: unless-stopped
+    command: >
+      --model /models/${EMBED_MODEL:-bge-large-en-v1.5-q8_0.gguf}
+      --alias bge-large-en-v1.5
+      --host 0.0.0.0 --port 8081
+      --embeddings
+      --pooling ${EMBED_POOLING:-cls}
+      --ctx-size 512
+      --n-gpu-layers ${EMBED_NGL:-999}
+    volumes:
+      - ../backend/storage/models:/models:ro
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - backend
+
 volumes:
   pgdata:
   neo4jdata:

@@ -2,6 +2,10 @@
 
 Generated: 2026-06-10
 
+> ⚠️ **Snapshot — parts are stale.** Structure counts, the tool list, and the "Roadmap Status"
+> section below reflect 2026-06-10 and have drifted (current: ~044 migrations · 24 ORM · 16 tools ·
+> `MAX_TOOL_ITERATIONS=60`). Authoritative live docs: `backend/CLAUDE.md`, `ROADMAP.md`, `BUGS.md`.
+
 ---
 
 ## What This Is
@@ -11,6 +15,22 @@ React/Vite frontend. Docker Compose stack: Postgres + pgvector, Redis, Neo4j, Pr
 
 **Vision:** A multi-user AI system where each person has a private, continuously evolving digital mind
 that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
+
+---
+
+## Deployment Direction (planned 2026-06-17)
+
+> The NVIDIA NIM models below are a **test backend only**. The project is being ported to a
+> **self-hosted home AI server** — one OpenAI-compatible endpoint, so porting = repoint env vars.
+
+- **Runtime:** llama.cpp / GGUF (Pascal P40 GPUs). Verify Mixtral `tool_calls` work first — the agent loop depends on it.
+- **Chat model:** Mixtral 8x7B (Phase 1A, 2×P40) → 8x22B (Phase 1B, 4×P40) → eventual ~145B MoE (prefer vision-native). **Text-only.**
+- **Context:** 32k (Mixtral trained limit) — `CONTEXT_WINDOWS` must reflect this, not 131072.
+- **Embedder:** stay 1024-d (`bge-large-en-v1.5`) to avoid a full re-embed.
+- **Vision / #19:** chat is text-only → image OCR runs on **CPU (PaddleOCR)**, gated `IMAGE_OCR_ENABLED` (default false); both Library-upload and chat `image_b64` paste route through OCR → text.
+- Full decision log: `BUGS.md` → "Decisions — Home-Server Port & #19 Vision". Sibling projects: SPECTRA (inference middleware) + HALO (speculative decoding) share the GPU box.
+
+> Note: the "Roadmap Status" section near the bottom of this file is stale (dated 2026-05-31) — see `ROADMAP.md` for current status (P0+P1+P2 done, most of P3 done).
 
 ---
 
@@ -26,6 +46,7 @@ ai-api/
 ├── BUGS.md                 ← bug tracker
 ├── HANDOFF_PROTOCOL.md     ← multi-agent delegation workflow
 ├── HANDOFF.md              ← current owner file (exactly one at all times)
+├── QUEUE.md                ← deferred/planned features backlog (root-owned)
 ├── HANDOFF_ARCHIVE.md      ← completed handoff records
 ├── backend/                ← FastAPI app
 ├── docker/                 ← Compose, Dockerfiles, Grafana config
@@ -394,5 +415,6 @@ Live webpage ingestion · External integrations (Drive, Notion, GitHub) · Image
 - **frontend/** — implements frontend tasks only. Does not plan.
 - **docker/** — implements infra tasks only. Does not plan.
 - **Exactly one `HANDOFF.md`** in the entire project at all times. Location = current owner. Move with `mv`, never create a second copy.
+- **`QUEUE.md`** (root-owned) holds deferred/planned features not yet active; root promotes an entry into `HANDOFF.md` when the slot frees and prerequisites are met. Currently queued: Home-Server Port → #19 Image/CPU-OCR → #22 → P3 tail.
 - Root-owned files workers must not edit: `.env` · `.env.example` · `.gitignore` · `.dockerignore` · root `CLAUDE.md` · `README.md` · `ROADMAP.md`
 

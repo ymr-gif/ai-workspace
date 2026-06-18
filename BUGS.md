@@ -14,39 +14,115 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 > Drive listing dumped on non-Drive turns N1 (`91facbe`),
 > Drive keyword gate punctuation N2 (`dc18773`),
 > Memory hygiene epic + safe reset S1–S4/O1–O6 (`65e8ad5`), prune hardening O7 (`ba17a39`),
-> manual verification runbook (`ec5f1d0`). All fixed & verified live.
+> manual verification runbook (`ec5f1d0`),
+> four-bug batch — memory restore / RAG scoping / embedding hygiene / test-mock tidy (`84cb78f`),
+> grounding-badge persistence via `messages.render_meta` migration 044 (`0f2995a`, `87196d1`).
+> All fixed & verified live.
 
 ---
 
-## Open follow-ups
+## Open
 
-- `[x]` **`POST /admin/memory/restore` endpoint** — FIXED (2026-06-17). `api/admin/memory.py` adds
-  `GET /admin/memory/versions?user_id=` (lists snapshots, newest first: id/version/created_at/content_len)
-  and `POST /admin/memory/restore {user_id, version_id, confirm:"RESTORE <id>"}`. Restore snapshots the
-  current sheet first (itself reversible), then sets `content`/`project_summary` from the chosen
-  `user_memory_versions` row, bumps `version`, audits `memory.restore`. Guards verified live (bad confirm
-  → 400, missing version → 404).
-- `[x]` **Cross-conversation RAG scoping** — FIXED (2026-06-17). `retriever/main.py::retrieve_global` now
-  applies a similarity floor (`_GLOBAL_SIM_FLOOR=0.30`) + recency decay (`_RECENCY_HALF_LIFE_DAYS=14`,
-  `0.5 ** (age_days/half_life)` on `MessageEmbedding.created_at`) and re-ranks by the weighted score before
-  fusion. Cross-conv pool only — within-conv `retrieve()` unchanged. No migration (created_at already exists).
-- `[x]` **Embedding hygiene** — FIXED (2026-06-17). The 9 canvas-tainted `message_embeddings` in active
-  convs were deleted via live SQL (matched `(canvas|session node|workspace|output node|input node)`, verified
-  0 remain). Canvas feature is removed so none regenerate; archived-conv copies stay filtered by retrieval.
-- `[x]` **Test-mock tidy** — FIXED (2026-06-17). `test_drive.py` patched `get_redis` (a *sync* fn) with
-  `AsyncMock`, leaking an un-awaited coroutine. Swapped to `MagicMock(return_value=mock_redis)` in the
-  cache-resolution + search tests. Full suite green under `-W error::RuntimeWarning` (107 passed, 1 skipped).
-- `[ ]` **Reasoning trace is pipeline-level, not model chain-of-thought** — the `activity[]` trace in
-  the `done` SSE (grounding badge → "Reasoning steps") shows the pipeline (retrieval/intent/route/
-  budget/model/tools), not the model's internal deliberation. `meta/llama-3.3-70b-instruct` emits no
-  native thinking tokens. Not a defect — closes the practical Dim-3 gap. Real CoT would need either a
-  prompt-based `<thinking>` block (cheap, +tokens/latency, narrated not faithful) or a NIM reasoning-tier
-  model that emits traces (model/cost change). Revisit only if users ask "why did it answer that."
-- `[x]` **Grounding/queryType/src badges wiped on new-conversation refetch** — FIXED via full
-  persistence (migration 044). `messages.render_meta` JSONB now stores `{grounding, query_type,
-  src_count}`, built once in `api/chat/stream.py` (`_build_provenance` + `_build_render_meta`) before the
-  assistant-message persist and reused for the `done` SSE (no double-compute). `GET /conversations/{id}/
-  messages` returns those fields; `useConversations.js` maps them + `activity_trace` on refetch. Badge +
-  expandable trace now survive the new-conversation refetch, full page reload, and cold history load —
-  verified live (badge `Low · 20%` + Intent/Routing/RAG/Loaded trace rows loaded from `GET messages`,
-  no live SSE).
+- `[ ]` **Reasoning trace is pipeline-level, not model chain-of-thought** — the `activity[]` trace in the `done` SSE (grounding badge → "Reasoning steps") shows the pipeline (retrieval/intent/route/budget/model/tools), not the model's internal deliberation. `meta/llama-3.3-70b-instruct` emits no native thinking tokens. Not a defect — closes the practical Dim-3 gap. Real CoT would need either a prompt-based `<thinking>` block (cheap, +tokens/latency, narrated not faithful) or a reasoning-tier model that emits traces (model/cost change). On the home server, a reasoning-capable model (e.g. a future MoE with thinking output) could close this for real. Revisit only if users ask "why did it answer that."
+
+---
+
+## Decisions — Home-Server Port & #19 Vision (resolved 2026-06-17)
+
+> Design decisions, not bugs. Settled with the user; drive the Mixtral port + #19.
+> Legend: ✓ confirmed · ✎ refined · ⚑ important.
+
+### Settle-first order
+
+```
+1. A2  tool_calls actually work on llama.cpp + Mixtral GGUF — highest risk, blocks the agent loop
+2. A1/A4  llama.cpp + Q4_K_M + TPS check — also SPECTRA Gate 1 baseline (one measurement, both uses)
+3. A3/B1  32k context + 1024-d embedder — config correctness; avoids overflow + re-embed
+4. C1  unify image paths through OCR — prevents the silent paste-path break
+```
+
+### A. Serving / port
+
+- **A1 ✓ runtime = llama.cpp / GGUF** — right for P40 (Pascal). SPECTRA also targets
+  llama.cpp → production + research align on one runtime.
+- **A2 ⚑ verify tool-calling FIRST** — the entire agent loop (`llm/nim.py` +
+  `llm/service/stream.py`) depends on native `tool_calls`. llama.cpp tool-calling is
+  model+template-dependent and finicky; test the actual Mixtral GGUF chat template
+  early. Prompt-based emission is the fallback net. Highest-risk item.
+- **A3 ⚑✓ context = 32768** — Mixtral 8x7B/8x22B trained limit is 32k. **Supersedes
+  the earlier ~50K/84K figures** (those were VRAM-KV-capacity estimates; 32k is the
+  real trained ceiling). Set `config.py CONTEXT_WINDOWS` Mixtral entries to 32768 and
+  size the budget allocator off it. Silver lining: 32k KV is small (~2–4 GB q8, ~2 GB
+  q4) → eases VRAM pressure.
+- **A4 ✓ Q4_K_M + q4 KV cache** — at 32k, q4-KV recall cost is mild. "Confirm TPS
+  before 1B" == SPECTRA Gate 1 baseline; one measurement serves both.
+- **A5 ✓ collapse to one Mixtral; router telemetry-only** — can't fit 3 models. Router
+  keeps a real job only if some cloud-NIM overflow remains; if overflow is fully out,
+  it's telemetry-only.
+- **A6 ✓ relax NIM-isms** — make `NVIDIA_API_KEY` guard (`config.py:144`) optional when
+  `NIM_URL` is localhost/LAN; rename `NIM_*`/`NVIDIA_*` later (cosmetic, low priority).
+
+### B. Embedding
+
+- **B1 ✓ stay 1024-d (`bge-large-en-v1.5`)** — avoids the `EMBEDDING_DIM` change →
+  no migration, no full re-embed of `FileChunk` + `MessageEmbedding`. (`e5-large-v2`
+  also 1024; `nomic` is 768 → would force re-embed.)
+- **B2 ✓ embedder GPU now, CPU at 8x22B** — query embedding is hot-path (GPU); index
+  embedding is async. Move to CPU as the relief lever when 8x22B maxes VRAM.
+
+### C. Vision / OCR (#19)
+
+- **C1 ⚑✓ route paste-path through OCR** — `stream.py:206-211` breaks on a text-only
+  server. Unify BOTH image entry points (Library upload + chat `image_b64` paste)
+  through PaddleOCR → text. One mechanism, two entry points.
+- **C2 ✓ English/Latin OCR first** — Filipino langs (Tagalog/Bisaya/Hiligaynon) are
+  Latin-script → already covered; no separate lang pack needed.
+- **C3 ✓ forward-only** — new uploads only; add a manual re-process trigger later if
+  needed.
+- **C4 ✓✎ PNG/JPG/WebP; downscale longest edge ~2500–3000px** — bumped from 2000px:
+  dense-text scans lose accuracy below ~2000px. (50 MB upload cap already exists.)
+- **C5 ✓ scanned/image-only PDFs → OCR fallback** — if pypdf text is empty, fall
+  through to PaddleOCR per page. Later enhancement.
+- **C6 ✓ no-text image → `ready`, 0 chunks** — filename-searchable; never `error`.
+- **C7 ✓✎ store plain text only now** — bbox storage is cheap and aids future #22 / UI
+  highlighting (low-cost keep if reconsidered); deferring is consistent with lean.
+  Thumbnails generated lazily from the stored original via `download_file`.
+- **C8 ✓ `IMAGE_OCR_ENABLED` default false** — off until a CPU OCR backend is present;
+  safe no-op (images persist, filename-searchable).
+
+### D. SPECTRA & future
+
+- **D1 — what SPECTRA is (grounding for the VRAM math):**
+
+```
+NOT speculative decoding. NOT a draft model. NOT separate weights.
+(Speculative decoding is HALO's thing — different project. Don't conflate.)
+
+SPECTRA = a regime-adaptive inference MIDDLEWARE between llama.cpp and the GPUs.
+Lean v1 mechanism (sparse-saturated regime only):
+  when live PCIe load > threshold θ:
+    1. forecast experts needed ~30-50 tokens ahead (from gate scores)
+    2. compress them 4-bit → 2-bit on the fly (Poly-Morpher)
+    3. async-prefetch the 2-bit clones into a per-GPU SHADOW CACHE
+    4. route execution to the local clone → skip the PCIe fetch
+  below θ: full 4-bit, no action.
+
+The ~10GB = the shadow cache (~2.5GB/card × 4) holding compressed expert clones,
+REDUNDANT with the resident 4-bit experts. A cache+routing layer over the
+already-loaded Mixtral, NOT extra model weights.
+"Elastic under context pressure" = the cache partition shrinks to yield VRAM to KV.
+Optimizes decode SPEED + GPU util (~2-2.5x TPS target). SPENDS VRAM to buy speed —
+NOT a capacity tool.
+```
+
+  VRAM model: a **~10 GB elastic shadow-cache reservation, active only under load,
+  tunable in size.** ⚑ Numbers are **UNVALIDATED** (gates haven't run) — 10 GB and
+  2.5x are hypotheses, cache size is a parameter. Do not hardcode as fact. Full
+  grounding: `SPECTRA_CONTEXT.md`.
+
+- **D2 ✓ #22 deferred — concrete trigger:** log image-search queries returning no/poor
+  hits *where the relevant content is non-text* AND the user re-finds it manually.
+  Repeated → trigger. ColQwen2 (docs/screenshots) stays the pick.
+- **D3 ✓ prefer a vision-native 145B if otherwise even** — candidates: Llama 4
+  (natively multimodal MoE), Qwen-VL MoE variants. If chosen, #19's separate vision
+  role collapses into the chat model.
