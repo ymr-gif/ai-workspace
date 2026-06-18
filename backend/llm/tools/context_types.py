@@ -33,3 +33,4 @@ class ToolContext:
     # resolved once before the injection loop (async I/O lives there, not here)
     drive_active: bool = False
     drive_cache_active: bool = False
+    calendar_active: bool = False

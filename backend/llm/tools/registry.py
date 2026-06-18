@@ -23,6 +23,7 @@ logger = logging.getLogger("tools")
 # Sentinels the stream loop string-matches to pause for user input / confirmation.
 ASK_USER_PREFIX = "__ASK_USER__:"
 CONFIRM_WRITE_PREFIX = "__CONFIRM_WRITE_MEMORY__:"
+CONFIRM_CALENDAR_PREFIX = "__CONFIRM_CALENDAR_WRITE__:"
 
 TOOL_REGISTRY: dict[str, Tool] = {}
 
@@ -55,7 +56,7 @@ async def run_tool(name: str, args: dict, ctx: ToolContext) -> str:
 
     if ctx.db is not None:
         try:
-            preview = result if (result.startswith(ASK_USER_PREFIX) or result.startswith(CONFIRM_WRITE_PREFIX)) else result[:500]
+            preview = result if (result.startswith(ASK_USER_PREFIX) or result.startswith(CONFIRM_WRITE_PREFIX) or result.startswith(CONFIRM_CALENDAR_PREFIX)) else result[:500]
             ctx.db.add(ToolCallLog(
                 user_id=ctx.user_id,
                 conversation_id=ctx.conv_id,

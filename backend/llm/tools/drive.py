@@ -1,18 +1,16 @@
 import asyncio
 import json
 import re
-import time
 import logging
 import uuid
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import USE_REDIS
-from core.encryption import decrypt_token, encrypt_token
 from llm import client as llm_client
 from models import ExternalSource
 from services.integrations.google_drive import GoogleDriveConnector
+from ._google_creds import load_google_credentials
 
 logger = logging.getLogger("tools.drive")
 
@@ -27,37 +25,7 @@ def _is_readable(mime_type: str) -> bool:
 
 
 async def _load_credentials(db: AsyncSession, user_id: int) -> tuple[ExternalSource | None, dict | None]:
-    src = await db.scalar(
-        select(ExternalSource).where(
-            ExternalSource.user_id == user_id,
-            ExternalSource.connector_type == "google_drive",
-            ExternalSource.status == "active",
-        )
-    )
-    if not src or not src.credentials:
-        return None, None
-
-    creds = {
-        "access_token": decrypt_token(src.credentials["access_token"]),
-        "refresh_token": decrypt_token(src.credentials["refresh_token"]) if src.credentials.get("refresh_token") else None,
-        "expires_at": src.credentials.get("expires_at"),
-    }
-
-    if creds.get("expires_at") and creds["expires_at"] < int(time.time()):
-        if not creds.get("refresh_token"):
-            src.status = "needs_reauth"
-            await db.commit()
-            return src, None
-        creds = await GoogleDriveConnector.refresh_tokens(creds)
-        src.credentials = {
-            "access_token": encrypt_token(creds["access_token"]),
-            "expires_at": creds.get("expires_at"),
-        }
-        if creds.get("refresh_token"):
-            src.credentials["refresh_token"] = encrypt_token(creds["refresh_token"])
-        await db.commit()
-
-    return src, creds
+    return await load_google_credentials(db, user_id, "google_drive", GoogleDriveConnector)
 
 
 _GOOGLE_DRIVE_ID_RE = re.compile(r'^[A-Za-z0-9_-]{20,}$')

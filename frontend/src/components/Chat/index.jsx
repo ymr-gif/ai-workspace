@@ -51,12 +51,14 @@ export default function Chat({ token, onLogout }) {
   const integ  = useIntegrations(token)
 
   const [userRole, setUserRole] = useState(null)
+  const [pendingCalendarWrite, setPendingCalendarWrite] = useState(null)
+  const [toastMsg, setToastMsg] = useState(null)
 
   const importRef = useRef(null)
 
   const authHeaders = { 'Authorization': `Bearer ${token}` }
 
-  const { send } = useStreamChat({ token, conv, modelParams, mem, insights, onLogout })
+  const { send } = useStreamChat({ token, conv, modelParams, mem, insights, onLogout, onCalendarWrite: setPendingCalendarWrite })
 
   function closeAllExcept(...keep) {
     const map = [
@@ -92,6 +94,30 @@ export default function Chat({ token, onLogout }) {
 
   function handleDismissWrite() {
     conv.setPendingWriteFact(null)
+  }
+
+  async function handleAcceptCalendarWrite(calData) {
+    try {
+      const r = await fetch('/api/integrations/calendar/execute', {
+        method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: calData.op, args: calData.args })
+      })
+      if (r.ok) {
+        const data = await r.json()
+        setPendingCalendarWrite(null)
+        setToastMsg(data.summary || 'Calendar event created')
+      } else {
+        const err = await r.json().catch(() => ({ detail: 'Request failed' }))
+        setToastMsg(err.detail || 'Calendar write failed')
+      }
+    } catch (err) {
+      setToastMsg(`Network error: ${err.message}`)
+    }
+    setTimeout(() => setToastMsg(null), 5000)
+  }
+
+  function handleDismissCalendarWrite() {
+    setPendingCalendarWrite(null)
   }
 
   // memory panel derived
@@ -216,6 +242,10 @@ export default function Chat({ token, onLogout }) {
           onAcceptWrite={handleAcceptWrite}
           onDismissWrite={handleDismissWrite}
           lastSession={conv.lastSession}
+          pendingCalendarWrite={pendingCalendarWrite}
+          onAcceptCalendarWrite={handleAcceptCalendarWrite}
+          onDismissCalendarWrite={handleDismissCalendarWrite}
+          toastMsg={toastMsg}
         />
 
         <ModelToolbar

@@ -67,15 +67,19 @@
 │   ├── scheduled_prompts.py — CRUD for user-defined automated prompts; schedule alias support (daily/weekly/monthly); POST /run trigger
 │   ├── webhooks.py          — POST /api/webhooks/{user_token} (public, no auth); GET/POST/DELETE /auth/me/webhook-token; WebhookEvent insert + ARQ enqueue
 ├── services/
-│   ├── digest.py            — build_digest(user_id, db, days=7): queries files/memory_versions/insights/goals in last N days; returns markdown str or None if nothing to report
-│   ├── email.py             — send_email(to, subject, body): stdlib smtplib in asyncio.to_thread; no-op if SMTP_HOST unset; raises RuntimeError on failure
-│   ├── compat.py / templates.py / usage.py / tool_logs.py
-├── services/
 │   ├── processor.py        — extract→chunk→embed; CPU work in asyncio.to_thread()
 │   ├── arq_worker.py       — _MAX_TRIES=4 (5s/30s/120s); ARQ_JOB_FAILED counter on final failure for all jobs; process_file_job sets upload_status="error" on final failure; WorkerSettings has on_startup/on_shutdown that init/close llm_client.client (httpx) — required for embeddings in worker process; sync job enqueues process_file_job via ctx["redis"].enqueue_job() (NOT asyncio.create_task — tasks silently fail in ARQ context)
 │   ├── re_embed.py         — batches of 100; triggered on startup or /admin/re-embed
 │   ├── file_service.py     — fuzzy-patch, save-version-before-mutate; sync I/O in asyncio.to_thread()
 │   └── scheduler_worker.py — APScheduler cron runner; daily memory compaction at 3 AM UTC; backup via BACKUP_SCHEDULE env (default 2 AM UTC)
+│   └── integrations/
+│       ├── base.py         — AbstractConnector ABC, OAuthTokens/ConnectorCredentials/SyncedChunk TypedDicts
+│       ├── registry.py     — @register decorator, REGISTRY dict, get_connector()
+│       ├── google_oauth.py — GoogleOAuthConnector(AbstractConnector) base with get_auth_url/exchange_code/refresh_tokens
+│       ├── google_drive.py — GoogleDriveConnector(GoogleOAuthConnector) SCOPE=drive.readonly, connector_type="google_drive"
+│       ├── google_calendar.py — GoogleCalendarConnector(GoogleOAuthConnector) SCOPE=calendar.events, connector_type="google_calendar"
+│       ├── notion.py       — NotionConnector
+│       └── github.py       — GitHubConnector
 ├── storage/                — SHA256 streaming write
 ├── requirements.txt        — added psutil + nvidia-ml-py for /hardware endpoint
 └── HANDOFF_PROTOCOL.md     — worker handoff protocol (shared from root)
@@ -108,13 +112,14 @@
 - Trigger: any message when `file_ids` non-empty → always forces reasoning model (70B); 8B cannot reliably use tool results
 - File tools always available when files attached (not keyword-gated); `_needs_file_tools()` no longer gates tool availability. `list_files`/`search_across_files` fall back to all user's ready files when none attached to conversation (fixed 2026-06-13)
 
-- Tools (16 total): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `web_search` · `fetch_url` · `drive_list_files` · `drive_read_file` · `drive_search`
+- Tools (22 total): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `web_search` · `fetch_url` · `drive_list_files` · `drive_read_file` · `drive_search` · `calendar_list_events` · `calendar_get_event` · `calendar_search_events` · `calendar_create_event` · `calendar_update_event` · `calendar_delete_event`
 - Drive tool injection (3-way gating in `llm/service/stream.py:168-185`): explicit noun+action request → full `DRIVE_TOOL_SCHEMAS` (list+read+search); cache-active + read-intent (`_wants_drive_read`) → only `drive_read_file`; else → none. Both gates strip `'s` suffix for contraction support ("what's"). `_needs_drive_tools` requires noun AND action pair to prevent incidental "drive" from triggering listing
+- Calendar tool injection (same pattern as Drive, `calendar_active` flag): `_cal_full_gate` → `_needs_calendar_tools(message)` (noun+action pair). Nouns: `calendar`/`cal`/`event`/`meeting`/`appointment`/`agenda`/`availability`/`schedule`/`gcal`. Actions: `list`/`show`/`check`/`book`/`create`/`reschedule`/`cancel`/`delete` etc. Write tools (`create`/`update`/`delete`) return `CONFIRM_CALENDAR_PREFIX` sentinel — user must confirm via `POST /api/integrations/calendar/execute` before the Google API call. Execution endpoint dispatches to `llm/tools/calendar.py` impls.
 - `web_search` is conditionally injected (not always present): requires `WEB_SEARCH_ENABLED=true` **and** `_needs_web_search(message)` keyword match (`latest`, `current`, `today`, `news`, `price`, `weather`, `score`, `trending`, `live`, `breaking`, etc.); dispatches to SearXNG (`GET {SEARXNG_URL}/search?format=json`) or Tavily (`POST https://api.tavily.com/search`) based on `WEB_SEARCH_BACKEND`; returns at most 5 results as `[N] title\nurl\nsnippet`; `done` SSE includes `web_searched: bool` (true if any web_search call executed)
 - `fetch_url` is conditionally injected: message must contain `https?://`; fetches full page text via httpx + BeautifulSoup; ephemeral — no File record created; SSRF-hardened (`llm/tools/fetch_url.py`): scheme allowlist, DNS resolved once and connection pinned to that IP (TOCTOU-safe, `sni_hostname` extension preserves SSL cert verification), port allowlist `{80, 443}`, 1 MB streaming byte cap + Content-Length pre-check, Content-Type allowlist; each redirect hop re-validated; `done` SSE includes `url_fetched: bool`
 - Guards: same tool **with identical args** repeated → abort (signature = `(name, json.dumps(args, sort_keys))`). `_MAX_IDENTICAL_CALLS=3` for all tools. Bounded overall by `MAX_TOOL_ITERATIONS=60` · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
 - Tool activity stages: `stage:"tool"` event emitted before each `execute_tool()` call (`"Called: fn(args[:80])"`), `stage:"tool_result"` after call returns (`"fn: result[:100]"`). Accumulated into activity trace and persisted.
-- `ask_user` / `write_memory` emit SSE + done → pauses loop; amber/green card in UI; `POST /api/memory/write` on user confirm; `ask_user` question persisted as assistant message content so model sees it on next turn
+- `ask_user` / `write_memory` / `calendar_create_event` / `calendar_update_event` / `calendar_delete_event` emit SSE + done → pauses loop; amber/green card in UI; `POST /api/memory/write` on user confirm; `POST /api/integrations/calendar/execute` for calendar writes; `ask_user` question persisted as assistant message content so model sees it on next turn
 - `append_to_file` for explicit write requests only; `search_in_file` preferred over `read_file` for sections
 
 ---
@@ -194,7 +199,7 @@ Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACT
 - API routes (`/api/integrations`): `GET/POST /integrations`, `GET/PATCH/DELETE /integrations/{id}`, `POST /integrations/{id}/sync`, `GET /integrations/oauth/start`, `GET /integrations/oauth/callback`
 - OAuth callback (`/api/integrations/oauth/callback`) has **no JWT** authorization — identity from Redis state `intg:state:{uuid4}` → `{user_id, connector_type}`, TTL 600s
 - New config vars: `INTEGRATION_SECRET` (Fernet key, 44-char base64url), `INTEGRATION_REDIRECT_BASE` (default `http://localhost:8000`), `GOOGLE_CLIENT_ID/SECRET`, `NOTION_CLIENT_ID/SECRET`, `GITHUB_CLIENT_ID/SECRET` — all nullable `os.getenv(key, "")`
-- ARQ job `sync_external_source_job(ctx, *, source_id)`: retries with `_RETRY_DELAYS=[5,30,120]`, 401/403 → `needs_reauth` no retry, final failure → `ARQ_JOB_FAILED` counter + `status="error"`; decrypts credentials, refreshes if expired (fast-fails to `needs_reauth` if expired AND no refresh_token), sets `last_sync_at` + `status="active"`. **Does NOT ingest content** — `iter_chunks()`/`StorageManager.save_text()`/`process_file_job` were removed when Drive moved to on-demand tools (`llm/tools/drive.py`). `iter_chunks()` is defined on connectors but unused. Drive content is fetched live per request, never synced to `File`/pgvector. Connector `iter_chunks` impls retained for a possible future sync but are dead code today.
+- ARQ job `sync_external_source_job(ctx, *, source_id)`: retries with `_RETRY_DELAYS=[5,30,120]`, 401/403 → `needs_reauth` no retry, final failure → `ARQ_JOB_FAILED` counter + `status="error"`; decrypts credentials, refreshes if expired (fast-fails to `needs_reauth` if expired AND no refresh_token), sets `last_sync_at` + `status="active"`. **Does NOT ingest content** — `iter_chunks()`/`StorageManager.save_text()`/`process_file_job` were removed when Drive moved to on-demand tools (`llm/tools/drive.py`). `iter_chunks()` is defined on connectors but unused. Drive/Calendar content is fetched live per request, never synced to `File`/pgvector. Connector `iter_chunks` impls retained for a possible future sync but are dead code today.
 - Google OAuth auth URL includes `prompt=consent` to guarantee refresh_token on every authorization (without it Google only returns refresh_token on first auth)
 - Scheduler: `run_integration_sync()` enqueues sync for all active sources every 6h (cron `0 */6 * * *`, id `__integration_sync__`)
 - Migration 042: created `external_sources` table with unique index `(user_id, connector_type, resource_id)` and index on `user_id`

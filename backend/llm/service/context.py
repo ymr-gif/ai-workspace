@@ -31,6 +31,43 @@ _DRIVE_READ_VERBS = frozenset({
 
 _DRIVE_STRIP = "\"'.,!?;:()[]{}…"
 
+_CALENDAR_NOUNS = frozenset({
+    "calendar", "cal",
+    "event", "events",
+    "meeting", "meetings",
+    "appointment", "appointments",
+    "agenda",
+    "availability", "free time", "schedule", "scheduled",
+    "gcal",
+})
+
+_CALENDAR_ACTIONS = frozenset({
+    "list", "show", "what", "when", "check",
+    "book", "schedule", "create", "add",
+    "move", "reschedule", "update", "edit", "change",
+    "cancel", "delete", "remove",
+    "find", "search", "get",
+})
+
+_CALENDAR_STRIP = "\"'.,!?;:()[]{}…"
+
+
+def _calendar_tokens(message: str) -> set[str]:
+    out: set[str] = set()
+    for raw in message.lower().split():
+        t = raw.strip(_CALENDAR_STRIP)
+        if not t:
+            continue
+        out.add(t)
+        if t.endswith("'s"):
+            out.add(t[:-2])
+    return out
+
+
+def _needs_calendar_tools(message: str) -> bool:
+    tokens = _calendar_tokens(message)
+    return bool(tokens & _CALENDAR_NOUNS) and bool(tokens & _CALENDAR_ACTIONS)
+
 
 def _drive_tokens(message: str) -> set[str]:
     # whitespace split + strip surrounding punctuation so "drive?" matches "drive"

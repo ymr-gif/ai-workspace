@@ -10,6 +10,8 @@ export default function MessageList({
   setMessages,
   pendingWriteFact, onAcceptWrite, onDismissWrite,
   lastSession,
+  pendingCalendarWrite, onAcceptCalendarWrite, onDismissCalendarWrite,
+  toastMsg,
 }) {
   const firstAiIdx = messages.findIndex(m => m.role === 'ai')
   return (
@@ -127,6 +129,24 @@ export default function MessageList({
               <button onClick={onDismissWrite} style={{ padding:'0.4rem 0.75rem', background:'none', color:'#8f8f8f', border:'1px solid #4a4a4a', cursor:'pointer', fontFamily:"'Silkscreen',monospace", fontSize:'10px', letterSpacing:'0.08em', textTransform:'uppercase' }}>Dismiss</button>
             </div>
           </div>
+        </div>
+      )}
+      {pendingCalendarWrite && (
+        <div style={{ display:'flex', gap:'0.6rem', alignItems:'flex-start', background:'rgba(14,116,144,0.08)', border:'1px solid rgba(14,116,144,0.40)', padding:'0.65rem 0.85rem', margin:'0 1.25rem 0.5rem' }}>
+          <span style={{ fontSize:'1rem', flexShrink:0, marginTop:'1px', color:'#0e7490' }}>📅</span>
+          <div style={{ flex:1 }}>
+            <div style={{ fontFamily:"'Silkscreen',monospace", fontSize:'9px', color:'#0e7490', marginBottom:'0.25rem', letterSpacing:'0.1em', textTransform:'uppercase' }}>CALENDAR SUGGESTION</div>
+            <div style={{ fontSize:'17px', color:'#8f8f8f', lineHeight:1.35 }}>{pendingCalendarWrite.summary}</div>
+            <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.5rem' }}>
+              <button onClick={() => onAcceptCalendarWrite(pendingCalendarWrite)} style={{ padding:'0.4rem 1rem', background:'#0e7490', color:'#000', border:'none', cursor:'pointer', fontFamily:"'Silkscreen',monospace", fontSize:'10px', letterSpacing:'0.08em', textTransform:'uppercase', fontWeight:700 }}>Accept</button>
+              <button onClick={onDismissCalendarWrite} style={{ padding:'0.4rem 0.75rem', background:'none', color:'#8f8f8f', border:'1px solid #4a4a4a', cursor:'pointer', fontFamily:"'Silkscreen',monospace", fontSize:'10px', letterSpacing:'0.08em', textTransform:'uppercase' }}>Dismiss</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {toastMsg && (
+        <div style={{ fontSize:'14px', color:'#0e7490', textAlign:'center', margin:'0.25rem 1.25rem', fontFamily:"'Silkscreen',monospace" }}>
+          {toastMsg}
         </div>
       )}
       {proactive && (

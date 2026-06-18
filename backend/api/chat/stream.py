@@ -301,7 +301,7 @@ async def chat_stream(
                     activity.append({k: v for k, v in event.items() if k != "type"})
                     yield f"data: {_json.dumps(event)}\n\n"
 
-                elif event["type"] in ("tool_call", "tool_result", "ask_user", "confirm_write_memory"):
+                elif event["type"] in ("tool_call", "tool_result", "ask_user", "confirm_write_memory", "confirm_calendar_write"):
                     if event["type"] == "tool_call":
                         tools_in_turn.append(event.get("name", ""))
                     if event["type"] == "ask_user":

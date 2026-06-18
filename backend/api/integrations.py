@@ -20,14 +20,15 @@ from models import ExternalSource, User
 from services.integrations.registry import get_connector
 
 _CLIENT_ID_MAP: dict[str, tuple[str, str]] = {
-    "google_drive": (GOOGLE_CLIENT_ID, "GOOGLE_CLIENT_ID"),
-    "notion":       (NOTION_CLIENT_ID, "NOTION_CLIENT_ID"),
-    "github":       (GITHUB_CLIENT_ID, "GITHUB_CLIENT_ID"),
+    "google_drive":     (GOOGLE_CLIENT_ID, "GOOGLE_CLIENT_ID"),
+    "google_calendar":  (GOOGLE_CLIENT_ID, "GOOGLE_CLIENT_ID"),
+    "notion":           (NOTION_CLIENT_ID, "NOTION_CLIENT_ID"),
+    "github":           (GITHUB_CLIENT_ID, "GITHUB_CLIENT_ID"),
 }
 
 logger = logging.getLogger("api.integrations")
 
-_VALID_TYPES = frozenset({"google_drive", "notion", "github"})
+_VALID_TYPES = frozenset({"google_drive", "google_calendar", "notion", "github"})
 
 STATE_TTL = 600
 
@@ -35,7 +36,7 @@ STATE_TTL = 600
 
 
 class SourceCreate(BaseModel):
-    connector_type: str = Field(pattern=r"^(google_drive|notion|github)$")
+    connector_type: str = Field(pattern=r"^(google_drive|google_calendar|notion|github)$")
     display_name: str | None = None
     resource_id: str | None = None
 
@@ -203,7 +204,7 @@ async def _sync_inline(source_id: str):
 
 @router.get("/oauth/start")
 async def oauth_start(
-    connector_type: str = Query(pattern=r"^(google_drive|notion|github)$"),
+    connector_type: str = Query(pattern=r"^(google_drive|google_calendar|notion|github)$"),
     current_user: User = Depends(get_current_user),
 ):
     if not fernet_ready():
@@ -281,6 +282,56 @@ async def oauth_callback(
     await db.commit()
 
     return HTMLResponse(content=HTML_RESPONSE)
+
+
+# ── Calendar execute endpoint ──────────────────────────────────────────────────
+
+
+class CalendarExecuteBody(BaseModel):
+    op: str = Field(pattern=r"^(create|update|delete)$")
+    args: dict
+
+
+@router.post("/calendar/execute")
+async def calendar_execute(
+    body: CalendarExecuteBody,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from llm.tools.calendar import _calendar_create_event, _calendar_update_event, _calendar_delete_event
+
+    try:
+        if body.op == "create":
+            result = await _calendar_create_event(
+                db, current_user.id,
+                summary=body.args["summary"],
+                start=body.args["start"],
+                end=body.args["end"],
+                description=body.args.get("description"),
+                location=body.args.get("location"),
+            )
+        elif body.op == "update":
+            result = await _calendar_update_event(
+                db, current_user.id,
+                event_id=body.args["event_id"],
+                summary=body.args.get("summary"),
+                start=body.args.get("start"),
+                end=body.args.get("end"),
+                description=body.args.get("description"),
+                location=body.args.get("location"),
+            )
+        elif body.op == "delete":
+            result = await _calendar_delete_event(
+                db, current_user.id,
+                event_id=body.args["event_id"],
+            )
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown operation: {body.op}")
+    except Exception as e:
+        logger.warning("[integrations] calendar_execute failed op=%s err=%s", body.op, e)
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"ok": True, "summary": result}
 
 
 HTML_RESPONSE = """

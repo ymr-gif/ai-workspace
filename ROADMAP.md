@@ -3,8 +3,13 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-06-16 (P0 + P1 + P2 complete; P3 live webpage ingestion + external integrations done; Reasoning Loop / Dim 3 hardened — intent + grounding + pipeline trace persisted; Dim 2 closed — cross-conv insight propagation + tool trace + retrieval scores added)
+Last updated: 2026-06-18 (Google Calendar connector shipped — read-write, confirm-card writes, reuses Google OAuth app; Dim 5 70% → 85%. P0 + P1 + P2 complete; P3 live webpage ingestion + external integrations done; Reasoning Loop / Dim 3 hardened — intent + grounding + pipeline trace persisted; Dim 2 closed — cross-conv insight propagation + tool trace + retrieval scores added)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
+
+> **Deployment direction (2026-06-17):** NIM is a test backend; the app is porting to a self-hosted
+> home server (llama.cpp/GGUF; Mixtral 8x7B → 8x22B → eventual MoE, text-only). The port + the
+> revised #19 plan (CPU PaddleOCR, not a VLM) are specced in `BUGS.md` → "Decisions — Home-Server
+> Port & #19 Vision" and queued in `QUEUE.md` (HANDOFF.md is occupied by the Calendar connector).
 
 ---
 
@@ -115,7 +120,7 @@ Last updated: 2026-06-16 (P0 + P1 + P2 complete; P3 live webpage ingestion + ext
 |-----|-------|
 | ~~Web search tool~~ | ~~No internet search during chat~~ ✅ |
 | ~~Live webpage ingestion~~ | ~~`ingest-url` exists but no live web fetch mid-conversation~~ ✅ |
-| External integrations | No calendar, email, or third-party data stream connectors |
+| ~~External integrations~~ | ~~No calendar, email, or third-party data stream connectors~~ ✅ Google Drive (read) + **Google Calendar (read-write, confirm-card writes)** + Notion + GitHub OAuth connectors. Email/other-calendar connectors still open. |
 
 ### Platform / UX
 | Gap | Notes |
@@ -244,8 +249,9 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 ~~- Frontend: IntegrationsPanel; OAuth popup flow; status/sync UI~~
 
 #### Image Storage + Indexing
-Persist uploaded images as `File` records. Generate text captions via NIM vision endpoint at upload time. Embed captions for semantic search alongside text chunks.
-- Backend: processor.py image path; caption generation tool; retriever extension
+Persist uploaded images as `File` records. Extract text via **CPU OCR (PaddleOCR)** at upload (chat model is text-only on the home server — no VLM caption). Embed the OCR text for semantic search alongside text chunks; both Library uploads and inline `image_b64` chat paste route through OCR.
+- Backend: processor.py image path (`_extract_image`); `File.media_type`/`ocr_text` + migration; `IMAGE_OCR_ENABLED` gate; paste-path unify
+- Revised approach + full to-do: `BUGS.md` decisions (Q-C*) and `QUEUE.md` Q2. (Earlier VLM-caption draft superseded.)
 
 #### Voice Input
 Browser `MediaRecorder` → `POST /api/transcribe` (Whisper/NIM ASR) → text injected as chat message. Optional TTS response for AI replies.
@@ -308,5 +314,5 @@ P3 — future
 | 2. Unified Interface | 100% | Cross-conversation insight propagation shipped (`[RECENT INSIGHTS]` block) |
 | 3. Reasoning Loop | ~97% | Tool call trace + retrieval scores added; model chain-of-thought not exposed (no native thinking tokens — hard model constraint) |
 | 4. Autonomous Agency | 90% | P2 complete; goal tracker ✅ |
-| 5. Real-Time Perception | 70% | Web search + live fetch + OAuth integrations done; no calendar/email connectors |
-| **Overall** | **~97%** | P0 + P1 + P2 complete; P3 done; Dim 2 closed; Dim 3 at ~97% (model CoT ceiling) |
+| 5. Real-Time Perception | 85% | Web search + live fetch + OAuth integrations done; **Google Calendar connector (read-write) shipped**; email/other-calendar connectors still open |
+| **Overall** | **~98%** | P0 + P1 + P2 complete; P3 done; Dim 2 closed; Dim 3 at ~97% (model CoT ceiling); Dim 5 calendar gap closed |

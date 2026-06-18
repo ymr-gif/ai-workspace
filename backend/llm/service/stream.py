@@ -10,7 +10,7 @@ from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route, get_context_limit
 from llm.nim import call, call_stream
-from llm.tools import execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX, TOOL_REGISTRY, ToolContext, get_tool
+from llm.tools import execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX, CONFIRM_CALENDAR_PREFIX, TOOL_REGISTRY, ToolContext, get_tool
 
 from models import ExternalSource
 from .context import build_context_messages, apply_context_budget, _needs_memory_tool
@@ -164,6 +164,7 @@ async def generate_stream(
     _is_reasoning = fallback_chain[0] == MODELS["reasoning"]
     _drive_active = False
     _drive_cache_active = False
+    _calendar_active = False
     if db is not None:
         _drive_active = bool(await db.scalar(
             select(ExternalSource.id).where(
@@ -178,6 +179,13 @@ async def generate_stream(
                 _drive_cache_active = bool(await get_redis().exists(f"drive_listing:{conv_id}"))
             except Exception:
                 pass
+        _calendar_active = bool(await db.scalar(
+            select(ExternalSource.id).where(
+                ExternalSource.user_id == user_id,
+                ExternalSource.connector_type == "google_calendar",
+                ExternalSource.status == "active",
+            )
+        ))
 
     _tool_ctx = ToolContext(
         message=message,
@@ -191,6 +199,7 @@ async def generate_stream(
         use_redis=USE_REDIS,
         drive_active=_drive_active,
         drive_cache_active=_drive_cache_active,
+        calendar_active=_calendar_active,
     )
     injected_tools = [t for t in TOOL_REGISTRY.values() if t.should_inject(_tool_ctx)]
     tools = [t.schema for t in injected_tools] or None
@@ -349,6 +358,16 @@ async def generate_stream(
                     if result.startswith(CONFIRM_WRITE_PREFIX):
                         fact = result[len(CONFIRM_WRITE_PREFIX):]
                         yield {"type": "confirm_write_memory", "fact": fact}
+                        done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched, "url_fetched": _url_fetched, "drive_read": _drive_read, "drive_file_name": _drive_file_name}
+                        if nim_usage:
+                            done_ev["usage"] = nim_usage
+                        yield done_ev
+                        ask_user_triggered = True
+                        break
+
+                    if result.startswith(CONFIRM_CALENDAR_PREFIX):
+                        payload = json.loads(result[len(CONFIRM_CALENDAR_PREFIX):])
+                        yield {"type": "confirm_calendar_write", **payload}
                         done_ev = {"type": "done", "model": current_model, "cache_hit": False, "fallback_used": fallback_used, "web_searched": _web_searched, "url_fetched": _url_fetched, "drive_read": _drive_read, "drive_file_name": _drive_file_name}
                         if nim_usage:
                             done_ev["usage"] = nim_usage

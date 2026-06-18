@@ -1,6 +1,6 @@
 import { MODEL_KEYS } from '../lib/chatConstants.js'
 
-export default function useStreamChat({ token, conv, modelParams, mem, insights, onLogout }) {
+export default function useStreamChat({ token, conv, modelParams, mem, insights, onLogout, onCalendarWrite }) {
   const authHeaders = { 'Authorization': `Bearer ${token}` }
 
   function buildBody(text) {
@@ -18,7 +18,7 @@ export default function useStreamChat({ token, conv, modelParams, mem, insights,
     const text = conv.input.trim(); if (!text || conv.loading) return
     const isCompare = modelParams.compareMode
     const userId = conv.nextId.current++, aiId = conv.nextId.current++
-    conv.setInput(''); conv.setLoading(true); conv.setProactive(null); conv.setPendingWriteFact(null); conv.setLastSession('')
+    conv.setInput(''); conv.setLoading(true); conv.setProactive(null); conv.setPendingWriteFact(null); if (onCalendarWrite) onCalendarWrite(null); conv.setLastSession('')
 
     if (isCompare) {
       conv.setMessages(prev => [...prev,
@@ -106,6 +106,8 @@ export default function useStreamChat({ token, conv, modelParams, mem, insights,
               conv.setMessages(prev => prev.map(m => m.id === aiId ? { ...m, askUser: event.question } : m))
             } else if (event.type === 'confirm_write_memory') {
               conv.setPendingWriteFact(event.fact)
+            } else if (event.type === 'confirm_calendar_write') {
+              if (onCalendarWrite) onCalendarWrite({ op: event.op, args: event.args, summary: event.summary })
             } else if (event.type === 'proactive') {
               conv.setProactive(event.content)
             } else if (event.type === 'error') {

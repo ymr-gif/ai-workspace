@@ -128,6 +128,46 @@ WRITE_MEMORY_SCHEMA = _tool("write_memory", (
 
 
 # name → schema dict, for the tool registry (builtin tools reference these; zero retyping/drift).
+CALENDAR_TOOL_SCHEMAS = [
+    _tool("calendar_list_events",
+          "List upcoming events from the user's primary Google Calendar. "
+          "Optional timeMin/timeMax filter by ISO 8601 timestamp. "
+          "Defaults to showing events from now onwards.",
+          {"time_min": {"type": "string", "description": "Optional ISO 8601 start of range (default: now)"},
+           "time_max": {"type": "string", "description": "Optional ISO 8601 end of range"},
+           "max_results": {"type": "integer", "description": "Max events to return (default 20)"}},
+          []),
+    _tool("calendar_get_event",
+          "Get full details of a specific calendar event by its ID.",
+          {"event_id": {"type": "string", "description": "The event ID to fetch"}},
+          ["event_id"]),
+    _tool("calendar_search_events",
+          "Search the user's primary calendar events by keyword. Matches summary, description, location, and attendees.",
+          {"query": {"type": "string", "description": "Search terms"}},
+          ["query"]),
+    _tool("calendar_create_event",
+          "Create a new event on the user's primary calendar.",
+          {"summary": {"type": "string", "description": "Event title"},
+           "start": {"type": "string", "description": "ISO 8601 start datetime"},
+           "end": {"type": "string", "description": "ISO 8601 end datetime"},
+           "description": {"type": "string", "description": "Optional event description"},
+           "location": {"type": "string", "description": "Optional event location"}},
+          ["summary", "start", "end"]),
+    _tool("calendar_update_event",
+          "Update an existing calendar event. Only provided fields are changed.",
+          {"event_id": {"type": "string", "description": "The event ID to update"},
+           "summary": {"type": "string", "description": "Optional new title"},
+           "start": {"type": "string", "description": "Optional ISO 8601 start datetime"},
+           "end": {"type": "string", "description": "Optional ISO 8601 end datetime"},
+           "description": {"type": "string", "description": "Optional new description"},
+           "location": {"type": "string", "description": "Optional new location"}},
+          ["event_id"]),
+    _tool("calendar_delete_event",
+          "Delete an event from the user's primary calendar.",
+          {"event_id": {"type": "string", "description": "The event ID to delete"}},
+          ["event_id"]),
+]
+
 SCHEMA_BY_NAME = {
     s["function"]["name"]: s
     for s in [
@@ -135,6 +175,7 @@ SCHEMA_BY_NAME = {
         *WEB_SEARCH_TOOL_SCHEMA,
         *FETCH_URL_TOOL_SCHEMA,
         *DRIVE_TOOL_SCHEMAS,
+        *CALENDAR_TOOL_SCHEMAS,
         WRITE_MEMORY_SCHEMA,
     ]
 }
