@@ -20,6 +20,13 @@ build/
 # Storage (user uploads + DB dumps — contain user data, never commit)
 backend/storage/files/
 backend/storage/backups/
+backend/storage/models/
+
+# Generated artifacts / tool caches (regenerated locally, never commit)
+graphify-out/
+**/graphify-out/
+.opencode/
+.wwebjs_cache/
 
 # Logs
 *.log
