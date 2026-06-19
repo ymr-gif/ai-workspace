@@ -19,7 +19,7 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 > grounding-badge persistence via `messages.render_meta` migration 044 (`0f2995a`, `87196d1`),
 > calendar tools never registered at startup — `builtin/__init__.py` omitted `calendar_tools`, so all 6
 > calendar tools were absent from `TOOL_REGISTRY` → never injected/dispatchable in the live agent loop
-> (connector tests passed by importing the exec fns directly, masking it) (`20cb1da`).
+> (connector tests passed by importing the exec fns directly, masking it) (`67ec91d`).
 > All fixed & verified live.
 
 ---
