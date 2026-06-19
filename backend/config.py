@@ -24,6 +24,19 @@ NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
 NIM_URL           = os.getenv("NIM_URL",           "https://integrate.api.nvidia.com/v1/chat/completions")
 NIM_EMBEDDING_URL = os.getenv("NIM_EMBEDDING_URL", "https://integrate.api.nvidia.com/v1/embeddings")
 
+# ── Backend selection (NIM ⇄ self-hosted llama.cpp home server) ────────────────
+# Default "nim" → behavior identical to today (fully inert). Flip to "homeserver"
+# to repoint the app at the local llama.cpp/Mixtral stack. The override block below
+# (run before the startup guards, so it is also re-applied on importlib.reload via
+# POST /admin/env/reload — no restart) rewrites endpoints, collapses the three model
+# roles to one Mixtral, sizes context to 32k, and relaxes the NVIDIA_API_KEY guard.
+LLM_BACKEND = os.getenv("LLM_BACKEND", "nim").lower()   # "nim" | "homeserver"
+HOMESERVER_CHAT_URL    = os.getenv("HOMESERVER_CHAT_URL",    "http://llamacpp:8080/v1/chat/completions")
+HOMESERVER_EMBED_URL   = os.getenv("HOMESERVER_EMBED_URL",   "http://llamacpp-embed:8081/v1/embeddings")
+HOMESERVER_MODEL       = os.getenv("HOMESERVER_MODEL",       "mixtral")            # llama.cpp --alias
+HOMESERVER_EMBED_MODEL = os.getenv("HOMESERVER_EMBED_MODEL", "bge-large-en-v1.5")
+HOMESERVER_CTX         = _int_env("HOMESERVER_CTX", 32768)
+
 # ── Database ──────────────────────────────────────────────────────────────────
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -140,8 +153,24 @@ NOTION_CLIENT_SECRET     = os.getenv("NOTION_CLIENT_SECRET", "")
 GITHUB_CLIENT_ID         = os.getenv("GITHUB_CLIENT_ID", "")
 GITHUB_CLIENT_SECRET     = os.getenv("GITHUB_CLIENT_SECRET", "")
 
+# ── Home-server override (applied when LLM_BACKEND="homeserver") ───────────────
+# Placed after all base defs and before the guards so it rewrites the model/context
+# tables and is re-applied verbatim on importlib.reload (runtime toggle, no restart).
+# Inert when LLM_BACKEND="nim" (the default).
+if LLM_BACKEND == "homeserver":
+    NIM_URL                = HOMESERVER_CHAT_URL
+    NIM_EMBEDDING_URL      = HOMESERVER_EMBED_URL
+    MODELS                 = {role: HOMESERVER_MODEL for role in MODELS}   # collapse 3 roles → one Mixtral (Q-A5)
+    MODEL_EMBEDDING        = HOMESERVER_EMBED_MODEL                        # 1024-d, no re-embed (Q-B1)
+    CONTEXT_WINDOWS        = {HOMESERVER_MODEL: HOMESERVER_CTX}
+    DEFAULT_CONTEXT_WINDOW = HOMESERVER_CTX                                # 32768 — budget allocator sizes correctly (Q-A3)
+    # EMBEDDING_DIM stays 1024 in both modes → no migration / re-embed.
+    # MODEL_RATE_LIMITS / MODEL_PRICING left keyed by NIM roles: cosmetic only,
+    # router is telemetry-only in homeserver mode.
+
 # ── Startup guards ────────────────────────────────────────────────────────────
-if not NVIDIA_API_KEY:
+# NIM key required only on the paid NIM backend; the LAN llama.cpp server needs none (Q-A6).
+if LLM_BACKEND != "homeserver" and not NVIDIA_API_KEY:
     raise RuntimeError("NVIDIA_API_KEY is not set. Add it to your .env file.")
 
 if not DATABASE_URL:

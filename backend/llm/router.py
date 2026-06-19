@@ -1,7 +1,7 @@
 import logging
 import time
 
-from config import CONTEXT_WINDOWS, DEFAULT_CONTEXT_WINDOW, MODELS
+import config
 
 logger = logging.getLogger("router")
 
@@ -109,7 +109,7 @@ async def classify_intent_hybrid(message: str, request_id: str = "") -> str:
             f"Message: {message}\nIntent:"
         )
         result = await nim.call(
-            MODELS["llama"],
+            config.MODELS["llama"],
             [{"role": "user", "content": prompt}],
             request_id or "intent",
             model_params={"max_tokens": 4, "temperature": 0.0},
@@ -127,11 +127,11 @@ async def classify_intent_hybrid(message: str, request_id: str = "") -> str:
 async def route(message: str, request_id: str) -> tuple[str, float]:
     start  = time.monotonic()
     choice = classify(message)
-    model  = MODELS.get(choice, MODELS["llama"])
+    model  = config.MODELS.get(choice, config.MODELS["llama"])
     latency_ms = (time.monotonic() - start) * 1000
     logger.info("[route] rid=%s model=%s latency_ms=%.2f", request_id, model, latency_ms)
     return model, latency_ms
 
 
 def get_context_limit(model_name: str) -> int:
-    return CONTEXT_WINDOWS.get(model_name, DEFAULT_CONTEXT_WINDOW)
+    return config.CONTEXT_WINDOWS.get(model_name, config.DEFAULT_CONTEXT_WINDOW)

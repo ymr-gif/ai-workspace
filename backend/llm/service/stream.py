@@ -5,7 +5,8 @@ import uuid
 
 from sqlalchemy import select
 
-from config import FALLBACK_ORDER, MODEL_VISION, MODELS, USE_REDIS, WEB_SEARCH_ENABLED
+import config
+from config import MODEL_VISION, USE_REDIS, WEB_SEARCH_ENABLED
 from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route, get_context_limit
@@ -47,7 +48,7 @@ async def generate_response(message: str, request_id: str) -> dict:
         }
 
     model, _ = await route(message, request_id)
-    fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
+    fallback_chain = [model] + [config.MODELS[k] for k in config.FALLBACK_ORDER if config.MODELS[k] != model]
 
     for idx, current_model in enumerate(fallback_chain):
         fallback_used = idx > 0
@@ -138,30 +139,30 @@ async def generate_stream(
         fallback_chain = [MODEL_VISION]
         route_reason = "vision"
     elif model_override:
-        fallback_chain = [model_override] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model_override]
+        fallback_chain = [model_override] + [config.MODELS[k] for k in config.FALLBACK_ORDER if config.MODELS[k] != model_override]
         route_reason = "override"
     elif file_ids:
         # Always use reasoning model when files attached — 8B cannot reliably use tool results
-        fallback_chain = [MODELS["reasoning"]]
+        fallback_chain = [config.MODELS["reasoning"]]
         route_reason = "files"
     elif _needs_memory_tool(message):
-        fallback_chain = [MODELS["reasoning"]] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != MODELS["reasoning"]]
+        fallback_chain = [config.MODELS["reasoning"]] + [config.MODELS[k] for k in config.FALLBACK_ORDER if config.MODELS[k] != config.MODELS["reasoning"]]
         route_reason = "memory"
     elif intent == "task":
         # Task intent → tool-eager. Prefer the reasoning model (8B emits tool
         # calls as plain text); keep the rest of the chain as fallback.
-        fallback_chain = [MODELS["reasoning"]] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != MODELS["reasoning"]]
+        fallback_chain = [config.MODELS["reasoning"]] + [config.MODELS[k] for k in config.FALLBACK_ORDER if config.MODELS[k] != config.MODELS["reasoning"]]
         route_reason = "task-intent"
     else:
         model, _ = await route(message, request_id)
-        fallback_chain = [model] + [MODELS[k] for k in FALLBACK_ORDER if MODELS[k] != model]
+        fallback_chain = [model] + [config.MODELS[k] for k in config.FALLBACK_ORDER if config.MODELS[k] != model]
         route_reason = "router"
 
     yield {"type": "status", "stage": "route", "detail": f"Routing → {fallback_chain[0]} ({route_reason})", "level": "info"}
 
     # Resolve async Drive flags ONCE here so each tool's should_inject() stays a
     # pure, synchronous predicate. Then offer whichever registered tools opt in.
-    _is_reasoning = fallback_chain[0] == MODELS["reasoning"]
+    _is_reasoning = fallback_chain[0] == config.MODELS["reasoning"]
     _drive_active = False
     _drive_cache_active = False
     _calendar_active = False
@@ -207,8 +208,8 @@ async def generate_stream(
     # Tool-required turns (file ops) must not degrade to 8B — it emits tool
     # calls as plain text instead of using the tool-calling API. Drop llama from the
     # fallback chain when tools are active, but never leave the chain empty.
-    if tools and MODELS["llama"] in fallback_chain:
-        _tool_capable = [m for m in fallback_chain if m != MODELS["llama"]]
+    if tools and config.MODELS["llama"] in fallback_chain:
+        _tool_capable = [m for m in fallback_chain if m != config.MODELS["llama"]]
         if _tool_capable:
             fallback_chain = _tool_capable
 

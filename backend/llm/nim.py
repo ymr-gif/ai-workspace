@@ -6,11 +6,20 @@ import time
 
 import httpx
 
-from config import NVIDIA_API_KEY, NIM_URL, MAX_RETRIES
+import config
+from config import MAX_RETRIES
 import llm.client as llm_client
 from llm.circuit_breaker import is_open, record_failure, record_success
 
 logger = logging.getLogger("nim")
+
+
+def _auth_headers() -> dict:
+    """Auth header only when a key is set — the LAN llama.cpp server needs none."""
+    headers = {"Content-Type": "application/json"}
+    if config.NVIDIA_API_KEY:
+        headers["Authorization"] = f"Bearer {config.NVIDIA_API_KEY}"
+    return headers
 
 
 async def call(
@@ -22,7 +31,7 @@ async def call(
 ) -> dict:
     if llm_client.client is None:
         raise RuntimeError("HTTP client not initialized")
-    if not NVIDIA_API_KEY:
+    if not config.NVIDIA_API_KEY and config.LLM_BACKEND != "homeserver":
         raise RuntimeError("Missing NVIDIA_API_KEY")
 
     if is_open(model):
@@ -38,11 +47,8 @@ async def call(
         for attempt in range(MAX_RETRIES + 1):
             try:
                 response = await llm_client.client.post(
-                    NIM_URL,
-                    headers={
-                        "Authorization": f"Bearer {NVIDIA_API_KEY}",
-                        "Content-Type":  "application/json",
-                    },
+                    config.NIM_URL,
+                    headers=_auth_headers(),
                     json=body,
                 )
 
@@ -142,7 +148,7 @@ async def call_stream(
 ):
     if llm_client.client is None:
         raise RuntimeError("HTTP client not initialized")
-    if not NVIDIA_API_KEY:
+    if not config.NVIDIA_API_KEY and config.LLM_BACKEND != "homeserver":
         raise RuntimeError("Missing NVIDIA_API_KEY")
     if is_open(model):
         raise RuntimeError("circuit_open")
@@ -158,11 +164,8 @@ async def call_stream(
             try:
                 async with llm_client.client.stream(
                     "POST",
-                    NIM_URL,
-                    headers={
-                        "Authorization": f"Bearer {NVIDIA_API_KEY}",
-                        "Content-Type":  "application/json",
-                    },
+                    config.NIM_URL,
+                    headers=_auth_headers(),
                     json=body,
                 ) as response:
                     if response.status_code != 200:

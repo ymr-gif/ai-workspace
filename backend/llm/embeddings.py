@@ -1,7 +1,7 @@
 import logging
 
 import llm.client as llm_client
-from config import NVIDIA_API_KEY, NIM_EMBEDDING_URL, MODEL_EMBEDDING
+import config
 
 logger = logging.getLogger("embeddings")
 
@@ -11,14 +11,14 @@ async def embed(text: str, input_type: str = "passage") -> list[float] | None:
         logger.warning("[embeddings] HTTP client not initialized")
         return None
     try:
+        headers = {"Content-Type": "application/json"}
+        if config.NVIDIA_API_KEY:
+            headers["Authorization"] = f"Bearer {config.NVIDIA_API_KEY}"
         resp = await llm_client.client.post(
-            NIM_EMBEDDING_URL,
-            headers={
-                "Authorization": f"Bearer {NVIDIA_API_KEY}",
-                "Content-Type":  "application/json",
-            },
+            config.NIM_EMBEDDING_URL,
+            headers=headers,
             json={
-                "model":           MODEL_EMBEDDING,
+                "model":           config.MODEL_EMBEDDING,
                 "input":           [text[:2000]],
                 "input_type":      input_type,
                 "encoding_format": "float",

@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 import llm.client as llm_client
-from config import MODELS, MODEL_EMBEDDING, NVIDIA_API_KEY, NIM_URL, NIM_EMBEDDING_URL
+import config
 from llm.circuit_breaker import record_failure, _THRESHOLD
 from core.db import AsyncSessionLocal
 from core.redis_client import get_redis
@@ -45,9 +45,9 @@ async def _ping_nim() -> dict:
     t = time.monotonic()
     try:
         resp = await llm_client.client.post(
-            NIM_URL,
-            headers={"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"},
-            json={"model": MODELS["llama"], "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
+            config.NIM_URL,
+            headers={"Authorization": f"Bearer {config.NVIDIA_API_KEY}", "Content-Type": "application/json"},
+            json={"model": config.MODELS["llama"], "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
             timeout=_PING_TIMEOUT,
         )
         latency = int((time.monotonic() - t) * 1000)
@@ -62,9 +62,9 @@ async def _ping_embedding() -> dict:
     t = time.monotonic()
     try:
         resp = await llm_client.client.post(
-            NIM_EMBEDDING_URL,
-            headers={"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"},
-            json={"model": MODEL_EMBEDDING, "input": ["ping"], "input_type": "passage", "encoding_format": "float"},
+            config.NIM_EMBEDDING_URL,
+            headers={"Authorization": f"Bearer {config.NVIDIA_API_KEY}", "Content-Type": "application/json"},
+            json={"model": config.MODEL_EMBEDDING, "input": ["ping"], "input_type": "passage", "encoding_format": "float"},
             timeout=_PING_TIMEOUT,
         )
         latency = int((time.monotonic() - t) * 1000)
@@ -101,8 +101,8 @@ async def probe_models_on_startup() -> None:
     async def _probe(role: str, model_id: str) -> None:
         try:
             resp = await llm_client.client.post(
-                NIM_URL,
-                headers={"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"},
+                config.NIM_URL,
+                headers={"Authorization": f"Bearer {config.NVIDIA_API_KEY}", "Content-Type": "application/json"},
                 json={"model": model_id, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1},
                 timeout=_PING_TIMEOUT,
             )
@@ -115,7 +115,7 @@ async def probe_models_on_startup() -> None:
         for _ in range(_THRESHOLD):
             await record_failure(model_id)
 
-    await asyncio.gather(*(_probe(role, model_id) for role, model_id in MODELS.items()))
+    await asyncio.gather(*(_probe(role, model_id) for role, model_id in config.MODELS.items()))
 
 
 @router.get("/health")
@@ -133,7 +133,7 @@ async def health():
 
     return {
         "status": "ok" if all_ok else "degraded",
-        "models": list(MODELS.keys()),
+        "models": list(config.MODELS.keys()),
         "checks": checks,
     }
 
