@@ -10,6 +10,8 @@ EXPECTED = {
     "patch_file", "search_in_file", "search_across_files", "query_graph",
     "ask_user", "write_memory", "web_search", "fetch_url",
     "drive_list_files", "drive_read_file", "drive_search",
+    "calendar_list_events", "calendar_get_event", "calendar_search_events",
+    "calendar_create_event", "calendar_update_event", "calendar_delete_event",
 }
 
 _DB = object()   # sentinel: predicates only check `db is not None`

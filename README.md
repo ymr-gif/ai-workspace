@@ -38,7 +38,7 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
 │  Graph Memory  ──► Neo4j                                    │
 │    entity + relation extraction (70B) · 500 entity cap     │
 │                                                             │
-│  Agent Tool Loop (16 tools, max 60 iterations)             │
+│  Agent Tool Loop (22 tools, max 60 iterations)             │
 │    file I/O · fuzzy patch · graph query · memory write     │
 │    web search · fetch URL · ask_user · identical-sig abort │
 │                                                             │
@@ -354,9 +354,9 @@ ai-api/
 │   │   ├── summarizer/       history compression, memory compaction
 │   │   ├── graph_memory.py   Neo4j entity extraction + query
 │   │   ├── router.py         keyword model classifier
-│   │   └── tools/            11 agent tool schemas + executor
+│   │   └── tools/            22 agent tool schemas + executor
 │   ├── auth/                 JWT, bcrypt, API key, invites
-│   ├── models/               21 SQLAlchemy ORM models
+│   ├── models/               24 SQLAlchemy ORM models
 │   ├── alembic/versions/     39 migrations
 │   ├── services/             ARQ workers, file processor, scheduler
 │   ├── observability/        Prometheus counters/histograms

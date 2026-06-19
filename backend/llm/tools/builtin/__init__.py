@@ -11,3 +11,4 @@ from . import file_tools      # noqa: F401
 from . import memory_tools    # noqa: F401
 from . import web_tools       # noqa: F401
 from . import drive_tools     # noqa: F401
+from . import calendar_tools  # noqa: F401

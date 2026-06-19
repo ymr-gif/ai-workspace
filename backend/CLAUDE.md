@@ -26,8 +26,9 @@
 ├── llm/
 │   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=60)
 │   ├── nim.py              — NIM API call, accumulates tool_call deltas
-│   ├── tools/              — 12 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
-│   │   └── schemas.py, executor.py, file_ops.py, search.py
+│   ├── tools/              — 22 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
+│   │   ├── schemas.py, registry.py (TOOL_REGISTRY + register_tool/run_tool), executor.py (shim → run_tool), file_ops.py, search.py, drive.py, calendar.py, fetch_url.py
+│   │   └── builtin/         — side-effect registration; __init__ imports file_tools, memory_tools, web_tools, drive_tools, **calendar_tools** (each calls register_tool() on import — a module omitted here = its tools silently absent from the registry)
 │   ├── graph_memory.py     — Neo4j extraction (70B model) + query_by_keywords; entity caps: _MAX_ENTITY_NAME_LEN=200, _MAX_ENTITIES_PER_CALL=30, _MAX_RELS_PER_CALL=60, _MAX_USER_ENTITIES=500 (evicts oldest by updated_at); cache key SHA256[:32]; _cache_del_user() busts on write; skips if compact:running:{user_id} Redis lock held; MERGE SET preserves specific type over OTHER; merge_duplicate_entities() has second pass for substring/token-subset same-type dedup with rel preservation
 │   ├── router.py / circuit_breaker.py / embeddings.py — classify, circuit, embed; `classify_intent()` keyword fast-path + `classify_intent_hybrid()` (one cheap 8B call only on ambiguous/no-signal; try/except → "question") → task|exploration|question
 │   ├── retriever/          — hybrid vector+BM25 fusion (rrf|weighted); debug param; fusion.py, queries.py, main.py, attachments.py. `retrieve_global` (cross-conv pool) applies a similarity floor (_GLOBAL_SIM_FLOOR=0.30) + recency decay (_RECENCY_HALF_LIFE_DAYS=14, 0.5^(age_days/half_life) on MessageEmbedding.created_at) and re-ranks by weighted score before fusion; within-conv `retrieve()` unweighted
@@ -183,6 +184,10 @@ Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACT
 - Auth uses `bcrypt` directly (no passlib) — `hash_password()` + `verify_password()` in `auth/security.py`; existing `$2b$` hashes remain compatible
 - API keys use SHA-256 (`hash_api_key()` in `auth/security.py`) — not bcrypt, since keys are already high-entropy; migration 039 NULLed all pre-existing plaintext keys
 - Dotenv admin: `/admin/env` masks sensitive keys; PUT writes `.env` + updates running config; `POST /admin/env/reload` does `importlib.reload(config)`
+- **`LLM_BACKEND` switch (`nim`|`homeserver`, default `nim`)** — single flag in `config.py` that flips the app between the NIM test backend and the local llama.cpp/Mixtral stack. A gated block (run **before** the startup guards, so `importlib.reload` re-applies it) repoints `NIM_URL`/`NIM_EMBEDDING_URL`, collapses `MODELS` to one Mixtral alias, sets `CONTEXT_WINDOWS`/`DEFAULT_CONTEXT_WINDOW=32768`, swaps `MODEL_EMBEDDING`→`bge-large-en-v1.5` (1024-d, no re-embed), and relaxes the `NVIDIA_API_KEY` guard (`LLM_BACKEND != "homeserver"`). Toggleable live via `/admin/env` PUT + reload — **no restart**.
+  - ⚑ **Runtime reload only propagates to call-time `config.X` reads.** The hot path was converted from `from config import NIM_URL` (frozen at import) to `import config` + `config.NIM_URL` in `llm/nim.py`, `llm/embeddings.py`, `llm/router.py`, `llm/service/stream.py`, `api/system.py`. **Do not regress these to `from config import` or the live toggle silently stops working.**
+  - Stale NIM model ids from still-frozen callers (summarizers, `helpers.py`, etc.) are harmless: llama.cpp ignores the `model` field in single-model mode, and `get_context_limit()` returns `DEFAULT_CONTEXT_WINDOW` (32k) for any id not in the homeserver `CONTEXT_WINDOWS`. `MODEL_RATE_LIMITS`/`MODEL_PRICING` stay NIM-keyed (cosmetic; router is telemetry-only in homeserver mode).
+  - Auth header (`nim.py`/`embeddings.py`) is sent only when `config.NVIDIA_API_KEY` is set (avoids `Bearer None` to the keyless LAN server).
 - `.env` merge script in root CLAUDE.md — adds missing keys from `.env.example` as commented-out
 - Debug mode: `retriever.retrieve()` / `retrieve_from_files(debug=True)` returns `(chunks, debug_info)` tuple; `/search?debug=true` returns `{"results": [...], "debug": [...]}`
 - Eval harness: `tests/retrieval/test_hybrid_eval.py` — 26 tests, mock DB (AsyncMock), no NIM deps; run with `pytest tests/retrieval/ -v`

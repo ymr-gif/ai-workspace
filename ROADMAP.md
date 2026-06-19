@@ -9,7 +9,9 @@ Last updated: 2026-06-18 (Google Calendar connector shipped — read-write, conf
 > **Deployment direction (2026-06-17):** NIM is a test backend; the app is porting to a self-hosted
 > home server (llama.cpp/GGUF; Mixtral 8x7B → 8x22B → eventual MoE, text-only). The port + the
 > revised #19 plan (CPU PaddleOCR, not a VLM) are specced in `BUGS.md` → "Decisions — Home-Server
-> Port & #19 Vision" and queued in `QUEUE.md` (HANDOFF.md is occupied by the Calendar connector).
+> Port & #19 Vision" and queued in `QUEUE.md`. The Calendar connector shipped; `HANDOFF.md` now holds
+> Q1 (Home-Server Port, owner `docker/`). The backend config half is pre-staged behind an inert
+> `LLM_BACKEND` flag (`nim`|`homeserver`); the tool_calls gate passed CPU-side. #19 (Q2) follows Q1.
 
 ---
 
@@ -57,7 +59,7 @@ Last updated: 2026-06-18 (Google Calendar connector shipped — read-write, conf
 | File storage — SHA256 dedup, versioning, chunk quality states | ✅ |
 | File formats — PDF, DOCX, XLSX, text/code/markdown | ✅ |
 | Full data export (`GET /api/export/full` ZIP stream) | ✅ |
-| AI agent tool loop (19 tools: 12 existing + 7 canvas) | ✅ |
+| AI agent tool loop (22 tools: file ops, graph, memory, web, drive, calendar; canvas removed) | ✅ |
 | Web search tool (SearXNG/Tavily, heuristic-gated, `WEB_SEARCH_ENABLED` env var) | ✅ |
 | Event-driven webhook triggers (`POST /webhooks/{user_token}`; `file.uploaded` / `reminder` / `external.data`; ARQ → UserInsight; `WebhookEvent` model; migration 040) | ✅ |
 | Daily/weekly digest (APScheduler cron; per-user markdown summary of files/memory/insights/goals; delivered as `UserInsight` + optional SMTP email; `DIGEST_ENABLED` + `DIGEST_SCHEDULE` env vars; migration 041 adds `email` to users) | ✅ |

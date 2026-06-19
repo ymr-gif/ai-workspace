@@ -3,8 +3,9 @@
 Generated: 2026-06-10
 
 > ⚠️ **Snapshot — parts are stale.** Structure counts, the tool list, and the "Roadmap Status"
-> section below reflect 2026-06-10 and have drifted (current: ~044 migrations · 24 ORM · 16 tools ·
-> `MAX_TOOL_ITERATIONS=60`). Authoritative live docs: `backend/CLAUDE.md`, `ROADMAP.md`, `BUGS.md`.
+> section below reflect 2026-06-10 and have drifted (current: ~044 migrations · 24 ORM · 22 tools ·
+> `MAX_TOOL_ITERATIONS=60` · backend `LLM_BACKEND` switch nim⇄homeserver). Authoritative live docs:
+> `backend/CLAUDE.md`, `ROADMAP.md`, `BUGS.md`.
 
 ---
 
@@ -133,7 +134,7 @@ backend/
 ├── llm/
 │   ├── service/             — context build, context budget allocator, SSE stream + tool loop
 │   ├── nim.py               — NIM API call; accumulates tool_call deltas
-│   ├── tools/               — 11 tool schemas + execute_tool()
+│   ├── tools/               — 22 tool schemas + execute_tool()
 │   ├── graph_memory.py      — Neo4j extraction (70B) + query_by_keywords
 │   ├── router.py            — keyword classify(), model route(), get_context_limit()
 │   ├── circuit_breaker.py   — threshold=5, cooldown=90s, Redis-persisted
