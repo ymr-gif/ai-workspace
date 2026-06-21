@@ -2,13 +2,14 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import MODELS
 from core.db import AsyncSessionLocal
 from models import Message, UserMemory, UserMemoryVersion
 from llm.nim import call
+from core.locks import user_write_lock
 from .prompts import _MEMORY_SYSTEM, _NO_UPDATE
 
 logger = logging.getLogger("summarizer")
@@ -24,13 +25,13 @@ async def get_memory(db: AsyncSession, user_id: int) -> str:
 async def update_memory(user_id: int, conversation_id: uuid.UUID) -> None:
     async with AsyncSessionLocal() as db:
         try:
-            await _update_memory(db, user_id, conversation_id)
+            async with user_write_lock(db, user_id):
+                await _update_memory(db, user_id, conversation_id)
         except Exception:
             logger.exception("[summarizer] update_memory failed user_id=%s", user_id)
 
 
 async def _update_memory(db: AsyncSession, user_id: int, conversation_id: uuid.UUID) -> None:
-    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": user_id})
     row     = await db.get(UserMemory, user_id)
     last_at = row.last_summarized_at if row else None
     current = row.content if row else ""
@@ -114,13 +115,13 @@ Update the memory sheet. Reply with the full updated sheet or {_NO_UPDATE}.\
 async def restructure_memory(user_id: int) -> None:
     async with AsyncSessionLocal() as db:
         try:
-            await _restructure_memory(db, user_id)
+            async with user_write_lock(db, user_id):
+                await _restructure_memory(db, user_id)
         except Exception:
             logger.exception("[summarizer] restructure_memory failed user_id=%s", user_id)
 
 
 async def _restructure_memory(db: AsyncSession, user_id: int) -> None:
-    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": user_id})
     row = await db.get(UserMemory, user_id)
     if not row or not row.content:
         return

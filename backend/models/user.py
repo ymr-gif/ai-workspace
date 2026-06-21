@@ -18,6 +18,7 @@ class User(Base):
     api_key: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
     webhook_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, unique=True, index=True)
     email: Mapped[str | None] = mapped_column(String(256), nullable=True, unique=True, index=True)
+    has_onboarded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

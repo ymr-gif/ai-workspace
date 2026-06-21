@@ -3,14 +3,15 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 const CONNECTOR_LABELS = {
   google_drive: 'Google Drive',
   google_calendar: 'Google Calendar',
+  gmail: 'Gmail',
   notion: 'Notion',
   github: 'GitHub',
 }
 
-const CONNECTOR_TYPES = ['google_drive', 'google_calendar', 'notion', 'github']
+const CONNECTOR_TYPES = ['google_drive', 'google_calendar', 'gmail', 'notion', 'github']
 
 // Connectors with a live OAuth flow. Others render as "coming soon" placeholders.
-const ENABLED_CONNECTOR_TYPES = ['google_drive', 'google_calendar']
+const ENABLED_CONNECTOR_TYPES = ['google_drive', 'google_calendar', 'gmail']
 
 export default function useIntegrations(token) {
   const [integOpen, setIntegOpen] = useState(false)

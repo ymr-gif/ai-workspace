@@ -6,7 +6,7 @@ export const VOID = '#000', PANEL = '#0a0a0a', INSET = '#050505'
 export const FG1 = '#ffffff', FG2 = '#c8c8c8', FG3 = '#8f8f8f', FG4 = '#5a5a5a', FG5 = '#383838'
 export const LINE = '#262626', LINE2 = '#4a4a4a'
 
-export const LAYERS = { overlay: 10, panel: 11, settingsModal: 20, viewer: 50 }
+export const LAYERS = { overlay: 10, panel: 11, settingsModal: 20, viewer: 50, onboarding: 50 }
 
 const panelBase = { position:'absolute', top:0, right:0, bottom:0, background:'#070707', borderLeft:`2px solid ${RED}`, zIndex:LAYERS.panel, display:'flex', flexDirection:'column', transition:'transform 0.18s cubic-bezier(.2,.9,.1,1)' }
 
@@ -87,6 +87,8 @@ const s = {
   bar:         { display:'flex', gap:'0.5rem', padding:'0.7rem 1.25rem 1rem', background:'rgba(0,0,0,0.55)' },
   input:       { flex:1, padding:'0.6rem 0.85rem', borderRadius:0, border:`1px solid ${LINE2}`, background:'#000', color:FG1, fontFamily:TERM, fontSize:'20px', outline:'none' },
   send:        { padding:'0.6rem 1.1rem', borderRadius:0, background:RED, color:'#000', border:'none', cursor:'pointer', fontFamily:DISP, fontWeight:700, fontSize:'11px', letterSpacing:'0.1em', textTransform:'uppercase' },
+  micBtn:      { padding:'0.5rem 0.7rem', borderRadius:0, border:`1px solid ${LINE2}`, background:'none', cursor:'pointer', fontFamily:DISP, fontSize:'10px', letterSpacing:'0.1em', textTransform:'uppercase', color:FG3, lineHeight:1, flexShrink:0 },
+  micRec:      { color:RED, borderColor:RED, textShadow:`0 0 6px ${RED}` },
 
   // overlay + panels
   overlay:     { position:'absolute', inset:0, background:'rgba(0,0,0,0.78)', zIndex:LAYERS.overlay },
@@ -141,6 +143,10 @@ const s = {
   settingsTitle:  { fontFamily:DISP, fontSize:'13px', color:FG1, letterSpacing:'0.1em', textTransform:'uppercase' },
   settingsBody:   { padding:'1.25rem', overflowY:'auto' },
   settingsFooter: { display:'flex', justifyContent:'flex-end', gap:'0.5rem', padding:'0.75rem 1.25rem', borderTop:`1px solid ${LINE}` },
+  notifSection:  { borderTop:`1px solid ${LINE}`, margin:'1.2rem 0 0.75rem', paddingTop:'0.75rem' },
+  notifLabel:    { fontFamily:DISP, fontSize:'9px', letterSpacing:'0.08em', textTransform:'uppercase', color:FG4, marginBottom:'0.5rem' },
+  notifRow:      { display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.35rem 0', borderBottom:`1px solid #161616` },
+  notifText:     { fontFamily:TERM, fontSize:'17px', color:FG2 },
 
   // ask_user card
   askCard:       { display:'flex', gap:'0.55rem', alignItems:'flex-start', background:'rgba(255,176,0,0.08)', border:`1px solid rgba(255,176,0,0.40)`, borderRadius:0, padding:'0.6rem 0.8rem', marginTop:'0.5rem' },
@@ -176,6 +182,7 @@ const s = {
   fileItem:      { display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.45rem 0.55rem', marginBottom:'4px', border:`1px solid ${LINE}`, background:INSET },
   fileName:      { flex:1, minWidth:0, fontFamily:TERM, fontSize:'16px', color:FG2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' },
   fileMeta:      { fontFamily:TERM, fontSize:'13px', color:FG4, whiteSpace:'nowrap' },
+  imgThumb:      { width:36, height:36, objectFit:'cover', borderRadius:0, flexShrink:0 },
   statusBadge:   { fontFamily:DISP, fontSize:'8px', padding:'0.15rem 0.35rem', borderRadius:0, letterSpacing:'0.06em', textTransform:'uppercase', whiteSpace:'nowrap', border:'1px solid currentColor' },
   attachBtn:     { padding:'0.15rem 0.4rem', borderRadius:0, border:`1px solid ${LINE2}`, background:'none', cursor:'pointer', fontSize:'0.8rem', color:FG3, whiteSpace:'nowrap', lineHeight:1.2 },
   attachedBtn:   { background:'rgba(255,34,34,0.10)', borderColor:RED, color:RED },

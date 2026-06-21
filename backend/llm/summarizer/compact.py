@@ -2,13 +2,13 @@ import logging
 import re
 from datetime import datetime, timezone
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import MODELS
 from core.db import AsyncSessionLocal
 from models import MemoryConflict, UserMemory, UserMemoryVersion
 from llm.nim import call
+from core.locks import user_write_lock
 from .prompts import _COMPACT_SYSTEM, _NO_UPDATE
 from .salience import decay_fact_saliences, decay_salience
 from .conflicts import detect_conflicts
@@ -136,7 +136,8 @@ async def compact_memory(user_id: int) -> None:
     try:
         async with AsyncSessionLocal() as db:
             try:
-                await _compact_memory(db, user_id)
+                async with user_write_lock(db, user_id):
+                    await _compact_memory(db, user_id)
             except Exception:
                 logger.exception("[summarizer] compact_memory failed user_id=%s", user_id)
     finally:
@@ -149,7 +150,6 @@ async def compact_memory(user_id: int) -> None:
 
 
 async def _compact_memory(db: AsyncSession, user_id: int) -> None:
-    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": user_id})
     row = await db.get(UserMemory, user_id)
     if not row or not row.content:
         return

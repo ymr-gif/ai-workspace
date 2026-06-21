@@ -17,6 +17,8 @@ class File(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     storage_path: Mapped[str] = mapped_column(String(1024), nullable=False, unique=True)
     upload_status: Mapped[str] = mapped_column(String(32), default="uploaded", nullable=False, index=True)
+    media_type: Mapped[str] = mapped_column(String(16), default="document", nullable=False)
+    ocr_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     sha256_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     chunk_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
     chunk_embedded: Mapped[int | None] = mapped_column(Integer, nullable=True)

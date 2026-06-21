@@ -2,11 +2,12 @@ import logging
 import re
 from datetime import datetime, timezone
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import MODELS
 from llm.nim import call
+from core.locks import user_write_lock
 from models import Conversation, Message, UserMemory, UserMemoryVersion
 
 logger = logging.getLogger("summarizer")
@@ -71,29 +72,29 @@ Extract user preferences from the above.\
         logger.info("[preferences] no [PREFERENCES] block found user_id=%s", user_id)
         return
 
-    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": user_id})
-    row = await db.get(UserMemory, user_id)
-    if not row:
-        row = UserMemory(user_id=user_id, content="", version=0)
-        db.add(row)
-        await db.flush()
+    async with user_write_lock(db, user_id):
+        row = await db.get(UserMemory, user_id)
+        if not row:
+            row = UserMemory(user_id=user_id, content="", version=0)
+            db.add(row)
+            await db.flush()
 
-    current = row.content or ""
+        current = row.content or ""
 
-    db.add(UserMemoryVersion(
-        user_id=user_id,
-        version=row.version,
-        content=current,
-        project_summary=row.project_summary or "",
-    ))
+        db.add(UserMemoryVersion(
+            user_id=user_id,
+            version=row.version,
+            content=current,
+            project_summary=row.project_summary or "",
+        ))
 
-    new_content = _replace_or_append_pref(current, pref_block)
-    row.content = new_content
-    row.version += 1
-    row.updated_at = datetime.now(timezone.utc)
+        new_content = _replace_or_append_pref(current, pref_block)
+        row.content = new_content
+        row.version += 1
+        row.updated_at = datetime.now(timezone.utc)
 
-    await db.commit()
-    logger.info("[preferences] extracted for user_id=%s", user_id)
+        await db.commit()
+        logger.info("[preferences] extracted for user_id=%s", user_id)
 
 
 def _extract_pref_section(text: str) -> str | None:

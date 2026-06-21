@@ -1,11 +1,22 @@
+import { useEffect } from 'react'
 import s from '../../../lib/chatStyles.js'
 import { usePanelProps } from '../PanelPropsContext.js'
+
+const isImageMime = (m) => m && m.startsWith('image/')
 
 export default function FileViewer() {
   const p = usePanelProps()
   const { fileViewer, setFileViewer, viewerTab, setViewerTab, viewerEdit, setViewerEdit, viewerSaving, viewerVersions, viewerVerLoading, downloadFile, saveFileEdit, loadFileVersions, restoreFileVersion } = p.files
   const { fmtDate } = p
   if (!fileViewer) return null
+  const isImage = isImageMime(fileViewer.mime_type)
+  const tabs = isImage ? ['preview','view','edit','versions'] : ['view','edit','versions']
+
+  useEffect(() => {
+    if (fileViewer && isImageMime(fileViewer.mime_type) && viewerTab === 'view') {
+      setViewerTab('preview')
+    }
+  }, [fileViewer?.id])
   return (
     <div style={s.viewerOverlay} onClick={() => setFileViewer(null)}>
       <div style={s.viewerModal} onClick={e => e.stopPropagation()}>
@@ -17,18 +28,23 @@ export default function FileViewer() {
           </div>
         </div>
         <div style={s.tabBar}>
-          {['view','edit','versions'].map(tab => (
+          {tabs.map(tab => (
             <button key={tab} onClick={() => {
               setViewerTab(tab)
               if (tab === 'edit') setViewerEdit(fileViewer.content)
               if (tab === 'versions' && viewerVersions.length === 0) loadFileVersions(fileViewer.id)
             }}
               style={{ ...s.tabBtn, ...(viewerTab === tab ? s.tabActive : {}) }}>
-              {tab === 'view' ? 'View' : tab === 'edit' ? 'Edit' : 'Versions'}
+              {tab === 'preview' ? 'Preview' : tab === 'view' ? 'Raw' : tab === 'edit' ? 'Edit' : 'Versions'}
             </button>
           ))}
         </div>
         <div style={s.viewerBody}>
+          {viewerTab === 'preview' && (
+            <div style={{ padding:8, textAlign:'center' }}>
+              <img src={`/api/files/${fileViewer.id}/download`} alt="" style={{ maxWidth:'100%', maxHeight:'65vh', objectFit:'contain' }} />
+            </div>
+          )}
           {viewerTab === 'view' && <pre style={s.viewerPre}>{fileViewer.content}</pre>}
           {viewerTab === 'edit' && (
             <div>

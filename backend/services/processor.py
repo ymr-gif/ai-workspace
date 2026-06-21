@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 import re
 import uuid
@@ -9,16 +10,24 @@ from llm.embeddings import embed
 from models import File, FileChunk
 from observability.file_metrics import record_chunks
 
+import config
+
 logger = logging.getLogger("processor")
 
 CHUNK_SIZE    = 1600
 CHUNK_OVERLAP = 200
-_PROGRESS_TTL = 300  # Redis key TTL in seconds
+_PROGRESS_TTL = 300   # Redis key TTL in seconds
+_PDF_OCR_MAX_PAGES = 20  # scanned-PDF OCR page cap
 
 
 def extract_text(storage_path: str, mime_type: str) -> str:
     path = Path(storage_path)
     mt   = (mime_type or "").lower()
+
+    if mt.startswith("image/"):
+        if config.IMAGE_OCR_ENABLED:
+            return _extract_image(path)
+        return ""
 
     if mt == "application/pdf" or path.suffix.lower() == ".pdf":
         return _extract_pdf(path)
@@ -43,15 +52,43 @@ def extract_text(storage_path: str, mime_type: str) -> str:
 
 
 def _extract_pdf(path: Path) -> str:
+    text = ""
     try:
         from pypdf import PdfReader
         reader = PdfReader(str(path))
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
     except ImportError:
         logger.warning("[processor] pypdf not installed")
-        return ""
     except Exception as e:
         logger.warning("[processor] pdf failed path=%s err=%s", path, e)
+
+    if text.strip() or not config.IMAGE_OCR_ENABLED:
+        return text
+
+    # pypdf returned blank and OCR gate is on → scanned-PDF fallback
+    try:
+        import pypdfium2 as pdfium
+        import io
+    except ImportError:
+        logger.warning("[processor] pypdfium2 not installed, cannot OCR scanned PDF")
+        return ""
+
+    try:
+        pdf = pdfium.PdfDocument(str(path))
+        page_texts = []
+        n_pages = min(len(pdf), _PDF_OCR_MAX_PAGES)
+        for i in range(n_pages):
+            page = pdf[i]
+            bitmap = page.render_to_bitmap()
+            pil_image = bitmap.to_pil()
+            buf = io.BytesIO()
+            pil_image.save(buf, format="PNG")
+            ocr_text = extract_image_from_bytes(buf.getvalue())
+            if ocr_text.strip():
+                page_texts.append(ocr_text)
+        return "\n\n".join(page_texts)
+    except Exception as e:
+        logger.warning("[processor] pdf ocr fallback failed path=%s err=%s", path, e)
         return ""
 
 
@@ -113,6 +150,57 @@ def _extract_excel(path: Path) -> str:
         return ""
     except Exception as e:
         logger.warning("[processor] excel failed path=%s err=%s", path, e)
+        return ""
+
+
+def _extract_image(path: Path) -> str:
+    try:
+        from paddleocr import PaddleOCR
+        ocr = PaddleOCR(use_angle_cls=False, lang="en", show_log=False)
+        result = ocr.ocr(str(path))
+        lines = []
+        for page in result or []:
+            for line_info in page or []:
+                text = line_info[1][0] if len(line_info) > 1 and line_info[1] else ""
+                if text.strip():
+                    lines.append(text.strip())
+        return "\n".join(lines)
+    except ImportError:
+        logger.warning("[processor] paddleocr not installed")
+        return ""
+    except Exception as e:
+        logger.warning("[processor] image ocr failed path=%s err=%s", path, e)
+        return ""
+
+
+def extract_image_from_bytes(data: bytes) -> str:
+    """OCR a raw image byte blob (e.g. from base64 paste). Returns extracted text."""
+    try:
+        from paddleocr import PaddleOCR
+        import numpy as np
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(data))
+        # Downscale longest edge to ~2500px to keep PaddleOCR fast
+        w, h = img.size
+        longest = max(w, h)
+        if longest > 2500:
+            ratio = 2500.0 / longest
+            img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+        ocr = PaddleOCR(use_angle_cls=False, lang="en", show_log=False)
+        result = ocr.ocr(np.array(img))
+        lines = []
+        for page in result or []:
+            for line_info in page or []:
+                text = line_info[1][0] if len(line_info) > 1 and line_info[1] else ""
+                if text.strip():
+                    lines.append(text.strip())
+        return "\n".join(lines)
+    except ImportError:
+        logger.warning("[processor] paddleocr not installed")
+        return ""
+    except Exception as e:
+        logger.warning("[processor] image bytes ocr failed err=%s", e)
         return ""
 
 
@@ -233,8 +321,23 @@ async def _process(db, file_id: uuid.UUID, storage_path: str, mime_type: str) ->
     row.upload_status = "processing"
     await db.commit()
 
+    is_image = (mime_type or "").lower().startswith("image/")
+    if is_image:
+        row.media_type = "image"
+
     text = await asyncio.to_thread(extract_text, storage_path, mime_type)
+    if is_image:
+        row.ocr_text = text[:10000] if text else ""
+
     if not text.strip():
+        if is_image:
+            # No-text image: ready, 0 chunks — never error (Q-C6)
+            row.upload_status = "ready"
+            row.chunk_total = 0
+            row.chunk_embedded = 0
+            await db.commit()
+            logger.info("[processor] image no-text file_id=%s → ready (0 chunks)", file_id)
+            return
         row.upload_status = "error"
         await db.commit()
         logger.warning("[processor] empty text file_id=%s", file_id)

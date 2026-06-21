@@ -3,15 +3,16 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-06-18 (Google Calendar connector shipped — read-write, confirm-card writes, reuses Google OAuth app; Dim 5 70% → 85%. P0 + P1 + P2 complete; P3 live webpage ingestion + external integrations done; Reasoning Loop / Dim 3 hardened — intent + grounding + pipeline trace persisted; Dim 2 closed — cross-conv insight propagation + tool trace + retrieval scores added)
+Last updated: 2026-06-21 (P3 tail shipped — #20 Voice STT, #21 Horizontal Scaling (Redis-lock abstraction + multi-replica), Gmail (read) connector, onboarding wizard, out-of-UI notifications (email + web push); earlier #19 image CPU-OCR. Dim 5 → 95%, overall ~99%. Remaining: #22 Multi-Modal (trigger-gated), Outlook/CalDAV, real ASR + home-server box. Earlier: Google Calendar connector — read-write, confirm-card writes; P0 + P1 + P2 complete; P3 live webpage ingestion + external integrations; Reasoning Loop / Dim 3 hardened; Dim 2 closed)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 > **Deployment direction (2026-06-17):** NIM is a test backend; the app is porting to a self-hosted
 > home server (llama.cpp/GGUF; Mixtral 8x7B → 8x22B → eventual MoE, text-only). The port + the
 > revised #19 plan (CPU PaddleOCR, not a VLM) are specced in `BUGS.md` → "Decisions — Home-Server
-> Port & #19 Vision" and queued in `QUEUE.md`. The Calendar connector shipped; `HANDOFF.md` now holds
-> Q1 (Home-Server Port, owner `docker/`). The backend config half is pre-staged behind an inert
-> `LLM_BACKEND` flag (`nim`|`homeserver`); the tool_calls gate passed CPU-side. #19 (Q2) follows Q1.
+> Port & #19 Vision". The Calendar connector shipped; **#19 (Q2) image CPU-OCR shipped** (upload +
+> chat paste, searchable, behind `IMAGE_OCR_ENABLED`). Q1 (Home-Server Port) is parked in `QUEUE.md`
+> — box-independent work done, remainder blocked on the 2×P40 box. The backend config half is
+> pre-staged behind an inert `LLM_BACKEND` flag (`nim`|`homeserver`); the tool_calls gate passed CPU-side.
 
 ---
 
@@ -122,7 +123,7 @@ Last updated: 2026-06-18 (Google Calendar connector shipped — read-write, conf
 |-----|-------|
 | ~~Web search tool~~ | ~~No internet search during chat~~ ✅ |
 | ~~Live webpage ingestion~~ | ~~`ingest-url` exists but no live web fetch mid-conversation~~ ✅ |
-| ~~External integrations~~ | ~~No calendar, email, or third-party data stream connectors~~ ✅ Google Drive (read) + **Google Calendar (read-write, confirm-card writes)** + Notion + GitHub OAuth connectors. Email/other-calendar connectors still open. |
+| ~~External integrations~~ | ~~No calendar, email, or third-party data stream connectors~~ ✅ Google Drive (read) + **Google Calendar (read-write, confirm-card writes)** + **Gmail (read)** + Notion + GitHub OAuth connectors. Other-calendar (Outlook/CalDAV) connectors still open. |
 
 ### Platform / UX
 | Gap | Notes |
@@ -130,9 +131,9 @@ Last updated: 2026-06-18 (Google Calendar connector shipped — read-write, conf
 | ~~Memory conflict resolution UI~~ | ~~Backend complete; no frontend panel~~ ✅ |
 | ~~Fact-level salience visualization~~ | ~~Partial — per-fact % badge rendered in View tab; no score bar or last-access timestamp yet~~ ✅ |
 | ~~Full data export / portability~~ | ~~Conversation export exists; no full memory + file export bundle~~ ✅ |
-| Image storage + indexing | Base64 image input works; images not persisted or searchable |
-| User onboarding | No guided first-run experience |
-| Push/email notifications | Insights in DB but not delivered outside the UI |
+| ~~Image storage + indexing~~ | ~~Base64 image input works; images not persisted or searchable~~ ✅ #19 CPU-OCR (upload + paste + scanned-PDF), searchable |
+| ~~User onboarding~~ | ~~No guided first-run experience~~ ✅ `has_onboarded` flag + 3-step skippable wizard (Welcome → Email → Integrations) |
+| ~~Push/email notifications~~ | ~~Insights in DB but not delivered outside the UI~~ ✅ email + web-push, per-user opt-in (digest / scheduled-completion / new-insight) |
 
 ### Infrastructure
 | Gap | Notes |
@@ -250,19 +251,21 @@ Priority tiers: **P0** = core cognition · **P1** = platform completeness · **P
 ~~- Backend: `ExternalSource` model; per-provider connector modules; OAuth flow~~
 ~~- Frontend: IntegrationsPanel; OAuth popup flow; status/sync UI~~
 
-#### Image Storage + Indexing
+#### Image Storage + Indexing ✅ (2026-06-21)
 Persist uploaded images as `File` records. Extract text via **CPU OCR (PaddleOCR)** at upload (chat model is text-only on the home server — no VLM caption). Embed the OCR text for semantic search alongside text chunks; both Library uploads and inline `image_b64` chat paste route through OCR.
-- Backend: processor.py image path (`_extract_image`); `File.media_type`/`ocr_text` + migration; `IMAGE_OCR_ENABLED` gate; paste-path unify
+- ~~Backend: processor.py image path (`_extract_image`/`extract_image_from_bytes`); `File.media_type`/`ocr_text` + migration 045; `IMAGE_OCR_ENABLED` gate; paste-path unify (`stream.py`)~~ ✅
+- ~~Scanned-PDF fallback (Q-C5): `_extract_pdf` → blank text + gate on → pypdfium2 render → PaddleOCR per page (`_PDF_OCR_MAX_PAGES=20`)~~ ✅
+- ~~Frontend: image thumbnail + `ocr_text` snippet (FilesPanel), Preview tab (FileViewer), `img` search badge~~ ✅
 - Revised approach + full to-do: `BUGS.md` decisions (Q-C*) and `QUEUE.md` Q2. (Earlier VLM-caption draft superseded.)
 
-#### Voice Input
-Browser `MediaRecorder` → `POST /api/transcribe` (Whisper/NIM ASR) → text injected as chat message. Optional TTS response for AI replies.
-- Backend: transcription endpoint
-- Frontend: mic button in chat input
+#### Voice Input ✅ (STT, 2026-06-21)
+Browser `MediaRecorder` → `POST /api/transcribe` → text injected into chat input. **STT only** (TTS deferred).
+- ~~Backend: transcription endpoint (`VOICE_ENABLED`-gated, stub transcriber)~~ ✅ — real Whisper/ASR parked in `QUEUE.md` Q2 (box-blocked)
+- ~~Frontend: mic button in chat input~~ ✅
 
-#### Horizontal Scaling
-Multi-replica API + ARQ workers via Docker Swarm or k8s Helm chart. Requires migrating `pg_advisory_xact_lock` → Redis-based distributed locks for memory write safety.
-- Infra: compose scale config; Redis lock module replacing pg advisory locks
+#### Horizontal Scaling ✅ (2026-06-21)
+Multi-replica API + ARQ workers. Migrates `pg_advisory_xact_lock` → optional Redis distributed lock for memory write safety.
+- ~~Infra: compose scale config; Redis lock module~~ ✅ — `core/locks.py` `user_write_lock` behind inert `MEMORY_LOCK_BACKEND` (pg|redis, default pg); API `--scale` (stateless); scheduler singleton; nginx dynamic DNS
 
 #### Multi-Modal Memory
 Store image embeddings in pgvector. OCR + entity extraction from images. Graph extraction from image content. Unified retrieval across text + image modalities.
@@ -300,11 +303,12 @@ P2 — following sprint
 P3 — future
   ~~17. Live Webpage Ingestion~~ ✅
   ~~18. External Integrations~~ ✅
-  19. Image Storage + Indexing
-  20. Voice Input
-  21. Horizontal Scaling
-  22. Multi-Modal Memory
+  ~~19. Image Storage + Indexing~~ ✅
+  ~~20. Voice Input~~ ✅ (STT; real ASR parked — QUEUE Q2)
+  ~~21. Horizontal Scaling~~ ✅
+  22. Multi-Modal Memory          trigger-gated (BUGS Q-D2) — build only on the trigger
 ```
++ Gmail (read) connector · Onboarding wizard · Out-of-UI notifications (email + web push) — shipped 2026-06-21
 
 ---
 
@@ -316,5 +320,5 @@ P3 — future
 | 2. Unified Interface | 100% | Cross-conversation insight propagation shipped (`[RECENT INSIGHTS]` block) |
 | 3. Reasoning Loop | ~97% | Tool call trace + retrieval scores added; model chain-of-thought not exposed (no native thinking tokens — hard model constraint) |
 | 4. Autonomous Agency | 90% | P2 complete; goal tracker ✅ |
-| 5. Real-Time Perception | 85% | Web search + live fetch + OAuth integrations done; **Google Calendar connector (read-write) shipped**; email/other-calendar connectors still open |
-| **Overall** | **~98%** | P0 + P1 + P2 complete; P3 done; Dim 2 closed; Dim 3 at ~97% (model CoT ceiling); Dim 5 calendar gap closed |
+| 5. Real-Time Perception | 95% | Web search + live fetch + OAuth integrations done; **Calendar (rw) + Gmail (read) connectors**; **#19 image CPU-OCR**; **out-of-UI notifications (email + web push)**; Outlook/CalDAV still open |
+| **Overall** | **~99%** | P0–P2 complete; P3 done (#19 OCR, voice STT, onboarding, notifications, Gmail); horizontal-scaling lock abstraction shipped; Dim 3 ~97% (model CoT ceiling); remaining: Outlook/CalDAV, real ASR + home-server box |

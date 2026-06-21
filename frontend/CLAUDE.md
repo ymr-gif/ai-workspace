@@ -6,8 +6,8 @@
 - `src/components/Chat/index.jsx` — orchestrator; uses `useStreamChat` hook for SSE, `closeAllExcept` helper, wraps panels in `<PanelPropsCtx.Provider>` with all hook state as single object
 - `src/components/Chat/PanelPropsContext.js` — React context eliminating prop drilling; panels consume via `usePanelProps()`
 - `src/lib/chatStyles.js` — shared style objects; `LAYERS` constant for z-indices, `panelBase` for all slide-in panels
-- `src/hooks/` — 14 hooks: useConversations, useMemory, useFiles, useModelParams, useSettings, useToolLogs, useUsage, useAdmin, useInsights, useSearch, useScheduledPrompts, useGoals, useIntegrations, useStreamChat
-- `src/components/Chat/*/index.jsx` — 15 sub-components: Sidebar, MessageList, ModelToolbar, SettingsModal, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel, AutomationsPanel, GoalsPanel, IntegrationsPanel
+- `src/hooks/` — 17 hooks: useConversations, useMemory, useFiles, useModelParams, useSettings, useToolLogs, useUsage, useAdmin, useInsights, useSearch, useScheduledPrompts, useGoals, useIntegrations, useNotificationPrefs, useOnboarding, useStreamChat, useVoice
+- `src/components/Chat/*/index.jsx` — 16 sub-components: Sidebar, MessageList, ModelToolbar, SettingsModal, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel, AutomationsPanel, GoalsPanel, IntegrationsPanel, OnboardingModal
 - **All fetch calls must use `/api/` prefix** — bare paths bypass proxy and 404 silently
 - **JWT flow:** login → `POST /api/auth/token` → store token as `nim_token` in localStorage → `Authorization: Bearer` on all fetch calls
 - **Open-conversation persistence:** `useConversations.js` stores `activeConvId` in localStorage as `nim_active_conv` (init from it, write on change, removed when null) → a full tab refresh reopens the same conversation (badge + history restored) instead of an empty chat. Browser-local only; a missing/deleted id fetches `[]` harmlessly
@@ -27,17 +27,27 @@
 - **Compare mode** — same streaming/done split per model card
 - **Automations panel** (ROADMAP #12) — ⏱ Auto header button; slide-in; `useScheduledPrompts.js`; CRUD for scheduled prompts via `/api/scheduled-prompts`; create/edit form with preset aliases (daily/weekly/monthly) or custom cron, optional model_override; per-row: active toggle (`PATCH is_active`) · ▶ Run (`POST /run`) · ▼ Runs (expandable run history from `GET /id/runs`) · Edit · 🗑 delete; form overlays panel with zIndex:2
 - **Goals panel** (ROADMAP #13) — 🎯 Goals header button; slide-in; `useGoals.js`; CRUD via `/api/goals`; status filter pills (all/active/paused/completed); per-card: StatusBadge · linked conv count · toggle active↔paused · 🔗 Link conv (if `activeConvId` set + goal active, `POST /goals/{id}/link/{convId}`, disabled if already linked) · Edit · 🗑 delete; create/edit form overlay (title, description, status dropdown)
-- **Integrations panel** — Integrations header button; slide-in; `useIntegrations.js`; sources list from `GET /api/integrations`; per-card status badge, sync button (`POST /api/integrations/{id}/sync`), delete (`DELETE`); Available Connectors section shows Google Drive / Google Calendar / Notion / GitHub with OAuth connect flow (`GET /api/integrations/oauth/start`) via popup; popup-closed polling refreshes list; popup-blocked warning banner; error banner for failures
+- **Integrations panel** — Integrations header button; slide-in; `useIntegrations.js`; sources list from `GET /api/integrations`; per-card status badge, sync button (`POST /api/integrations/{id}/sync`), delete (`DELETE`); Available Connectors section shows Google Drive / Google Calendar / Gmail / Notion / GitHub with OAuth connect flow (`GET /api/integrations/oauth/start`) via popup; popup-closed polling refreshes list; popup-blocked warning banner; error banner for failures
 - **⬡ Canvas button** — opens `/canvas/index.html` in a new tab; styled red (`color:RED, borderColor:RED`); placed in header before Logout; canvas checks `nim_token` in localStorage and redirects to `/` if missing
 
 ## Files Panel
 - 📎 header button; amber + count when files attached; 2 tabs: Library / Attached
 - Library: status badge · inline rename · 👁 view · ⬇ download · +/✓ attach · 🗑 delete
 - Processing: SSE per file (not polling); `AbortController` in `statusStreamsRef`
+- Image files (`media_type === "image"`): 36×36 thumbnail via `/api/files/{id}/download`; `ocr_text` snippet below filename
 
 ## File Viewer Modal
 - 3 tabs: **View** (`<pre>` + download) · **Edit** (textarea → `PUT /api/files/{id}/content`) · **Versions** (list + restore)
+- Image files (`mime_type` starts with `image/`): 4 tabs — **Preview** (renders `<img>` via download URL) · **Raw** · **Edit** · **Versions**; defaults to Preview tab
 - Closes on overlay click or ✕
+
+## Voice Input (Phase 1b)
+- `useVoice.js` hook manages `MediaRecorder` + `POST /api/transcribe`
+- Mic button (`MIC`/`REC`/`BUSY`) left of input bar in `ModelToolbar/index.jsx`
+- Probes endpoint on mount (503 = disabled, hides button)
+- Transcript injected into input via `conv.setInput(text)`
+- Stub placeholder text shown as-is (no special-casing)
+- Styles: `micBtn` (muted) / `micRec` (red border + glow) in `chatStyles.js`
 
 ## Tool Log Panel
 - 🔧 button → slide-in; `GET /api/tool-calls?conversation_id=&limit=100`
@@ -63,7 +73,21 @@
 - Results grouped by source; source label colors: files=amber, conversations=indigo, memory=green, graph=sky
 - Score shown as monospace float right of title; snippet clamped to 2 lines
 - Clicking a `conversations` result calls `selectConv(id)` and closes the panel
-- Response shape: `{ query, scope, results: [{ source, score, title, snippet, id }] }`
+- Response shape: `{ query, scope, results: [{ source, score, title, snippet, id, media_type? }] }` — `media_type` present for file results only (`"image"`/`"document"`)
+- File results with `media_type === "image"` show a cyan `img` badge next to the score
+
+## Onboarding / First-Run Wizard (Phase 3b)
+- `useOnboarding.js` hook reads `has_onboarded` from `GET /api/auth/me` on mount; opens modal if `false`
+- `OnboardingModal/index.jsx` — 3-step skippable wizard: Welcome → Email (`PATCH /api/auth/me/email`) → Integrations (reuses `integ.startOAuth()`) → Finish/Skip (`POST /api/auth/me/onboarding-complete`)
+- Z-index: `LAYERS.onboarding` (50) — above all panels and modals
+- Step dots rendered as circles in footer; "Skip onboarding" always visible
+
+## Notifications (Phase 3c)
+- `useNotificationPrefs.js` — loads prefs from `GET /api/notifications/preferences` + VAPID key from `GET /api/notifications/vapid-public-key` on mount; registers `/sw.js` service worker
+- Toggles (instant-save `PATCH /api/notifications/preferences`): email_digest, email_scheduled, email_insights, push_enabled
+- Push toggle: ON → `Notification.requestPermission()` → `PushManager.subscribe()` → `POST /api/notifications/push/subscribe`; OFF → `unsubscribe()`
+- Toggles rendered in SettingsModal notification section
+- `public/sw.js` — handles `push` and `notificationclick` events; shows browser notification with title/body from payload
 
 ## Model Control Toolbar
 - Pills: Auto / LLaMA 8B / DeepSeek / 70B · ⊞ Compare · ⚙ params (temp, max_tokens, top_p with per-slider enable)

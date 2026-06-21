@@ -17,18 +17,18 @@
 ```
 ├── main.py                 — lifespan, middleware, router includes
 ├── config.py               — env vars loaded from ../.env via find_dotenv()
-├── models/                 — ORM (24 classes: Invitation, User, UserInsight, AdminAuditLog, UserMemory, MemoryConflict, UserMemoryVersion, UserBehaviorProfile, UserGoal, WebhookEvent, ExternalSource, File, FileChunk, FileVersion, Conversation, Message, MessageEmbedding, ConversationFile, ToolCallLog, PromptTemplate, ScheduledPrompt, ScheduledPromptRun, SystemConfig; Conversation has is_archived/archived_at)
-├── alembic/versions/       — 044 migrations; latest: 044_message_render_meta.py (messages.render_meta JSONB — grounding badge persistence)
+├── models/                 — ORM (26 classes: Invitation, User, UserInsight, AdminAuditLog, UserMemory, MemoryConflict, UserMemoryVersion, UserBehaviorProfile, UserGoal, WebhookEvent, ExternalSource, File, FileChunk, FileVersion, Conversation, Message, MessageEmbedding, ConversationFile, ToolCallLog, PromptTemplate, ScheduledPrompt, ScheduledPromptRun, UserNotificationPreferences, PushSubscription, SystemConfig; Conversation has is_archived/archived_at)
+├── alembic/versions/       — 047 migrations; latest: 047_notification_tables.py (UserNotificationPreferences + PushSubscription)
 ├── auth/                   — JWT, bcrypt (direct, no passlib), API key fallback (SHA-256 hashed), invite validation
 ├── tests/
-│   ├── test.py + test_memory_hygiene.py + test_content_filter.py + test_drive.py + test_reasoning_loop.py — 71 tests (36 memory hygiene, 12 content filter, 11 drive, 11 reasoning loop [grounding + intent], 1 circuit breaker)
+│   ├── test.py + test_memory_hygiene.py + test_content_filter.py + test_drive.py + test_gmail.py + test_reasoning_loop.py + test_image_ocr.py + test_pdf_ocr.py + test_voice.py — 104 tests (36 memory hygiene, 12 content filter, 11 drive, 11 gmail, 11 reasoning loop, 9 image OCR, 9 PDF OCR, 4 voice STT, 1 circuit breaker)
 │   └── retrieval/conftest.py + test_hybrid_eval.py — 26 tests, mock DB, no NIM
 ├── llm/
-│   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=60)
+│   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=60); paste-path OCR injection (image_b64 → OCR text → context, no model_vision needed when IMAGE_OCR_ENABLED=true)
 │   ├── nim.py              — NIM API call, accumulates tool_call deltas
 │   ├── tools/              — 22 tool schemas + execute_tool(); sync I/O via asyncio.to_thread()
-│   │   ├── schemas.py, registry.py (TOOL_REGISTRY + register_tool/run_tool), executor.py (shim → run_tool), file_ops.py, search.py, drive.py, calendar.py, fetch_url.py
-│   │   └── builtin/         — side-effect registration; __init__ imports file_tools, memory_tools, web_tools, drive_tools, **calendar_tools** (each calls register_tool() on import — a module omitted here = its tools silently absent from the registry)
+│   │   ├── schemas.py, registry.py (TOOL_REGISTRY + register_tool/run_tool), executor.py (shim → run_tool), file_ops.py, search.py, drive.py, calendar.py, gmail.py, fetch_url.py
+│   │   └── builtin/         — side-effect registration; __init__ imports file_tools, memory_tools, web_tools, drive_tools, **calendar_tools**, **gmail_tools** (each calls register_tool() on import — a module omitted here = its tools silently absent from the registry)
 │   ├── graph_memory.py     — Neo4j extraction (70B model) + query_by_keywords; entity caps: _MAX_ENTITY_NAME_LEN=200, _MAX_ENTITIES_PER_CALL=30, _MAX_RELS_PER_CALL=60, _MAX_USER_ENTITIES=500 (evicts oldest by updated_at); cache key SHA256[:32]; _cache_del_user() busts on write; skips if compact:running:{user_id} Redis lock held; MERGE SET preserves specific type over OTHER; merge_duplicate_entities() has second pass for substring/token-subset same-type dedup with rel preservation
 │   ├── router.py / circuit_breaker.py / embeddings.py — classify, circuit, embed; `classify_intent()` keyword fast-path + `classify_intent_hybrid()` (one cheap 8B call only on ambiguous/no-signal; try/except → "question") → task|exploration|question
 │   ├── retriever/          — hybrid vector+BM25 fusion (rrf|weighted); debug param; fusion.py, queries.py, main.py, attachments.py. `retrieve_global` (cross-conv pool) applies a similarity floor (_GLOBAL_SIM_FLOOR=0.30) + recency decay (_RECENCY_HALF_LIFE_DAYS=14, 0.5^(age_days/half_life) on MessageEmbedding.created_at) and re-ranks by weighted score before fusion; within-conv `retrieve()` unweighted
@@ -38,7 +38,10 @@
 ├── core/                   — db (pgbouncer: prepared_statement_cache_size=0), redis, arq, neo4j (get_health; pool size=20, timeout=5s)
 ├── rate_limiter/           — sliding-window per user + per-model; reuses request.state.current_user; logs warning on fail-open (Redis down)
 ├── observability/          — Prometheus counters/histograms; Redis-stream metrics worker; multiprocess mode via PROMETHEUS_MULTIPROC_DIR
+├── services/
+│   ├── notification.py     — notify() dispatch: load prefs, rate-limit, email + web push per channel toggle; lazy-create UserNotificationPreferences with defaults
 ├── api/
+│   ├── notifications.py    — GET/PATCH /api/notifications/preferences, POST /api/notifications/push/subscribe, GET /api/notifications/vapid-public-key
 │   ├── chat/
 │   │   ├── __init__.py     — combines router + stream_router
 │   │   ├── schemas.py      — ChatRequest model
@@ -46,7 +49,7 @@
 │   │   ├── stream.py       — POST /chat/stream SSE endpoint + event_generator; status="partial" for mid-stream breaks (STREAM_INTERRUPTIONS counter); ALL_MODELS_FAILED counter; saves `pending_question` from `ask_user` event as assistant message content. **Activity trace:** emits `{type:"status", stage, detail, level, ms?}` events for every pipeline step — context-build stages come from `ctx["activity"]` (seeded in `_build_stream_context`, error-surfaced not silently swallowed), live stages (cache/route/budget/model_call/fallback/tool/tool_result) from `generate_stream`; accumulated into `activity` and persisted as `messages.activity_trace` (JSONB) on the assistant message (done **and** `_persist_abort`). Returned by `GET /conversations/{id}/messages`. No-silent-failures: traced stages emit `level:"error"` instead of `except: pass`.
 │   │   ├── helpers.py      — context build, model resolve, cost cap; auto-resolves expired MemoryConflicts (keep_a); time-based fact salience decay in ranking (not persisted); query always embedded (no conversation_id gate); global file fallback: when no files explicitly attached, retrieves from ALL user ready files so Drive-synced content is searchable without manual attachment
 │   │   └── background.py   — auto-title, embed, proactive, token/cost calc; _auto_title uses atomic UPDATE...WHERE title=:default (no TOCTOU race)
-│   ├── files/              — upload, ingest-url, search, versions; sha256 dedup
+│   ├── files/              — upload (sets media_type by extension), ingest-url, search, versions; sha256 dedup
 │   ├── conversations/      — list (?q=), export, PATCH, delete; file attach/detach
 │   │   ├── __init__.py     — combines crud + files sub-routers
 │   │   ├── crud.py         — list, messages, PATCH, export, delete
@@ -66,9 +69,11 @@
 │   ├── search.py            — GET /api/search unified search; fans out to files/conversations/memory/graph via asyncio.gather; file search selects FileModel.id.label("file_id") to avoid column name collision with FileChunk.id
 │   ├── goals.py             — CRUD for UserGoal; status filter, conversation linking
 │   ├── scheduled_prompts.py — CRUD for user-defined automated prompts; schedule alias support (daily/weekly/monthly); POST /run trigger
+│   ├── transcribe.py         — POST /api/transcribe (multipart UploadFile, VOICE_ENABLED gate, stub ASR)
 │   ├── webhooks.py          — POST /api/webhooks/{user_token} (public, no auth); GET/POST/DELETE /auth/me/webhook-token; WebhookEvent insert + ARQ enqueue
 ├── services/
-│   ├── processor.py        — extract→chunk→embed; CPU work in asyncio.to_thread()
+│   ├── processor.py        — extract→chunk→embed; CPU work in asyncio.to_thread(); _extract_pdf falls back to pypdfium2 OCR when blank + IMAGE_OCR_ENABLED; _extract_image uses PaddleOCR; _PDF_OCR_MAX_PAGES=20
+│   ├── transcribe.py        — async transcribe_audio(data, mime_type, *, language) dispatches on ASR_BACKEND; stub returns placeholder
 │   ├── arq_worker.py       — _MAX_TRIES=4 (5s/30s/120s); ARQ_JOB_FAILED counter on final failure for all jobs; process_file_job sets upload_status="error" on final failure; WorkerSettings has on_startup/on_shutdown that init/close llm_client.client (httpx) — required for embeddings in worker process; sync job enqueues process_file_job via ctx["redis"].enqueue_job() (NOT asyncio.create_task — tasks silently fail in ARQ context)
 │   ├── re_embed.py         — batches of 100; triggered on startup or /admin/re-embed
 │   ├── file_service.py     — fuzzy-patch, save-version-before-mutate; sync I/O in asyncio.to_thread()
@@ -79,10 +84,11 @@
 │       ├── google_oauth.py — GoogleOAuthConnector(AbstractConnector) base with get_auth_url/exchange_code/refresh_tokens
 │       ├── google_drive.py — GoogleDriveConnector(GoogleOAuthConnector) SCOPE=drive.readonly, connector_type="google_drive"
 │       ├── google_calendar.py — GoogleCalendarConnector(GoogleOAuthConnector) SCOPE=calendar.events, connector_type="google_calendar"
+│       ├── gmail.py         — GmailConnector(GoogleOAuthConnector) SCOPE=gmail.readonly, connector_type="gmail"
 │       ├── notion.py       — NotionConnector
 │       └── github.py       — GitHubConnector
 ├── storage/                — SHA256 streaming write
-├── requirements.txt        — added psutil + nvidia-ml-py for /hardware endpoint
+├── requirements.txt        — added psutil + nvidia-ml-py for /hardware endpoint; pypdfium2 for scanned-PDF OCR
 └── HANDOFF_PROTOCOL.md     — worker handoff protocol (shared from root)
 ```
 
@@ -90,13 +96,14 @@
 
 ## Key Models
 - **User**: cost_limit_usd/cost_window_days cap, api_key auth, is_active gate
-- **File**: sha256_hash dedup `(user_id, hash)`
+- **File**: sha256_hash dedup `(user_id, hash)`; `media_type` (text|document|image|spreadsheet|null) + `ocr_text` (nullable, image/scanned-PDF OCR output)
 - **Message**: content_tsv GIN for full-text search; tracks token + cost; `token_estimate` (bool, nullable) — true = character-heuristic backfill (migration 032), null = real NIM data; `render_meta` JSONB (nullable, migration 044) — grounding badge payload `{grounding, query_type, src_count}` persisted on the assistant message so the badge survives the post-send refetch + reload + history (built once via `_build_render_meta()` in `api/chat/stream.py`, returned by `GET /conversations/{id}/messages`)
 - **SystemConfig**: key/value store — tracks MODEL_EMBEDDING for re-embed triggers
 - Others: more in `models/` (chat, file, memory, tools, scheduled, auth)
 - **UserBehaviorProfile**: one row per user, JSONB `profile` with `query_types / topic_keywords / tools_used / models_used / total_messages`; updated via ARQ `update_behavior_profile_job` post-reply; feeds `generate_user_insight()`; migration 033
 - **WebhookEvent**: `id` UUID PK, `user_id` FK, `event_type` (file.uploaded/reminder/external.data), `payload` JSONB, `status` (pending/processed/error), `error` Text, `created_at`, `processed_at`; migration 040
 - **User.email**: nullable String(256), unique, indexed; set via `PATCH /auth/me/email`; used by digest email delivery; migration 041
+- **User.has_onboarded**: Boolean, default false, not-null; set via `POST /auth/me/onboarding-complete`; migration 046
 - **UserMemory**: has `agent_scratchpad` JSONB (nullable) from migration 036 — unused since canvas removal
 
 ---
@@ -113,9 +120,10 @@
 - Trigger: any message when `file_ids` non-empty → always forces reasoning model (70B); 8B cannot reliably use tool results
 - File tools always available when files attached (not keyword-gated); `_needs_file_tools()` no longer gates tool availability. `list_files`/`search_across_files` fall back to all user's ready files when none attached to conversation (fixed 2026-06-13)
 
-- Tools (22 total): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `web_search` · `fetch_url` · `drive_list_files` · `drive_read_file` · `drive_search` · `calendar_list_events` · `calendar_get_event` · `calendar_search_events` · `calendar_create_event` · `calendar_update_event` · `calendar_delete_event`
+- Tools (25 total): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `web_search` · `fetch_url` · `drive_list_files` · `drive_read_file` · `drive_search` · `calendar_list_events` · `calendar_get_event` · `calendar_search_events` · `calendar_create_event` · `calendar_update_event` · `calendar_delete_event` · `gmail_list_messages` · `gmail_get_message` · `gmail_search_messages`
 - Drive tool injection (3-way gating in `llm/service/stream.py:168-185`): explicit noun+action request → full `DRIVE_TOOL_SCHEMAS` (list+read+search); cache-active + read-intent (`_wants_drive_read`) → only `drive_read_file`; else → none. Both gates strip `'s` suffix for contraction support ("what's"). `_needs_drive_tools` requires noun AND action pair to prevent incidental "drive" from triggering listing
 - Calendar tool injection (same pattern as Drive, `calendar_active` flag): `_cal_full_gate` → `_needs_calendar_tools(message)` (noun+action pair). Nouns: `calendar`/`cal`/`event`/`meeting`/`appointment`/`agenda`/`availability`/`schedule`/`gcal`. Actions: `list`/`show`/`check`/`book`/`create`/`reschedule`/`cancel`/`delete` etc. Write tools (`create`/`update`/`delete`) return `CONFIRM_CALENDAR_PREFIX` sentinel — user must confirm via `POST /api/integrations/calendar/execute` before the Google API call. Execution endpoint dispatches to `llm/tools/calendar.py` impls.
+- Gmail tool injection (same noun+action gate as Drive/Calendar, `gmail_active` flag): `_gmail_full_gate` → `_needs_gmail_tools(message)` (noun+action pair). Nouns: `mail`/`email`/`inbox`/`message`/`messages`/`gmail`. Actions: `list`/`show`/`check`/`read`/`find`/`search`/`get`/`look`/`browse`/`open`/`view`/`fetch`/`what`. Read-only — no write-confirm sentinel. Impls in `llm/tools/gmail.py`; registration in `llm/tools/builtin/gmail_tools.py`.
 - `web_search` is conditionally injected (not always present): requires `WEB_SEARCH_ENABLED=true` **and** `_needs_web_search(message)` keyword match (`latest`, `current`, `today`, `news`, `price`, `weather`, `score`, `trending`, `live`, `breaking`, etc.); dispatches to SearXNG (`GET {SEARXNG_URL}/search?format=json`) or Tavily (`POST https://api.tavily.com/search`) based on `WEB_SEARCH_BACKEND`; returns at most 5 results as `[N] title\nurl\nsnippet`; `done` SSE includes `web_searched: bool` (true if any web_search call executed)
 - `fetch_url` is conditionally injected: message must contain `https?://`; fetches full page text via httpx + BeautifulSoup; ephemeral — no File record created; SSRF-hardened (`llm/tools/fetch_url.py`): scheme allowlist, DNS resolved once and connection pinned to that IP (TOCTOU-safe, `sni_hostname` extension preserves SSL cert verification), port allowlist `{80, 443}`, 1 MB streaming byte cap + Content-Length pre-check, Content-Type allowlist; each redirect hop re-validated; `done` SSE includes `url_fetched: bool`
 - Guards: same tool **with identical args** repeated → abort (signature = `(name, json.dumps(args, sort_keys))`). `_MAX_IDENTICAL_CALLS=3` for all tools. Bounded overall by `MAX_TOOL_ITERATIONS=60` · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
@@ -151,9 +159,10 @@ Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACT
 
 ## Files & Knowledge
 - Upload: SHA256 while streaming → dedup `(user_id, hash)` → ARQ job or inline fallback
-- Formats: PDF · DOCX (+tables after paragraphs) · XLSX/XLS · text/code/markdown
+- Formats: PDF · DOCX (+tables after paragraphs) · XLSX/XLS · image (CPU PaddleOCR, gated by IMAGE_OCR_ENABLED) · text/code/markdown
 - Chunks: 1600 chars, 200 overlap, sentence-aligned tail
 - Chunk quality states: `upload_status` values are `uploaded|processing|ready|partial|failed|error`; `partial` = some chunks embedded, some failed; `File` has `chunk_total`, `chunk_embedded`, `embed_fail_count`; status reset and counts cleared on file edit
+- Scanned-PDF OCR: pypdf blank + IMAGE_OCR_ENABLED → pypdfium2 render → PaddleOCR extract → joined text; _PDF_OCR_MAX_PAGES=20; gate off → empty text, 0 chunks (no error)
 - Retrieval: vector + BM25 parallel → RRF (k=60) or weighted fusion; fallback to pure vector
 - Adaptive policy: `classify_query(msg)` in `router.py` returns `factual|relational|temporal|broad`; mapped in `retriever/policy.py` to fusion_mode/alpha/k values (factual=weighted 0.7, relational=RRF, temporal=RRF low-k, broad=weighted 0.3); applied per-query in `_build_stream_context()`; logged with query_type + params; activity trace detail includes top-3 dense scores (`· scores: 0.82 | 0.71 | 0.65`); also emitted in `done` SSE event as `query_type` + `src_count` (number of retrieved provenance chunks)
 - **Reasoning Loop / intent (Dim 3):** `_build_stream_context()` calls `classify_intent_hybrid()` → tunes a **copy** of the policy dict (exploration → `top_k`+4, `k_dense`≥20; question → `top_k`−1; task → unchanged — never mutates shared `POLICY_MAP`); sets `ctx["intent"]` + `ctx["retrieval_top_k"]`; appends an `Intent: <x>` row to the activity trace. `intent` threads into `generate_stream(intent=…)` where `intent=="task"` adds a `task-intent` model branch preferring the reasoning model (tool-eager; 8B emits tool calls as plain text). `done` SSE now also carries: `intent`, `grounding`, `activity`.
@@ -170,7 +179,8 @@ Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACT
 - Self-disable blocked; `is_active` checked on every `get_current_user`
 - API key: JWT first, DB key fallback in `auth/security.py`; stored as SHA-256 hex (`hash_api_key()`), hashed on every lookup — plaintext never persisted
 - Model pricing (`config.py`): llama $0.10/$0.10 · coder $0.20/$0.60 · reasoning $0.77/$0.77 per 1M tokens
-- Web search config: `WEB_SEARCH_ENABLED` (bool, default false) · `WEB_SEARCH_BACKEND` ("searxng"|"tavily", default "searxng") · `SEARXNG_URL` (default http://searxng:8080) · `TAVILY_API_KEY` (str)
+- Web search config: `WEB_SEARCH_ENABLED` (bool, default false) · `WEB_SEARCH_BACKEND` ("searxng"|"tavily", default "searxng") · `SEARXNG_URL` (default http://searxng:8080) · `TAVILY_API_KEY` (str) · `IMAGE_OCR_ENABLED` (bool, default false) — CPU PaddleOCR for images + scanned-PDF fallback
+- Voice/STT config: `VOICE_ENABLED` (bool, default false) · `ASR_BACKEND` (str, default "stub") · `ASR_MODEL` (str, default "base.en") · `ASR_LANGUAGE` (str, default "")
 
 ---
 
@@ -188,6 +198,7 @@ Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACT
   - ⚑ **Runtime reload only propagates to call-time `config.X` reads.** The hot path was converted from `from config import NIM_URL` (frozen at import) to `import config` + `config.NIM_URL` in `llm/nim.py`, `llm/embeddings.py`, `llm/router.py`, `llm/service/stream.py`, `api/system.py`. **Do not regress these to `from config import` or the live toggle silently stops working.**
   - Stale NIM model ids from still-frozen callers (summarizers, `helpers.py`, etc.) are harmless: llama.cpp ignores the `model` field in single-model mode, and `get_context_limit()` returns `DEFAULT_CONTEXT_WINDOW` (32k) for any id not in the homeserver `CONTEXT_WINDOWS`. `MODEL_RATE_LIMITS`/`MODEL_PRICING` stay NIM-keyed (cosmetic; router is telemetry-only in homeserver mode).
   - Auth header (`nim.py`/`embeddings.py`) is sent only when `config.NVIDIA_API_KEY` is set (avoids `Bearer None` to the keyless LAN server).
+- **`MEMORY_LOCK_BACKEND` switch (`pg`|`redis`, default `pg`)** — inert switch for #21 Horizontal Scaling, same pattern as `LLM_BACKEND`. `core/locks.py` provides `user_write_lock(db, user_id)` async context manager that dispatches on `config.MEMORY_LOCK_BACKEND`. `pg` → `SELECT pg_advisory_xact_lock(:key)` (current behavior, zero change). `redis` → `SET lock:mem:{user_id} <uuid> NX EX <TTL>` with spin/backoff + Lua compare-del release, `TimeoutError` on acquire failure. Defaults: TTL 30s, wait 5s. Config: `MEMORY_LOCK_TTL` (int), `MEMORY_LOCK_WAIT` (int). Toggleable live via `/admin/env/reload`. 5 call-sites replaced to use the abstraction: `memory.py:28/119`, `preferences.py:75`, `project.py:22`, `compact.py:139`. Tested in `tests/test_mem_lock.py` (9 tests, AsyncMock, no Redis).
 - `.env` merge script in root CLAUDE.md — adds missing keys from `.env.example` as commented-out
 - Debug mode: `retriever.retrieve()` / `retrieve_from_files(debug=True)` returns `(chunks, debug_info)` tuple; `/search?debug=true` returns `{"results": [...], "debug": [...]}`
 - Eval harness: `tests/retrieval/test_hybrid_eval.py` — 26 tests, mock DB (AsyncMock), no NIM deps; run with `pytest tests/retrieval/ -v`
@@ -198,9 +209,9 @@ Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACT
 - Summarizer imports: `api/chat/stream.py` imports `compress_history`, `update_memory`, `update_project_summary` from `llm.summarizer.*` — missing these causes `NameError` at runtime (caught by except handler, skips memory update)
 
 ### External Integrations (since 2026-06-12)
-- `ExternalSource` model: `id`, `user_id`, `connector_type` (google_drive|notion|github), `display_name`, `resource_id`, `credentials` (JSONB, Fernet-encrypted), `status` (pending|active|error|needs_reauth|paused), `error`, `last_sync_at`, `created_at`
+- `ExternalSource` model: `id`, `user_id`, `connector_type` (google_drive|google_calendar|gmail|notion|github), `display_name`, `resource_id`, `credentials` (JSONB, Fernet-encrypted), `status` (pending|active|error|needs_reauth|paused), `error`, `last_sync_at`, `created_at`
 - `core/encryption.py`: `encrypt_token()`, `decrypt_token()`, `fernet_ready()` — uses `cryptography.fernet.Fernet`; returns 503 on all creation/oauth endpoints when key missing
-- `services/integrations/` package: `AbstractConnector` ABC (TypedDicts: `OAuthTokens`, `ConnectorCredentials`, `SyncedChunk`) + `registry.py` (auto-register via `@register` decorator) + per-provider: `google_drive.py`, `notion.py`, `github.py`
+- `services/integrations/` package: `AbstractConnector` ABC (TypedDicts: `OAuthTokens`, `ConnectorCredentials`, `SyncedChunk`) + `registry.py` (auto-register via `@register` decorator) + per-provider: `google_drive.py`, `google_calendar.py`, `gmail.py`, `notion.py`, `github.py`
 - API routes (`/api/integrations`): `GET/POST /integrations`, `GET/PATCH/DELETE /integrations/{id}`, `POST /integrations/{id}/sync`, `GET /integrations/oauth/start`, `GET /integrations/oauth/callback`
 - OAuth callback (`/api/integrations/oauth/callback`) has **no JWT** authorization — identity from Redis state `intg:state:{uuid4}` → `{user_id, connector_type}`, TTL 600s
 - New config vars: `INTEGRATION_SECRET` (Fernet key, 44-char base64url), `INTEGRATION_REDIRECT_BASE` (default `http://localhost:8000`), `GOOGLE_CLIENT_ID/SECRET`, `NOTION_CLIENT_ID/SECRET`, `GITHUB_CLIENT_ID/SECRET` — all nullable `os.getenv(key, "")`

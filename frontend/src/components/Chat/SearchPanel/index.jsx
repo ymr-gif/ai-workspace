@@ -78,7 +78,12 @@ export default function SearchPanel() {
                   style={{ background:INSET, border:`1px solid ${LINE}`, padding:'0.55rem 0.75rem', marginBottom:'6px', cursor: src === 'conversations' ? 'pointer' : 'default' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'0.5rem', marginBottom:'0.2rem' }}>
                     <span style={{ fontSize:'16px', color:FG2, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.title || '—'}</span>
-                    <span style={{ fontSize:'13px', color:FG4, flexShrink:0, fontFamily:TERM }}>{r.score != null ? r.score.toFixed(2) : ''}</span>
+                    <div style={{ display:'flex', gap:'0.3rem', alignItems:'center', flexShrink:0 }}>
+                      {src === 'files' && r.media_type === 'image' && (
+                        <span style={{ background:'rgba(39,216,255,0.12)', color:'#27d8ff', fontSize:'10px', fontFamily:"'Silkscreen', monospace", padding:'0.1rem 0.3rem', letterSpacing:'0.06em', textTransform:'uppercase', border:'1px solid rgba(39,216,255,0.4)' }}>img</span>
+                      )}
+                      <span style={{ fontSize:'13px', color:FG4, fontFamily:TERM }}>{r.score != null ? r.score.toFixed(2) : ''}</span>
+                    </div>
                   </div>
                   {r.snippet && (
                     <div style={{ fontSize:'14px', color:FG4, lineHeight:1.45, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>

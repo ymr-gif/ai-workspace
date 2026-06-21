@@ -1,3 +1,5 @@
+import asyncio
+import base64
 import json
 import logging
 import time
@@ -6,7 +8,7 @@ import uuid
 from sqlalchemy import select
 
 import config
-from config import MODEL_VISION, USE_REDIS, WEB_SEARCH_ENABLED
+from config import MODEL_VISION, USE_REDIS, WEB_SEARCH_ENABLED, IMAGE_OCR_ENABLED
 from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route, get_context_limit
@@ -135,7 +137,7 @@ async def generate_stream(
             return
 
     # Model selection priority: image → explicit override → file tools → memory write → router
-    if image_b64:
+    if image_b64 and not IMAGE_OCR_ENABLED:
         fallback_chain = [MODEL_VISION]
         route_reason = "vision"
     elif model_override:
@@ -166,6 +168,7 @@ async def generate_stream(
     _drive_active = False
     _drive_cache_active = False
     _calendar_active = False
+    _gmail_active = False
     if db is not None:
         _drive_active = bool(await db.scalar(
             select(ExternalSource.id).where(
@@ -187,6 +190,13 @@ async def generate_stream(
                 ExternalSource.status == "active",
             )
         ))
+        _gmail_active = bool(await db.scalar(
+            select(ExternalSource.id).where(
+                ExternalSource.user_id == user_id,
+                ExternalSource.connector_type == "gmail",
+                ExternalSource.status == "active",
+            )
+        ))
 
     _tool_ctx = ToolContext(
         message=message,
@@ -201,6 +211,7 @@ async def generate_stream(
         drive_active=_drive_active,
         drive_cache_active=_drive_cache_active,
         calendar_active=_calendar_active,
+        gmail_active=_gmail_active,
     )
     injected_tools = [t for t in TOOL_REGISTRY.values() if t.should_inject(_tool_ctx)]
     tools = [t.schema for t in injected_tools] or None
@@ -214,11 +225,23 @@ async def generate_stream(
             fallback_chain = _tool_capable
 
     if image_b64 and image_mime_type:
-        user_content = [
-            {"type": "text", "text": message},
-            {"type": "image_url", "image_url": {"url": f"data:{image_mime_type};base64,{image_b64}"}},
-        ]
-        user_msg = {"role": "user", "content": user_content}
+        if IMAGE_OCR_ENABLED:
+            import io
+            from services.processor import extract_image_from_bytes
+            img_bytes = base64.b64decode(image_b64)
+            ocr_text = await asyncio.to_thread(extract_image_from_bytes, img_bytes)
+            if ocr_text.strip():
+                user_msg = {"role": "user", "content": f"{message}\n\n[Image content detected via OCR:]\n{ocr_text[:5000]}"}
+                yield {"type": "status", "stage": "ocr", "detail": f"OCR extracted {len(ocr_text)} chars from pasted image", "level": "info"}
+            else:
+                user_msg = {"role": "user", "content": f"{message}\n\n[No text detected in the pasted image.]"}
+                yield {"type": "status", "stage": "ocr", "detail": "No text found in pasted image", "level": "info"}
+        else:
+            user_content = [
+                {"type": "text", "text": message},
+                {"type": "image_url", "image_url": {"url": f"data:{image_mime_type};base64,{image_b64}"}},
+            ]
+            user_msg = {"role": "user", "content": user_content}
     else:
         user_msg = {"role": "user", "content": message}
 

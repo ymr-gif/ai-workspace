@@ -34,3 +34,4 @@ class ToolContext:
     drive_active: bool = False
     drive_cache_active: bool = False
     calendar_active: bool = False
+    gmail_active: bool = False

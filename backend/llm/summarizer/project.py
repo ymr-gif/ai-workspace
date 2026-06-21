@@ -1,13 +1,14 @@
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import MODELS
 from core.db import AsyncSessionLocal
 from models import Conversation, UserMemory, UserMemoryVersion
 from llm.nim import call
+from core.locks import user_write_lock
 from .prompts import _NO_UPDATE, _PROJECT_SYSTEM
 
 logger = logging.getLogger("summarizer")
@@ -18,13 +19,13 @@ _MODEL = MODELS["llama"]
 async def update_project_summary(user_id: int) -> None:
     async with AsyncSessionLocal() as db:
         try:
-            await _update_project_summary(db, user_id)
+            async with user_write_lock(db, user_id):
+                await _update_project_summary(db, user_id)
         except Exception:
             logger.exception("[summarizer] update_project_summary failed user_id=%s", user_id)
 
 
 async def _update_project_summary(db: AsyncSession, user_id: int) -> None:
-    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": user_id})
     result = await db.execute(
         select(Conversation.title, Conversation.history_summary)
         .where(

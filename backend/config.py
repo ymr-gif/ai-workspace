@@ -111,8 +111,25 @@ WEB_SEARCH_BACKEND = os.getenv("WEB_SEARCH_BACKEND", "searxng")
 SEARXNG_URL        = os.getenv("SEARXNG_URL",        "http://searxng:8080")
 TAVILY_API_KEY     = os.getenv("TAVILY_API_KEY", "")
 
+# ── Image / CPU-OCR (Q2 #19) ──────────────────────────────────────────────────
+IMAGE_OCR_ENABLED = os.getenv("IMAGE_OCR_ENABLED", "false").lower() == "true"
+
+# ── Voice / STT (Phase 1a — #20 Voice Input) ─────────────────────────────────
+VOICE_ENABLED = os.getenv("VOICE_ENABLED", "false").lower() == "true"
+ASR_BACKEND   = os.getenv("ASR_BACKEND", "stub")
+ASR_MODEL     = os.getenv("ASR_MODEL", "base.en")
+ASR_LANGUAGE  = os.getenv("ASR_LANGUAGE", "")
+
 # ── App settings ──────────────────────────────────────────────────────────────
 USE_REDIS              = os.getenv("USE_REDIS", "false").lower() == "true"
+
+# ── Memory write lock (inert switch — #21 Horizontal Scaling) ───────
+# "pg" = pg_advisory_xact_lock (current behavior, default, zero change).
+# "redis" = Redis SET NX + Lua compare-del (distributed-replica-safe).
+# Toggleable live via /admin/env/reload (same pattern as LLM_BACKEND).
+MEMORY_LOCK_BACKEND = os.getenv("MEMORY_LOCK_BACKEND", "pg").lower()
+MEMORY_LOCK_TTL     = int(os.getenv("MEMORY_LOCK_TTL", "30"))
+MEMORY_LOCK_WAIT    = int(os.getenv("MEMORY_LOCK_WAIT", "5"))
 AI_TIMEOUT             = int(os.getenv("AI_TIMEOUT", 10))
 MAX_CONCURRENT_REQUESTS = min(int(os.getenv("MAX_CONCURRENT_REQUESTS", 10)), 50)
 LOG_LEVEL              = os.getenv("LOG_LEVEL", "INFO")
@@ -142,6 +159,13 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
     "meta/llama-3.3-70b-instruct":             {"input": 0.77, "output": 0.77},
     "meta/llama-3.2-90b-vision-instruct":      {"input": 0.16, "output": 0.16},
 }
+
+# ── Notifications / Web Push (Phase 3c) ──────────────────────────────────────
+VAPID_PUBLIC_KEY  = os.getenv("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
+VAPID_SUBJECT     = os.getenv("VAPID_SUBJECT", "mailto:admin@example.com")
+NOTIFICATION_RATE_LIMIT = int(os.getenv("NOTIFICATION_RATE_LIMIT", "5"))     # max per window
+NOTIFICATION_RATE_WINDOW = int(os.getenv("NOTIFICATION_RATE_WINDOW", "60"))  # seconds
 
 # ── External integrations (OAuth 2.0) ──────────────────────────────────────────
 INTEGRATION_SECRET       = os.getenv("INTEGRATION_SECRET", "")

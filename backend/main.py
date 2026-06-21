@@ -20,10 +20,12 @@ from api.scheduled_prompts import router as scheduled_prompts_router
 from api.system import router as system_router
 from api.templates import router as templates_router
 from api.tool_logs import router as tool_logs_router
+from api.transcribe import router as transcribe_router
 from api.export import router as export_router
 from api.goals import router as goals_router
 from api.search import router as search_router
 from api.usage import router as usage_router
+from api.notifications import router as notifications_router
 from api.webhooks import webhooks_router, webhook_token_router
 from api.integrations import router as integrations_router
 from auth import auth_router, invite_router
@@ -130,6 +132,8 @@ app.include_router(graph_router)
 app.include_router(invite_router)
 app.include_router(webhooks_router, prefix="/api")
 app.include_router(integrations_router)
+app.include_router(transcribe_router, prefix="/api")
+app.include_router(notifications_router, prefix="/api")
 app.include_router(webhook_token_router, prefix="/auth/me")
 
 Instrumentator().instrument(app).expose(app, endpoint="/prometheus")

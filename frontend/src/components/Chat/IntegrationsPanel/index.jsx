@@ -29,6 +29,7 @@ export default function IntegrationsPanel() {
   const connectorIcon = {
     google_drive: '📁',
     google_calendar: '📅',
+    gmail: '📧',
     notion: '📝',
     github: '💻',
   }

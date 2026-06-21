@@ -168,6 +168,27 @@ CALENDAR_TOOL_SCHEMAS = [
           ["event_id"]),
 ]
 
+GMAIL_TOOL_SCHEMAS = [
+    _tool("gmail_list_messages",
+          "List recent messages from the user's Gmail inbox. "
+          "Returns message previews (subject, sender, date, snippet). "
+          "To read the full content of a specific message, use gmail_get_message with its ID.",
+          {"max_results": {"type": "integer", "description": "Max messages to list (default 20)"}},
+          []),
+    _tool("gmail_get_message",
+          "Read the full content of a specific Gmail message by its ID. "
+          "Returns the complete email body (subject, from, date, and text content).",
+          {"message_id": {"type": "string", "description": "The Gmail message ID to retrieve"}},
+          ["message_id"]),
+    _tool("gmail_search_messages",
+          "Search the user's Gmail inbox for messages matching a query. "
+          "Supports Gmail search operators (e.g. 'from:user@example.com', 'subject:meeting', 'has:attachment'). "
+          "Returns matching message previews. Use gmail_get_message to read the full content.",
+          {"query": {"type": "string", "description": "Search query (supports Gmail operators)"},
+           "max_results": {"type": "integer", "description": "Max results to return (default 10)"}},
+          ["query"]),
+]
+
 SCHEMA_BY_NAME = {
     s["function"]["name"]: s
     for s in [
@@ -176,6 +197,7 @@ SCHEMA_BY_NAME = {
         *FETCH_URL_TOOL_SCHEMA,
         *DRIVE_TOOL_SCHEMAS,
         *CALENDAR_TOOL_SCHEMAS,
+        *GMAIL_TOOL_SCHEMAS,
         WRITE_MEMORY_SCHEMA,
     ]
 }

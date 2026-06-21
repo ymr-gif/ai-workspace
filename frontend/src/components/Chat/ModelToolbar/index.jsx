@@ -1,5 +1,4 @@
-import s from '../../../lib/chatStyles.js'
-import { GRN } from '../../../lib/chatStyles.js'
+import s, { RED } from '../../../lib/chatStyles.js'
 import ParamSlider from '../../ParamSlider.jsx'
 
 export default function ModelToolbar({
@@ -12,6 +11,7 @@ export default function ModelToolbar({
   attachedFiles, detachFile,
   input, setInput, loading,
   send,
+  voice,
 }) {
   return (
     <div>
@@ -66,8 +66,16 @@ export default function ModelToolbar({
       )}
 
       <form onSubmit={send} style={s.bar}>
+        {voice && (voice.voiceAvailable === true || voice.voiceAvailable === null) && (
+          <button type="button"
+            onClick={voice.recording ? voice.stopRecording : voice.startRecording}
+            disabled={voice.transcribing}
+            style={{ ...s.micBtn, ...(voice.recording ? s.micRec : {}) }}>
+            {voice.transcribing ? 'BUSY' : voice.recording ? 'REC' : 'MIC'}
+          </button>
+        )}
         <input value={input} onChange={e => setInput(e.target.value)} placeholder={compareMode ? 'Compare prompt across all models…' : 'Ask anything…'} disabled={loading} style={s.input} />
-        <button type="submit" disabled={loading || !input.trim()} style={{ ...s.send, ...(compareMode ? { background:'rgba(61,255,110,0.10)', color:GRN, border:`1px solid ${GRN}`, textShadow:`0 0 6px rgba(61,255,110,0.5)` } : {}) }}>
+        <button type="submit" disabled={loading || !input.trim()} style={{ ...s.send, ...(compareMode ? { background:'rgba(61,255,110,0.10)', color:RED, border:`1px solid ${RED}`, textShadow:`0 0 6px rgba(61,255,110,0.5)` } : {}) }}>
           {loading ? '…' : compareMode ? '⊞' : 'Send'}
         </button>
       </form>

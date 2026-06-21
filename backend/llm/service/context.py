@@ -51,6 +51,37 @@ _CALENDAR_ACTIONS = frozenset({
 
 _CALENDAR_STRIP = "\"'.,!?;:()[]{}…"
 
+_GMAIL_NOUNS = frozenset({
+    "mail", "email", "inbox",
+    "message", "messages",
+    "gmail",
+})
+
+_GMAIL_ACTIONS = frozenset({
+    "list", "show", "check", "read", "find",
+    "search", "get", "look", "browse",
+    "open", "view", "fetch", "what",
+})
+
+_GMAIL_STRIP = "\"'.,!?;:()[]{}…"
+
+
+def _gmail_tokens(message: str) -> set[str]:
+    out: set[str] = set()
+    for raw in message.lower().split():
+        t = raw.strip(_GMAIL_STRIP)
+        if not t:
+            continue
+        out.add(t)
+        if t.endswith("'s"):
+            out.add(t[:-2])
+    return out
+
+
+def _needs_gmail_tools(message: str) -> bool:
+    tokens = _gmail_tokens(message)
+    return bool(tokens & _GMAIL_NOUNS) and bool(tokens & _GMAIL_ACTIONS)
+
 
 def _calendar_tokens(message: str) -> set[str]:
     out: set[str] = set()

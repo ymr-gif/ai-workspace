@@ -47,15 +47,25 @@ export default function FilesPanel() {
             : libFiles.map(f => {
                 const sc = statusColor(f.status)
                 const isAttached = attachedIds.has(f.id)
+                const isImage = f.media_type === 'image'
                 return (
                   <div key={f.id} style={s.fileItem}>
+                    {isImage && (
+                      <img src={`/api/files/${f.id}/download`} alt="" style={s.imgThumb}
+                        onError={e => { e.target.style.display = 'none' }} />
+                    )}
                     <span style={{ ...s.statusBadge, background:sc.bg, color:sc.color }}>{f.status}</span>
-                    {renameId === f.id
-                      ? <input autoFocus style={s.renameInput} value={renameVal} onChange={e => setRenameVal(e.target.value)}
-                          onKeyDown={e => { if (e.key==='Enter') commitRename(f.id); if (e.key==='Escape') setRenameId(null) }}
-                          onBlur={() => commitRename(f.id)} />
-                      : <span style={s.fileName} title={f.filename}>{f.filename}</span>
-                    }
+                    <div style={{ flex:1, minWidth:0 }}>
+                      {renameId === f.id
+                        ? <input autoFocus style={s.renameInput} value={renameVal} onChange={e => setRenameVal(e.target.value)}
+                            onKeyDown={e => { if (e.key==='Enter') commitRename(f.id); if (e.key==='Escape') setRenameId(null) }}
+                            onBlur={() => commitRename(f.id)} />
+                        : <span style={s.fileName} title={f.filename}>{f.filename}</span>
+                      }
+                      {isImage && f.ocr_text && (
+                        <div style={{ ...s.fileMeta, marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.ocr_text}</div>
+                      )}
+                    </div>
                     <button onClick={() => { setRenameId(f.id); setRenameVal(f.filename) }} style={s.attachBtn} title="Rename">✎</button>
                     <button onClick={() => viewFile(f.id)} style={s.attachBtn} title="View contents">👁</button>
                     <button onClick={() => downloadFile(f.id, f.filename)} style={s.attachBtn} title="Download">⬇</button>
@@ -78,10 +88,20 @@ export default function FilesPanel() {
               ? <p style={s.emptyMem}>No files attached.<br /><span style={{ fontSize:'0.75rem' }}>Switch to Library tab to attach files.</span></p>
               : attachedFiles.map(f => {
                   const sc = statusColor(f.status)
+                  const isImage = f.media_type === 'image'
                   return (
                     <div key={f.id} style={s.fileItem}>
+                      {isImage && (
+                        <img src={`/api/files/${f.id}/download`} alt="" style={s.imgThumb}
+                          onError={e => { e.target.style.display = 'none' }} />
+                      )}
                       <span style={{ ...s.statusBadge, background:sc.bg, color:sc.color }}>{f.status}</span>
-                      <span style={s.fileName} title={f.filename}>{f.filename}</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <span style={s.fileName} title={f.filename}>{f.filename}</span>
+                        {isImage && f.ocr_text && (
+                          <div style={{ ...s.fileMeta, marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.ocr_text}</div>
+                        )}
+                      </div>
                       <button onClick={() => viewFile(f.id)} style={s.attachBtn} title="View contents">👁</button>
                       <button onClick={() => detachFile(f.id)} style={s.attachBtn} title="Detach">✕</button>
                     </div>

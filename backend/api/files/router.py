@@ -46,14 +46,16 @@ async def upload_file(
             result["duplicate"] = True
             return result
 
+        mt = file.content_type or "application/octet-stream"
         db_file = FileModel(
             user_id      = current_user.id,
             filename     = filename,
-            mime_type    = file.content_type or "application/octet-stream",
+            mime_type    = mt,
             size_bytes   = size_bytes,
             storage_path = storage_path,
             upload_status= "uploaded",
             sha256_hash  = sha256,
+            media_type   = "image" if mt.startswith("image/") else "document",
         )
         db.add(db_file)
         await db.commit()

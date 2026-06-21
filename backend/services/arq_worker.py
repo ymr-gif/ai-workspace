@@ -77,6 +77,17 @@ async def generate_insight_job(ctx, user_id: int, *, hint: str | None = None) ->
             db.add(UserInsight(user_id=user_id, content=insight))
             await db.commit()
             logger.info("[arq] insight generated user=%s", user_id)
+
+            from core.arq_pool import get_arq_pool
+            pool = get_arq_pool()
+            if pool:
+                await pool.enqueue_job(
+                    "send_insight_notification_job",
+                    user_id,
+                    subject="New AI Insight",
+                    body=insight[:200],
+                    url=None,
+                )
     except Exception:
         if ctx.get("job_try", 1) >= _MAX_TRIES:
             ARQ_JOB_FAILED.labels(job_type="generate_insight").inc()
@@ -229,6 +240,24 @@ async def update_behavior_profile_job(ctx, user_id: int, query_type: str, messag
             ARQ_JOB_FAILED.labels(job_type="update_behavior_profile").inc()
 
 
+async def send_insight_notification_job(ctx, user_id: int, *, subject: str, body: str, url: str | None = None) -> None:
+    from services.notification import notify
+    try:
+        await notify(user_id, "insight", subject, body, url)
+        logger.info("[arq] insight notification sent user=%s", user_id)
+    except Exception:
+        logger.exception("[arq] insight notification failed user=%s", user_id)
+
+
+async def send_scheduled_completion_job(ctx, user_id: int, *, subject: str, body: str, url: str | None = None) -> None:
+    from services.notification import notify
+    try:
+        await notify(user_id, "scheduled", subject, body, url)
+        logger.info("[arq] scheduled notification sent user=%s", user_id)
+    except Exception:
+        logger.exception("[arq] scheduled notification failed user=%s", user_id)
+
+
 async def sync_external_source_job(ctx, *, source_id: str) -> None:
     from datetime import datetime
     from core.encryption import decrypt_token, encrypt_token
@@ -321,7 +350,7 @@ async def shutdown(ctx):
 
 
 class WorkerSettings:
-    functions = [process_file_job, generate_insight_job, re_embed_batch_job, compact_memory_job, extract_preferences_job, update_behavior_profile_job, process_webhook_job, sync_external_source_job]
+    functions = [process_file_job, generate_insight_job, re_embed_batch_job, compact_memory_job, extract_preferences_job, update_behavior_profile_job, process_webhook_job, sync_external_source_job, send_insight_notification_job, send_scheduled_completion_job]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(REDIS_URL)

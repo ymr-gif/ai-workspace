@@ -1,5 +1,16 @@
 services:
 
+  # ── API (horizontal scaling) ─────────────────────────────────────────────
+  # Scale freely: `docker compose up -d --scale api=N` (N = replica count).
+  # JWT is stateless, SSE is per-request — no sticky sessions needed.
+  # Frontend nginx uses `resolver 127.0.0.11` + variable proxy_pass, so it
+  # dynamically resolves all API replicas via Docker DNS (no config change).
+  # In prod (nginx.prod.conf), the upstream uses `server api:8000 resolve;`
+  # with the same DNS resolver for dynamic load balancing.
+  # WARNING: `ports: 8000:8000` conflicts when scaling — each replica beyond
+  # the first gets a random host port. For clean multi-replica dev, omit the
+  # port mapping (the frontend nginx still reaches every replica internally).
+  # ──────────────────────────────────────────────────────────────────────────
   api:
     build:
       context: ..
@@ -148,6 +159,11 @@ services:
     networks:
       - backend
 
+  # ⚠️  SINGLETON — do NOT scale this service.
+  # The scheduler runs APScheduler jobs (daily compaction, backup, 6h integration
+  # sync, scheduled prompts, digest). Replicating it = duplicate backups, emails,
+  # NIM calls, and DB writes. It has NO built-in leader election.
+  # Never use `--scale scheduler=N` or `deploy.replicas > 1`.
   scheduler:
     build:
       context: ..
@@ -217,6 +233,12 @@ services:
       - ./searxng:/etc/searxng:rw
     networks:
       - backend
+
+  # ── APIRouter workers (queue-pulling, scale freely) ───────────────────────
+  # ARQ workers pull jobs from Redis. Multiple workers = more throughput.
+  # Safe to scale with `--scale arq-worker=N`. No singleton concerns — ARQ
+  # guarantees each job runs exactly once (reserved until ack/complete).
+  # ──────────────────────────────────────────────────────────────────────────
 
   # ── Home-server model serving (Q1 — llama.cpp/GGUF) ──────────────────────────
   # Opt-in only: `docker compose --profile homeserver up -d`. NOT started by the

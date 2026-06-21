@@ -16,6 +16,9 @@ import useSearch from '../../hooks/useSearch.js'
 import useScheduledPrompts from '../../hooks/useScheduledPrompts.js'
 import useGoals from '../../hooks/useGoals.js'
 import useIntegrations from '../../hooks/useIntegrations.js'
+import useOnboarding from '../../hooks/useOnboarding.js'
+import useVoice from '../../hooks/useVoice.js'
+import useNotificationPrefs from '../../hooks/useNotificationPrefs.js'
 import useStreamChat from '../../hooks/useStreamChat.js'
 import { PanelPropsCtx } from './PanelPropsContext'
 
@@ -34,6 +37,7 @@ import SearchPanel from './SearchPanel'
 import AutomationsPanel from './AutomationsPanel'
 import GoalsPanel from './GoalsPanel'
 import IntegrationsPanel from './IntegrationsPanel'
+import OnboardingModal from './OnboardingModal'
 
 export default function Chat({ token, onLogout }) {
   const conv = useConversations(token)
@@ -49,6 +53,9 @@ export default function Chat({ token, onLogout }) {
   const auto   = useScheduledPrompts(token)
   const goals  = useGoals(token)
   const integ  = useIntegrations(token)
+  const onboarding = useOnboarding(token)
+  const notificationPrefs = useNotificationPrefs(token)
+  const voice  = useVoice(token, (text) => conv.setInput(text))
 
   const [userRole, setUserRole] = useState(null)
   const [pendingCalendarWrite, setPendingCalendarWrite] = useState(null)
@@ -129,7 +136,7 @@ export default function Chat({ token, onLogout }) {
   const diffTarget      = useMemo(() => mem.diffIdx !== null ? mem.memHistory[mem.diffIdx] : null, [mem.diffIdx, mem.memHistory])
   const diffLines       = useMemo(() => diffTarget ? computeDiff((diffTarget.content||'')+'\n'+(diffTarget.project_summary||''), (mem.memData?.content||'')+'\n'+(mem.memData?.project_summary||'')) : [], [diffTarget, mem.memData])
 
-  const ctx = { token, conv, mem, settings, files, toolLog, usage, admin, insights, modelParams, search, auto, goals, integ, hasMemory, sections, projectSections, wordCount, panelSlide, diffTarget, diffLines, importRef, selectConv, handleAcceptWrite, handleDismissWrite, fmtDate }
+  const ctx = { token, conv, mem, settings, files, toolLog, usage, admin, insights, modelParams, search, auto, goals, integ, onboarding, notificationPrefs, voice, hasMemory, sections, projectSections, wordCount, panelSlide, diffTarget, diffLines, importRef, selectConv, handleAcceptWrite, handleDismissWrite, fmtDate }
 
   const lockedModelLabel = conv.convLockModel
     ? (MODEL_LABELS[conv.convLockModel] || conv.convLockModel)
@@ -273,6 +280,7 @@ export default function Chat({ token, onLogout }) {
           setInput={conv.setInput}
           loading={conv.loading}
           send={send}
+          voice={voice}
         />
       </div>
 
@@ -297,6 +305,7 @@ export default function Chat({ token, onLogout }) {
         <IntegrationsPanel />
         <AutomationsPanel />
         <MemoryPanel />
+        <OnboardingModal />
       </PanelPropsCtx.Provider>
     </div>
   )

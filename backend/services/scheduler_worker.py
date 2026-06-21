@@ -78,6 +78,17 @@ async def execute_scheduled_prompt(
             await db.commit()
             logger.info("[scheduler] run=%s schedule=%s status=success file=%s", run_id, schedule_id, file_record.id)
 
+            from core.arq_pool import get_arq_pool
+            pool = get_arq_pool()
+            if pool:
+                await pool.enqueue_job(
+                    "send_scheduled_completion_job",
+                    s.user_id,
+                    subject=f"Scheduled Prompt Complete: {s.name}",
+                    body=f"Your scheduled prompt '{s.name}' completed and saved as {filename}.",
+                    url=None,
+                )
+
         except Exception as e:
             logger.exception("[scheduler] run=%s schedule=%s failed", run_id, schedule_id)
             run.status       = "error"
@@ -205,6 +216,12 @@ async def run_digest() -> None:
     for user in users:
         try:
             async with AsyncSessionLocal() as db:
+                from models.notification import UserNotificationPreferences
+                prefs = await db.get(UserNotificationPreferences, user.id)
+                if prefs and not prefs.email_digest:
+                    skipped += 1
+                    continue
+
                 digest = await build_digest(user.id, db)
                 if not digest:
                     skipped += 1

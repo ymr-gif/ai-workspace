@@ -38,6 +38,7 @@ async def _search_files(
                 FileChunk.content,
                 FileModel.id.label("file_id"),
                 FileModel.filename,
+                FileModel.media_type,
                 (1.0 - FileChunk.embedding.cosine_distance(query_embedding)).label("sim"),
             )
             .join(FileModel, FileChunk.file_id == FileModel.id)
@@ -53,6 +54,7 @@ async def _search_files(
                 "title": row.filename,
                 "snippet": row.content[:300],
                 "id": str(row.file_id),
+                "media_type": row.media_type,
             }
             for row in vec_result.all()
         ]

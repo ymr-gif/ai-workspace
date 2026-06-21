@@ -4,13 +4,14 @@ from .file import File, FileChunk, FileVersion
 from .chat import Conversation, Message, MessageEmbedding, ConversationFile
 from .tools import ToolCallLog
 from .integration import ExternalSource
+from .notification import UserNotificationPreferences, PushSubscription
 from .prompts_scheduled import PromptTemplate, ScheduledPrompt, ScheduledPromptRun
 from .system import SystemConfig
 
 __all__ = [
     "AdminAuditLog", "Conversation", "ConversationFile", "ExternalSource", "File", "FileChunk",
     "FileVersion", "Invitation", "MemoryConflict", "Message", "MessageEmbedding", "PromptTemplate",
-    "ScheduledPrompt", "ScheduledPromptRun", "SystemConfig", "ToolCallLog",
+    "PushSubscription", "ScheduledPrompt", "ScheduledPromptRun", "SystemConfig", "ToolCallLog",
     "User", "UserBehaviorProfile", "UserGoal", "UserInsight", "UserMemory", "UserMemoryVersion",
-    "WebhookEvent",
+    "UserNotificationPreferences", "WebhookEvent",
 ]
