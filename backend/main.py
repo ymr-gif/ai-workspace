@@ -85,6 +85,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("[startup] re_embed check failed: %s", e)
 
+    from core.encryption import fernet_ready
+    if not fernet_ready():
+        logger.warning("[startup] INTEGRATION_SECRET not set — OAuth integrations disabled (all connector endpoints return 503)")
+
     logger.info("[startup] init neo4j...")
     try:
         from core.neo4j_client import init_neo4j
