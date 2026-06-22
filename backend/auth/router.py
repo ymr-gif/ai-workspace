@@ -7,7 +7,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import JWT_EXPIRE_MINUTES, REQUIRE_INVITE
+import config
+from config import JWT_EXPIRE_MINUTES
 from core.db import get_db
 from auth.schemas import Token, RegisterRequest
 from auth.security import authenticate_user, create_access_token, get_current_user, get_user, hash_password, hash_api_key
@@ -46,9 +47,10 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     if await get_user(username, db):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already taken")
 
-    # Invite gate
+    # Invite gate — read at call time so /admin/env live-reload takes effect
+    # (do NOT revert to `from config import REQUIRE_INVITE`; that freezes it at import).
     invite: Invitation | None = None
-    if REQUIRE_INVITE:
+    if config.REQUIRE_INVITE:
         token = getattr(payload, "invite_token", None)
         if not token:
             raise HTTPException(status_code=403, detail="Invite token required")
