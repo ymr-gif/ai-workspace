@@ -2,6 +2,7 @@ import logging
 import uuid
 
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import AsyncSessionLocal
@@ -97,5 +98,11 @@ async def store_exchange(
             ))
             await db.commit()
             logger.debug("[retriever] stored embedding msg=%s", message_id)
+        except IntegrityError:
+            # Benign race: the message/conversation was deleted before this async
+            # embed committed (FK violation). Roll back quietly — not an error.
+            await db.rollback()
+            logger.debug("[retriever] store_exchange skipped — message %s no longer exists", message_id)
         except Exception:
+            await db.rollback()
             logger.exception("[retriever] store_exchange failed msg=%s", message_id)
