@@ -50,23 +50,21 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 ### A. Autonomous / background pipeline — ARQ jobs (message/threshold-triggered)
 > Highest-value gap. Nothing here is exercised E2E — the HTTP sweep only reads the result endpoints.
 
-- `[ ]` **V-A1 Insight generation** `[live-now]` — `generate_insight_job` + `llm/agency.py`
-  (`generate_user_insight`). Only `GET /insights` (list) is tested; `test_webhook_roundtrip` stops
-  at the 202 and never asserts a `UserInsight` row appears. *Verify:* trigger via webhook / message
-  threshold → assert a row lands + shows in `/insights` + injects as `[RECENT INSIGHTS]`.
-- `[ ]` **V-A2 Memory compaction** `[live-now]` — `compact_memory_job` / `llm/summarizer/compact.py`
-  → `UserMemoryVersion` snapshot via real 70B. Planned `test_memory_autonomy` was never written.
-  *Verify:* enqueue compaction → assert a new `user_memory_versions` row + `/memory/versions`.
-- `[ ]` **V-A3 Graph extraction after chat** `[live-now]` — `extract_and_store` writing Neo4j
-  entities from a conversation. `query_graph` *reads* fine; the *write* path is unproven live.
-  *Verify:* drive a fact-rich turn → assert `/graph/stats` entity count grew.
-- `[ ]` **V-A4 Behavior profile** `[live-now]` — `update_behavior_profile_job` populating
-  `UserBehaviorProfile.profile` (query_types/topics/tools/models). No endpoint asserts it fills.
-- `[ ]` **V-A5 Preference extraction** `[timing]` — `extract_preferences_job` (every 50 asst msgs)
-  writing `[PREFERENCES]` into `UserMemory.content`. *Verify:* enqueue the job directly.
-- `[ ]` **V-A6 Auto-title** `[live-now]` — `api/chat/background.py:_auto_title` (atomic
-  UPDATE…WHERE title=:default) after the 2nd message. `test_conversation_continuity` doesn't check
-  the title changed. *Verify:* 2 turns → assert conversation title != default.
+- `[x]` **V-A1 Insight generation** `[live-now]` — ✅ webhook (`external.data`) →
+  `process_webhook_job` → `generate_user_insight` → `UserInsight` row appears in `/insights`.
+  `test_autonomy.py::test_insight_generated_from_webhook`.
+- `[x]` **V-A2 Memory compaction** `[live-now]` — ✅ `POST /memory/compact` → new `UserMemoryVersion`
+  visible in `GET /memory/history`. `test_autonomy.py::test_compaction_creates_version`.
+- `[x]` **V-A3 Graph extraction after chat** `[live-now]` — ✅ fact-rich chat → `/graph/stats`
+  entity count grows from 0. `test_autonomy.py::test_graph_extraction_after_chat`.
+- `[x]` **V-A4 Behavior profile** `[DB-verified]` — ✅ after 2 chats, `user_behavior_profiles.profile`
+  populated (`tools_used`/`models_used`/`query_types`/`topic_keywords`/`total_messages`). Verified
+  via psql (no HTTP surface — recorded in run log).
+- `[x]` **V-A5 Preference extraction** `[DB-verified]` — ✅ enqueued `extract_preferences_job` directly
+  via ARQ pool → wrote a correct `[PREFERENCES]` block (`verbosity: concise`, `response_style: direct`)
+  to `user_memory.content`. Verified via psql + arq logs.
+- `[x]` **V-A6 Auto-title** `[live-now]` — ✅ 2nd turn in a conversation → title changes off the raw
+  first message. `test_autonomy.py::test_auto_title_after_second_message`.
 
 ### B. Scheduler / cron (worker is up, but firing/registration unproven)
 - `[x]` **V-B1 Scheduled-prompt execution** `[live-now]` — ✅ create (schedule alias→cron_expr) →
@@ -131,6 +129,8 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
   *Candidate fix:* skip the embed insert if the message no longer exists, or treat FK violation as a
   debug-level skip. `llm/retriever/queries.py:store_exchange`. Low priority.
 - Phase 1 (endpoint contracts): **10/10 live pass** after BUG-V1 fix.
+- Phase 2 (autonomy): **4/4 live pass** (`test_autonomy.py`); A4 behavior-profile + A5 preferences
+  verified via psql/ARQ (no HTTP surface) — both jobs produce correct rows. No bugs found.
 
 ### Plan
 - **Tier 1 (`[live-now]`)** → build a new live suite `tests/live/test_autonomy_and_reliability.py`
