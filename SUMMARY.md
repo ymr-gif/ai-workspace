@@ -1,6 +1,6 @@
 # NIM AI Gateway — Project Summary
 
-Updated: 2026-06-21
+Updated: 2026-06-22
 
 ---
 
@@ -117,7 +117,7 @@ backend/
 ├── config.py                — env vars via find_dotenv(); LLM_BACKEND flag (nim|homeserver)
 ├── core/
 │   └── locks.py             — user_write_lock (pg/redis async ctx mgr; MEMORY_LOCK_BACKEND)
-├── models/                  — 24+ ORM classes across 9+ sub-modules
+├── models/                  — 25 ORM classes across 9+ sub-modules
 │   ├── user.py              — User (has_onboarded), UserInsight, AdminAuditLog, UserMemory,
 │   │                           UserMemoryVersion, UserBehaviorProfile, UserGoal
 │   ├── chat.py              — Conversation, Message, MessageEmbedding, ConversationFile
@@ -132,7 +132,7 @@ backend/
 ├── llm/
 │   ├── service/             — context build, context budget allocator, SSE stream + tool loop
 │   ├── nim.py               — NIM API call; accumulates tool_call deltas
-│   ├── tools/               — 22 agent tool schemas + execute_tool()
+│   ├── tools/               — 25 agent tool schemas + execute_tool()
 │   ├── graph_memory.py      — Neo4j extraction (70B) + query_by_keywords
 │   ├── router.py            — keyword classify(), classify_intent_hybrid(), model route()
 │   ├── circuit_breaker.py   — threshold=5, cooldown=90s, Redis-persisted
@@ -162,7 +162,7 @@ backend/
 │   ├── google_oauth.py      — GoogleOAuthConnector base; shared by Drive + Calendar
 │   ├── gmail.py             — GmailConnector; 3 read-only tools (list/get/search)
 │   └── (drive.py, calendar.py, notion.py, github.py)
-└── tests/                   — 170+ tests across test.py, retrieval eval, per-feature suites
+└── tests/                   — 160+ tests across test.py, retrieval eval, per-feature suites
     ├── test.py
     ├── retrieval/test_hybrid_eval.py  (26 tests, mocked DB)
     └── test_*.py                      (per-feature suites added with each feature)
@@ -245,8 +245,8 @@ backend/
 ## AI Agent Tool Loop
 
 - **Trigger:** any message when `file_ids` non-empty → forces reasoning model (70B)
-- **Tools (22):** `list_files` · `read_file` · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `web_search` · `fetch_url` · `drive_list_files` · `drive_search_files` · `drive_read_file` · `calendar_list_events` · `calendar_get_event` · `calendar_search_events` · `calendar_create_event` · `calendar_update_event` · `calendar_delete_event`; Gmail tools (`gmail_list_messages`, `gmail_get_message`, `gmail_search_messages`) injected when connector enabled
-- **Guards:** same tool + identical args: writes >3 → abort, read-only >8 → abort; distinct-arg bulk ops flow freely; `MAX_TOOL_ITERATIONS=60` hard cap; tool result capped 12000 chars in context
+- **Tools (25):** `list_files` · `read_file` · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `web_search` · `fetch_url` · `drive_list_files` · `drive_search` · `drive_read_file` · `calendar_list_events` · `calendar_get_event` · `calendar_search_events` · `calendar_create_event` · `calendar_update_event` · `calendar_delete_event` · `gmail_list_messages` · `gmail_get_message` · `gmail_search_messages` (connector tools keyword-gated, injected only on noun+action match)
+- **Guards:** same tool + identical args repeated → abort after `_MAX_IDENTICAL_CALLS=3` (listing + connector tools override to 1); distinct-arg bulk ops flow freely; `MAX_TOOL_ITERATIONS=60` hard cap; tool result capped 12000 chars in context
 - **`ask_user`:** yields `{type:"ask_user"}` SSE + done → pauses loop; amber card in UI
 - **`write_memory`:** offered only when reasoning model selected AND `_needs_memory_tool()` returns true; yields `{type:"confirm_write_memory", fact}` SSE; green card in UI; user confirms → `POST /api/memory/write`
 - **Calendar writes:** `create/update/delete` return a `__CONFIRM_CALENDAR_WRITE__:` sentinel → SSE `confirm_calendar_write` → UI confirm card → Accept calls `POST /api/integrations/calendar/execute`
@@ -290,7 +290,7 @@ backend/
 | Rate limit (per-model) | llama=15, coder=10, reasoning=5 req/60s (explicit selection only) |
 | Cache bypass | file_chunks / image_b64 / model_params present |
 | Memory write lock | `user_write_lock` (pg_advisory_xact_lock or Redis; `MEMORY_LOCK_BACKEND` env, default pg) |
-| Tool loop guard | max 60 iterations; same tool + identical args: writes >3, reads >8 → abort |
+| Tool loop guard | max 60 iterations; same tool + identical args repeated → abort after 3 (listing/connector tools after 1) |
 
 ---
 
@@ -334,7 +334,7 @@ frontend/src/
 │       ├── IntegrationsPanel/ — OAuth connectors (Drive, Calendar, Gmail, Notion, GitHub)
 │       ├── SettingsModal.jsx — notification preferences (email + push toggles)
 │       └── OnboardingModal/ — 3-step skippable wizard (Welcome → Email → Integrations)
-└── hooks/                   — 15+ hooks
+└── hooks/                   — 17 hooks
     ├── useStreamChat.js      useConversations.js  useMemory.js
     ├── useFiles.js           useGoals.js          useScheduledPrompts.js
     ├── useSearch.js          useInsights.js       useIntegrations.js

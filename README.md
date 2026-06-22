@@ -1,6 +1,6 @@
 # NIM AI Gateway
 
-A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routing, hybrid RAG, persistent graph memory, and an AI agent tool loop — all in a single Docker Compose stack.
+A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routing, hybrid RAG, persistent graph memory, an AI agent tool loop, and OAuth connectors (Google Drive / Calendar / Gmail, Notion, GitHub) — all in a single Docker Compose stack.
 
 **Backend:** Python / FastAPI · **Frontend:** React / Vite · **Infra:** PostgreSQL + pgvector, Redis, Neo4j, Prometheus, Grafana
 
@@ -15,7 +15,7 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Browser  (React / Vite)                                    │
-│  14 panels · 13 hooks · SSE streaming                      │
+│  panels · 17 hooks · SSE streaming                         │
 └────────────────────────┬────────────────────────────────────┘
                          │  REST + SSE
                     nginx proxy
@@ -38,9 +38,12 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
 │  Graph Memory  ──► Neo4j                                    │
 │    entity + relation extraction (70B) · 500 entity cap     │
 │                                                             │
-│  Agent Tool Loop (22 tools, max 60 iterations)             │
+│  Agent Tool Loop (25 tools, max 60 iterations)             │
 │    file I/O · fuzzy patch · graph query · memory write     │
 │    web search · fetch URL · ask_user · identical-sig abort │
+│                                                             │
+│  OAuth Connectors (on-demand, keyword-gated tools)         │
+│    Google Drive · Calendar · Gmail · Notion · GitHub       │
 │                                                             │
 │  Background (ARQ workers + APScheduler)                     │
 │    embed · compact · insights · behavior profile · backup  │
@@ -49,8 +52,8 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
        PostgreSQL     Redis        Neo4j     Prometheus
        + pgvector   (cache,      (entity      + Grafana
        + pgBouncer   rate limit,   graph)     (24 panels,
-       44 migrations  circuit                  2 alerts)
-       24 ORM models  breaker)
+       47 migrations  circuit                  2 alerts)
+       25 ORM models  breaker)
 ```
 
 ---
@@ -109,6 +112,35 @@ Activated when file IDs are attached to a request; forces the 70B model.
 | `write_memory` | propose a memory write; requires user confirmation |
 | `web_search` | search the web for live information; conditionally injected when `WEB_SEARCH_ENABLED=true` and query matches keyword heuristic; backends: SearXNG (self-hosted) or Tavily |
 | `fetch_url` | fetch and read the full text of any web page mid-conversation; injected when the user's message contains a URL; ephemeral — content is returned as tool-result context, nothing stored; SSRF-hardened: scheme allowlist, DNS-pinned connection (TOCTOU-safe), port allowlist `{80, 443}`, 1 MB byte cap, Content-Type allowlist |
+| `drive_list_files` / `drive_read_file` / `drive_search` | read-only Google Drive access; keyword-gated (noun+action), no auto-context injection |
+| `calendar_list_events` / `calendar_get_event` / `calendar_search_events` | read Google Calendar; keyword-gated |
+| `calendar_create_event` / `calendar_update_event` / `calendar_delete_event` | calendar **writes** — never hit Google from the loop; return a confirm sentinel → `confirm_calendar_write` SSE → UI confirm card → `POST /api/integrations/calendar/execute` |
+| `gmail_list_messages` / `gmail_get_message` / `gmail_search_messages` | read-only Gmail access; keyword-gated |
+
+**25 tools total** — 9 file/graph, `ask_user`, `write_memory`, `web_search`, `fetch_url`, 3 Drive, 6 Calendar, 3 Gmail. Connector tools are injected only when the message matches a noun+action keyword gate (e.g. "check my calendar", "search my drive").
+
+### OAuth Connectors
+On-demand, keyword-gated agent tools — no auto-context injection, no sync-to-File. Credentials are Fernet-encrypted at rest (`INTEGRATION_SECRET`); refresh-on-expiry; a 401 marks the source `needs_reauth`.
+
+| Connector | Mode | Scope | Tools |
+|---|---|---|---|
+| Google Drive | read-only | `drive.readonly` | `drive_list_files`, `drive_search`, `drive_read_file` |
+| Google Calendar | read-write | `calendar.events` | list / get / search / **create / update / delete** |
+| Gmail | read-only | `gmail.readonly` | `gmail_list_messages`, `gmail_get_message`, `gmail_search_messages` |
+| Notion, GitHub | read | per-provider | (sync stubs) |
+
+- Drive + Calendar + Gmail share **one** Google OAuth app (`GOOGLE_CLIENT_ID/SECRET`); enable the respective API + scope in the Google Cloud console.
+- OAuth flow: `GET /api/integrations/oauth/start` → consent → `GET /api/integrations/oauth/callback` (no JWT; identity carried in a Redis state token, TTL 600s).
+- Calendar **writes never hit Google from the tool loop** — `create/update/delete` return a confirm sentinel → `confirm_calendar_write` SSE → UI confirm card → Accept calls `POST /api/integrations/calendar/execute`. Mirrors the `write_memory` flow.
+- A scheduler job re-syncs all active sources every 6h.
+
+### Image OCR & Voice Input
+- **Image OCR** (`IMAGE_OCR_ENABLED`, default off): CPU PaddleOCR extracts text from uploaded/pasted images and scanned PDFs (pypdfium2 render fallback, ≤20 pages); text is embedded and injected as context — no vision model required.
+- **Voice input** (`VOICE_ENABLED`, default off): `POST /api/transcribe` accepts an audio upload, transcribes via `ASR_BACKEND` (stub by default), and injects the text as a chat message.
+
+### Notifications
+- Per-user preferences (`GET/PATCH /api/notifications/preferences`) gate email + web-push delivery per channel.
+- Web push via VAPID: `GET /api/notifications/vapid-public-key`, `POST /api/notifications/push/subscribe`.
 
 ### Daily/Weekly Digest
 An APScheduler cron job generates a per-user markdown summary of the past 7 days — new files uploaded, memory snapshots taken, insights generated, and goals updated. Delivered as a `UserInsight` (visible in the Insights panel) and optionally emailed via SMTP.
@@ -144,12 +176,10 @@ POST   /auth/me/webhook-token   — generate / regenerate token
 DELETE /auth/me/webhook-token   — revoke token
 ```
 
-Guards: identical `(tool, args)` signature repeated → abort (writes after 3, reads after 8); hard cap at 60 iterations.
-
 ### Frontend
-- **14 panels**: Sidebar, MessageList, ModelToolbar, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel, AutomationsPanel, GoalsPanel, SettingsModal
-- **13 hooks**: dedicated hook per domain (`useStreamChat`, `useMemory`, `useFiles`, `useGoals`, etc.)
-- **SSE streaming**: raw cursor → done → `<ReactMarkdown>`; per-bubble token count, cost, query type, source count, cyan `web` badge (`web_searched`), and blue `url` badge (`url_fetched`)
+- **Panels**: Sidebar, MessageList, ModelToolbar, FilesPanel, FileViewer, ToolLogPanel, UsagePanel, InsightsPanel, InvitePanel, MemoryPanel, SearchPanel, AutomationsPanel, GoalsPanel, **IntegrationsPanel**, SettingsModal
+- **17 hooks**: dedicated hook per domain (`useStreamChat`, `useMemory`, `useFiles`, `useGoals`, `useIntegrations`, `useVoice`, `useNotificationPrefs`, `useOnboarding`, etc.)
+- **SSE streaming**: raw cursor → done → `<ReactMarkdown>`; per-bubble token count, cost, query type, source count, grounding-confidence badge, cyan `web` badge (`web_searched`), and blue `url` badge (`url_fetched`)
 - **Unified search**: fans out to files, conversations, memory, and graph; results grouped by source
 - **Memory panel**: per-fact salience score bars, conflict resolution UI, interactive graph (ReactFlow circle layout with click-to-highlight)
 - **Goals + Automations**: CRUD panels for user goals (with conversation linking) and scheduled prompts (cron + daily/weekly/monthly aliases)
@@ -164,7 +194,7 @@ Guards: identical `(tool, args)` signature repeated → abort (writes after 3, r
 - **pgBouncer** in transaction mode: 200 max clients, 20 server connections; `AUTH_TYPE=plain` required for pg16
 - **ARQ task queue**: 4 retry attempts with 5s / 30s / 120s backoff; per-job failure counter in Prometheus
 - **Automated daily backup**: `pg_dump` → gzip → `storage/backups/`; configurable retention via `KEEP_DAYS`
-- **39 Alembic migrations**, applied automatically on container start
+- **47 Alembic migrations**, applied automatically on container start
 
 ### Auth & Admin
 - JWT (HS256) + API key fallback; API keys stored as SHA-256 hex — plaintext never persisted
@@ -187,7 +217,7 @@ Guards: identical `(tool, args)` signature repeated → abort (writes after 3, r
 | Task queue | ARQ |
 | Scheduler | APScheduler |
 | Runtime | Docker Compose |
-| AI | NVIDIA NIM API |
+| AI | NVIDIA NIM API (or local llama.cpp/GGUF via `LLM_BACKEND=homeserver`) |
 
 ---
 
@@ -201,6 +231,8 @@ Guards: identical `(tool, args)` signature repeated → abort (writes after 3, r
 | Embedding | `nvidia/nv-embedqa-e5-v5` (1024d) | `MODEL_EMBEDDING` |
 
 Model selection priority: `per-request override > conversation lock > keyword router`
+
+> Setting `LLM_BACKEND=homeserver` (live-toggleable via `/admin/env`) repoints inference to a local OpenAI-compatible endpoint, collapses to a single Mixtral model, sizes context to 32k, swaps the embedder to `bge-large-en-v1.5` (1024-d, no re-embed), and drops the NIM-key requirement.
 
 ---
 
@@ -254,9 +286,9 @@ POST /chat/stream             SSE streaming (json: message, conversation_id?, mo
 POST /chat                    non-streaming
 ```
 
-**SSE event types:** `token` · `tool_call` · `tool_result` · `status` · `ask_user` · `confirm_write_memory` · `proactive` · `preamble_discard` · `error` · `done`
+**SSE event types:** `token` · `tool_call` · `tool_result` · `status` · `ask_user` · `confirm_write_memory` · `confirm_calendar_write` · `preamble_discard` · `error` · `done`
 
-`done` payload: `model` · `cache_hit` · `fallback_used` · `web_searched` · `url_fetched` · `total_tokens` · `prompt_tokens` · `completion_tokens` · `cost_usd` · `query_type` · `src_count` · `provenance[]` · `conversation_id` · `last_session?`
+`done` payload: `model` · `cache_hit` · `fallback_used` · `web_searched` · `url_fetched` · `total_tokens` · `prompt_tokens` · `completion_tokens` · `cost_usd` · `query_type` · `src_count` · `intent` · `grounding` · `activity[]` · `provenance[]` · `conversation_id` · `last_session?`
 
 ### Conversations
 ```
@@ -288,6 +320,22 @@ GET  /graph/stats
 GET  /graph/sample?limit=&entity_type=
 DELETE /graph/entities/{name}
 POST /graph/prune
+```
+
+### Integrations & Notifications
+```
+GET    /api/integrations                      list connected sources
+POST   /api/integrations                      create a source
+GET/PATCH/DELETE /api/integrations/{id}       manage a source
+POST   /api/integrations/{id}/sync            trigger a sync
+GET    /api/integrations/oauth/start          begin OAuth (?connector_type=)
+GET    /api/integrations/oauth/callback       OAuth redirect target (no JWT)
+POST   /api/integrations/calendar/execute     run a confirmed calendar write
+GET/PATCH /api/notifications/preferences      per-channel notification prefs
+POST   /api/notifications/push/subscribe      register a web-push subscription
+GET    /api/notifications/vapid-public-key    VAPID public key
+POST   /api/transcribe                        voice → text (VOICE_ENABLED)
+POST   /auth/me/onboarding-complete           mark onboarding done
 ```
 
 ### Other
@@ -339,6 +387,13 @@ See `.env.example` for all variables. Commonly changed:
 | `MODEL_REASONING` | `meta/llama-3.3-70b-instruct` | Override reasoning model |
 | `MODEL_EMBEDDING` | `nvidia/nv-embedqa-e5-v5` | Changing this triggers a full re-embed |
 | `BACKUP_SCHEDULE` | `0 2 * * *` | Cron for automated DB backup |
+| `LLM_BACKEND` | `nim` | `nim` \| `homeserver` — flip to local llama.cpp stack |
+| `INTEGRATION_SECRET` | — | Fernet key (44-char base64url) for connector credentials; OAuth endpoints 503 without it |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Shared Google OAuth app (Drive + Calendar + Gmail) |
+| `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` | — | Notion OAuth app |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | — | GitHub OAuth app |
+| `IMAGE_OCR_ENABLED` | `false` | CPU PaddleOCR for images + scanned PDFs |
+| `VOICE_ENABLED` | `false` | Enable `POST /api/transcribe` voice input |
 
 ---
 
@@ -354,17 +409,20 @@ ai-api/
 │   │   ├── summarizer/       history compression, memory compaction
 │   │   ├── graph_memory.py   Neo4j entity extraction + query
 │   │   ├── router.py         keyword model classifier
-│   │   └── tools/            22 agent tool schemas + executor
+│   │   └── tools/            25 agent tools (file, web, Drive, Calendar, Gmail)
 │   ├── auth/                 JWT, bcrypt, API key, invites
-│   ├── models/               24 SQLAlchemy ORM models
-│   ├── alembic/versions/     39 migrations
-│   ├── services/             ARQ workers, file processor, scheduler
+│   ├── models/               25 SQLAlchemy ORM models
+│   ├── alembic/versions/     47 migrations
+│   ├── services/
+│   │   ├── integrations/     OAuth connectors (Drive, Calendar, Gmail, Notion, GitHub)
+│   │   ├── notification.py   email + web-push dispatch
+│   │   └── …                 ARQ workers, file processor, scheduler, transcribe
 │   ├── observability/        Prometheus counters/histograms
-│   └── tests/                47 tests (retrieval: mocked DB, no NIM)
+│   └── tests/                160+ tests (per-feature suites + retrieval eval; mocked DB, no NIM)
 ├── frontend/
 │   ├── src/
-│   │   ├── components/Chat/  14 panel components
-│   │   └── hooks/            13 domain hooks
+│   │   ├── components/Chat/  panel components (incl. IntegrationsPanel)
+│   │   └── hooks/            17 domain hooks
 │   └── public/canvas/        JARVIS ReactFlow workspace (static bundle)
 └── docker/
     ├── docker-compose.yml
