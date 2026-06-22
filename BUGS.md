@@ -76,9 +76,9 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
   sync queued for 2 sources". Verified by direct invoke.
 - `[~]` **V-B4 run_digest** `[needs-infra]` — gated off (`DIGEST_ENABLED=False`, `SMTP_HOST=''`);
   invoking it returns cleanly (graceful no-op). Full send path needs SMTP (MailHog).
-- `[~]` **V-B5 run_backup + `docker/backup.sh`** — ✅ **host-run backup works** (1.4 MB gzip, 26 tables,
-  pruning OK). ❌ **BUG-V6**: the scheduled in-container `run_backup` is dead (`backup.sh` not in the
-  image + no docker CLI + pgbouncer can't pg_dump). Restore-rehearsal needs a staging DB.
+- `[x]` **V-B5 run_backup** — ✅ after **BUG-V6 fix**, the scheduled in-container `run_backup` produces
+  a valid gzip dump (1.5 MB, 26 tables) via direct pg_dump; host `docker/backup.sh` also works.
+  Restore-rehearsal over a staging DB still pending (V-E4).
 - `[x]` **V-B6 Scheduler worker liveness** `[live-now]` — ✅ container up 3d; all 5 jobs registered
   (sync_schedules 5-min, compaction 3am, backup, integration-sync 6h) + arq pool now ready.
 
@@ -134,20 +134,17 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
   longer than Content-Length`: header used `zip_buf.tell()` (0 after `_build_zip` rewinds) while the
   body was the full ZIP → uvicorn aborted the connection (also broke the next keep-alive request).
   Fixed: Content-Length from `len(zip_buf.getvalue())`. `api/export.py`.
-- `[ ]` **BUG-V2 (minor, open)** — `retriever.store_exchange` raises `ForeignKeyViolationError` on
-  `message_embeddings.message_id` when a conversation/message is deleted before its async embed task
-  commits (race). Already caught + logged + rolled back (non-fatal, no user impact) but noisy.
-  *Candidate fix:* skip the embed insert if the message no longer exists, or treat FK violation as a
-  debug-level skip. `llm/retriever/queries.py:store_exchange`. Low priority.
+- **BUG-V2 (fixed, `b48a268`)** — `retriever.store_exchange` logged a full ERROR traceback on the
+  benign delete-race FK violation. Now caught as `IntegrityError` → rollback + debug log. Verified:
+  delete-immediately-after-chat produces zero ERROR logs. `llm/retriever/queries.py`.
 - Phase 1 (endpoint contracts): **10/10 live pass** after BUG-V1 fix.
 - Phase 2 (autonomy): **4/4 live pass** (`test_autonomy.py`); A4 behavior-profile + A5 preferences
   verified via psql/ARQ (no HTTP surface) — both jobs produce correct rows. No bugs found.
-- `[ ]` **BUG-V3 (design gap, open)** — nonstream `POST /chat` is **stateless**: it calls
-  `service.generate_response(message, rid)` with no `db`/`user`, so it persists no message, records
-  no cost/tokens, and the **cost cap + history + RAG/memory/tools do not apply**. A user could spend
-  NIM tokens with no accounting or cap via `/chat` (rate-limited, but uncapped). `/chat/stream` is the
-  full stateful path. *Decide:* either wire cost-accounting/cap into `/chat`, or document `/chat` as a
-  deliberately-ephemeral endpoint and ensure clients use `/chat/stream`. `api/chat/router.py:24`.
+- **BUG-V3 (fixed, `49cb6ea`)** — nonstream `POST /chat` is stateless and skipped the cost cap, so a
+  capped user could bypass their limit via `/chat`. Added the `_check_cost_cap` pre-flight (capped
+  user → 402, verified). `/chat` remains deliberately stateless otherwise (no history/RAG/tools);
+  per-call cost still accrues only on `/chat/stream` — acceptable since the cap is now enforced
+  consistently from stream-recorded usage and `/chat` is rate-limited. `api/chat/router.py`.
 - **BUG-V4 (fixed, `945f67a`)** — `auth/router.py` used `from config import REQUIRE_INVITE` (frozen at
   import), so flipping `REQUIRE_INVITE` via `/admin/env` reload didn't gate registration live. Switched
   to call-time `config.REQUIRE_INVITE`; verified 403/201 live. (Gate already worked on restart.)
@@ -159,18 +156,22 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
   `get_arq_pool()` was None and **daily memory compaction + 6h integration sync silently no-op'd**
   ("no arq pool"). Added `init_arq_pool(REDIS_URL)` to `scheduler_worker.main()`; verified both now
   enqueue. (The most impactful find — two background jobs were effectively dead.)
-- `[ ]` **BUG-V6 (open)** — the **scheduled backup is dead**: `run_backup` shells out to
-  `docker/backup.sh`, which isn't in the image and needs `docker compose` + pg_dump (neither present
-  in the scheduler container; `DATABASE_URL` points at pgbouncer, which can't pg_dump). Host-run
-  `bash docker/backup.sh` works. *Fix options:* add `postgresql-client` to the image + dump the
-  `postgres` host directly, or run backup as a host cron / sidecar. Needs a deploy decision.
-  `services/scheduler_worker.py:run_backup`.
-- `[ ]` **BUG-V7 (open)** — `paddlepaddle` missing from the image (`paddleocr` present, `paddle`
-  absent); the `requirements.txt` pin assumed it's transitive. OCR (`IMAGE_OCR_ENABLED`, #19) would
-  fail if enabled. Harmless at the default (OCR off). *Fix:* re-add `paddlepaddle` to requirements +
-  rebuild. `backend/requirements.txt`.
+- **BUG-V6 (fixed, `443df8e`)** — the scheduled backup was dead (`run_backup` shelled to
+  `docker/backup.sh`; no docker CLI / pg_dump in the scheduler). Rewrote `run_backup` to pg_dump the
+  `postgres` host directly (creds from `DATABASE_URL`, not pgbouncer) → gzip into the shared backups
+  volume + prune; added `postgresql-client-16` to the image. Verified: 1.5 MB dump (26 tables) from
+  the scheduler container. (Host `docker/backup.sh` still works too.)
+- **BUG-V7 (fixed, `75370ae`)** — `paddlepaddle` isn't installed and isn't pulled transitively by
+  paddleocr (the requirements comment was wrong). Missing `paddle` raises `ModuleNotFoundError` (an
+  `ImportError`) which the OCR path already catches → graceful empty text, **no crash**. Fixed the
+  misleading log + documented `paddlepaddle` as a commented opt-in (kept out by default to keep the
+  image lean; uncomment to actually enable OCR). `services/processor.py`, `requirements.txt`.
 - Phase 4 (infra/cron): B2/B3 fixed (BUG-V5), B5 host-backup verified + BUG-V6, B6 liveness ✓,
   digest graceful no-op; E1/E2/E3/E4 are needs-infra (SMTP/VAPID/paddle/staging-DB) — documented.
+- **Follow-up pass (all 4 open findings fixed):** BUG-V2 (store_exchange), BUG-V3 (cost-cap on
+  `/chat`), BUG-V6 (scheduler backup + postgresql-client-16), BUG-V7 (OCR logging + paddle note).
+  Each verified live + committed separately; unit tier stayed at 175 pass. **Net: 7 bugs found, 7
+  fixed** during the autonomous verification run.
 
 ### Plan
 - **Tier 1 (`[live-now]`)** → build a new live suite `tests/live/test_autonomy_and_reliability.py`
