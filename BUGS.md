@@ -88,22 +88,26 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
   memory. (path is `/search`, not `/api/search`.)
 - `[x]` **V-C4 Conversation ops** `[live-now]` — ✅ PATCH, export (md+json), `?q=` search, delete, file
   attach/detach all verified.
-- `[ ]` **V-C5 Admin mutations** `[live-now]` — `PUT /admin/env` + `POST /admin/env/reload` (live
-  config change), memory reset (soft/hard) + `/memory/versions` + `/memory/restore`, cost-limit set.
-  → Phase 3.
-- `[~]` **V-C6 Invite gate** `[live-now]` — ✅ issuance + listing + register-with-token verified.
-  Consumption-enforcement (`REQUIRE_INVITE=true` blocks token-less register) → Phase 3 env-flip test.
+- `[x]` **V-C5 Admin mutations** `[live-now/unsafe-isolated]` — ✅ `PUT /admin/env` + reload
+  (harmless probe key, host `.env` untouched), memory **hard** reset (memory + Neo4j graph cleared)
+  + `/memory/versions` + `/memory/restore` (snapshot → restored), cost-limit set/revert. All on a
+  throwaway user. Verified via run scripts.
+- `[x]` **V-C6 Invite gate** `[live-now]` — ✅ issuance/listing/register-with-token; and after
+  **BUG-V4 fix**, `REQUIRE_INVITE=true` (live reload) blocks token-less register (403) and a valid
+  token registers (201). Verified via env-flip script.
 
 ### D. Reliability invariants (matter for launch; all untested)
-- `[ ]` **V-D1 Fallback chain** `[live-now]` — chosen → reasoning → coder → llama; all-fail → 503
-  + `ALL_MODELS_FAILED` counter. Planned `test_fallback` never written. *Verify:* bad
-  `model_override` / pre-tripped breaker.
-- `[ ]` **V-D2 Circuit breaker** `[live-now]` — 5 failures → open, 90s cooldown, Redis `cb:open:*`
-  persisted, restored on startup.
-- `[ ]` **V-D3 Rate limiting** `[live-now]` — chat 15/60s/user; per-model llama15/coder10/reason5
-  → 429; fail-open on Redis down.
-- `[ ]` **V-D4 Cost cap** `[live-now]` — rolling `cost_window_days` → **402** with label
-  (`$x / $y 30d`); self-disable blocked. *Verify:* set a tiny limit via admin, exceed.
+- `[x]` **V-D1 Fallback chain** `[unsafe-isolated]` — ✅ tripped the **coder** breaker (Redis +
+  restart → `restore_circuit_state`), then a coder-routed chat fell back to reasoning with
+  `done.fallback_used=True` + `Falling back → ...` status. Breaker cleared + coder restored healthy
+  (no lasting impact). Note: a *bad* `model_override` is resolved to a valid model, not fallback.
+- `[x]` **V-D2 Circuit breaker** `[unsafe-isolated]` — ✅ in-container: 5 `record_failure` → `is_open`
+  True + Redis `cb:open:*` set; `record_success` → reset; `restore_circuit_state` reloads from Redis
+  on restart. Trip logic tested on a **fake** model (zero blast radius); restore tested on coder.
+- `[x]` **V-D3 Rate limiting** `[live-now]` — ✅ >15 chat posts/60s on a throwaway user → 429.
+  `test_reliability.py`.
+- `[x]` **V-D4 Cost cap** `[live-now]` — ✅ near-zero cap on a throwaway user → **402** with label
+  `Cost cap reached ($x / $y 30d)` on the **stream** path. `test_reliability.py`. (See BUG-V3.)
 - `[x]` **V-D5 Memory conflict** `[live-now]` — ✅ `scan` (200) + `resolve` (keep_a) verified; scan is
   LLM-judged so detection is best-effort (test resolves only if flagged).
 
@@ -131,6 +135,19 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 - Phase 1 (endpoint contracts): **10/10 live pass** after BUG-V1 fix.
 - Phase 2 (autonomy): **4/4 live pass** (`test_autonomy.py`); A4 behavior-profile + A5 preferences
   verified via psql/ARQ (no HTTP surface) — both jobs produce correct rows. No bugs found.
+- `[ ]` **BUG-V3 (design gap, open)** — nonstream `POST /chat` is **stateless**: it calls
+  `service.generate_response(message, rid)` with no `db`/`user`, so it persists no message, records
+  no cost/tokens, and the **cost cap + history + RAG/memory/tools do not apply**. A user could spend
+  NIM tokens with no accounting or cap via `/chat` (rate-limited, but uncapped). `/chat/stream` is the
+  full stateful path. *Decide:* either wire cost-accounting/cap into `/chat`, or document `/chat` as a
+  deliberately-ephemeral endpoint and ensure clients use `/chat/stream`. `api/chat/router.py:24`.
+- **BUG-V4 (fixed, `945f67a`)** — `auth/router.py` used `from config import REQUIRE_INVITE` (frozen at
+  import), so flipping `REQUIRE_INVITE` via `/admin/env` reload didn't gate registration live. Switched
+  to call-time `config.REQUIRE_INVITE`; verified 403/201 live. (Gate already worked on restart.)
+- Phase 3 (reliability + unsafe-isolated): **D3/D4 4/4 live pass** (`test_reliability.py`); D1/D2
+  (fallback + breaker), C5 (env PUT/reload + memory reset/restore), C6 (invite gate) verified via
+  isolated run scripts — fake model + throwaway users + immediate restore (coder breaker cleared,
+  caps reverted, env reverted, no lasting impact). Found BUG-V3 + fixed BUG-V4.
 
 ### Plan
 - **Tier 1 (`[live-now]`)** → build a new live suite `tests/live/test_autonomy_and_reliability.py`
