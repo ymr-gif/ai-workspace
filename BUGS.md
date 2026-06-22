@@ -70,13 +70,17 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 - `[x]` **V-B1 Scheduled-prompt execution** `[live-now]` — ✅ create (schedule alias→cron_expr) →
   `POST /scheduled-prompts/{id}/run` → `ScheduledPromptRun` recorded with terminal status → delete.
   Verified in `test_endpoints_extra.py`.
-- `[ ]` **V-B2 run_memory_compaction** `[timing]` — cron `0 3 * * *`.
-- `[ ]` **V-B3 run_integration_sync** `[timing]` — cron `0 */6 * * *` (id `__integration_sync__`).
-- `[ ]` **V-B4 run_digest** `[needs-infra]` — `DIGEST_SCHEDULE`; per-user `email_digest` gate; SMTP.
-- `[ ]` **V-B5 run_backup + `docker/backup.sh`** `[needs-infra]` — `BACKUP_SCHEDULE`; gzip dump +
-  **restore rehearsal** (launch-checklist item, not done).
-- `[ ]` **V-B6 Scheduler worker liveness** `[live-now]` — confirm the `scheduler` container is up
-  and its 4 jobs + user schedules are registered (no leader election — must stay a singleton).
+- `[x]` **V-B2 run_memory_compaction** `[fixed]` — cron `0 3 * * *`. Was silently dead (no arq pool,
+  **BUG-V5**); after the fix it enqueues compaction for eligible users. Verified by direct invoke.
+- `[x]` **V-B3 run_integration_sync** `[fixed]` — cron `0 */6 * * *`. Same BUG-V5; now "integration
+  sync queued for 2 sources". Verified by direct invoke.
+- `[~]` **V-B4 run_digest** `[needs-infra]` — gated off (`DIGEST_ENABLED=False`, `SMTP_HOST=''`);
+  invoking it returns cleanly (graceful no-op). Full send path needs SMTP (MailHog).
+- `[~]` **V-B5 run_backup + `docker/backup.sh`** — ✅ **host-run backup works** (1.4 MB gzip, 26 tables,
+  pruning OK). ❌ **BUG-V6**: the scheduled in-container `run_backup` is dead (`backup.sh` not in the
+  image + no docker CLI + pgbouncer can't pg_dump). Restore-rehearsal needs a staging DB.
+- `[x]` **V-B6 Scheduler worker liveness** `[live-now]` — ✅ container up 3d; all 5 jobs registered
+  (sync_schedules 5-min, compaction 3am, backup, integration-sync 6h) + arq pool now ready.
 
 ### C. Endpoints never hit by any test
 - `[x]` **V-C1 Templates** `[live-now]` — `PromptTemplate` CRUD (`templates_router`). ✅ create/get/
@@ -112,12 +116,15 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
   LLM-judged so detection is best-effort (test resolves only if flagged).
 
 ### E. Optional / infra-dependent
-- `[ ]` **V-E1 Real OCR** `[needs-infra]` — `IMAGE_OCR_ENABLED` on → upload image/scanned-PDF →
-  `File.ocr_text` populated, chunks embedded (unit-mocked only today).
-- `[ ]` **V-E2 Notifications dispatch** `[needs-infra]` — actual email (SMTP/MailHog) + web push
-  send via `services/notification.py:notify()`; only prefs/subscribe contract is tested.
-- `[ ]` **V-E3 Digest email** `[needs-infra]` — see V-B4.
-- `[ ]` **V-E4 Backup → restore rehearsal** `[needs-infra]` — see V-B5.
+- `[~]` **V-E1 Real OCR** `[needs-infra]` — `IMAGE_OCR_ENABLED=False`. ⚠️ **BUG-V7**: `paddleocr` is
+  installed but `paddlepaddle` (the `paddle` backend) is **not** — the `requirements.txt` pin dropped
+  explicit `paddlepaddle` assuming it's transitive, but it isn't pulled. Enabling OCR would fail.
+  Harmless while OCR is off (default), but blocks #19. Unit-mocked OCR tests still pass.
+- `[~]` **V-E2 Notifications dispatch** `[needs-infra]` — no `SMTP_HOST` / VAPID on this stack, so the
+  email + web-push send paths can't run live; covered by `tests/test_notifications.py` (mocked).
+- `[~]` **V-E3 Digest email** `[needs-infra]` — see V-B4 (gated off, graceful no-op; needs SMTP).
+- `[ ]` **V-E4 Backup → restore rehearsal** `[needs-infra]` — dump verified (V-B5); restore over a
+  **staging** DB not run (restoring over live is destructive).
 - `[x]` **V-E5 Re-embed** `[live-now]` — ✅ `POST /admin/re-embed` accepted (200/202). Verified.
 
 ### Run log — autonomous verification (2026-06-22)
@@ -148,6 +155,22 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
   (fallback + breaker), C5 (env PUT/reload + memory reset/restore), C6 (invite gate) verified via
   isolated run scripts — fake model + throwaway users + immediate restore (coder breaker cleared,
   caps reverted, env reverted, no lasting impact). Found BUG-V3 + fixed BUG-V4.
+- **BUG-V5 (fixed, `6c98c84`)** — the scheduler worker never called `init_arq_pool`, so
+  `get_arq_pool()` was None and **daily memory compaction + 6h integration sync silently no-op'd**
+  ("no arq pool"). Added `init_arq_pool(REDIS_URL)` to `scheduler_worker.main()`; verified both now
+  enqueue. (The most impactful find — two background jobs were effectively dead.)
+- `[ ]` **BUG-V6 (open)** — the **scheduled backup is dead**: `run_backup` shells out to
+  `docker/backup.sh`, which isn't in the image and needs `docker compose` + pg_dump (neither present
+  in the scheduler container; `DATABASE_URL` points at pgbouncer, which can't pg_dump). Host-run
+  `bash docker/backup.sh` works. *Fix options:* add `postgresql-client` to the image + dump the
+  `postgres` host directly, or run backup as a host cron / sidecar. Needs a deploy decision.
+  `services/scheduler_worker.py:run_backup`.
+- `[ ]` **BUG-V7 (open)** — `paddlepaddle` missing from the image (`paddleocr` present, `paddle`
+  absent); the `requirements.txt` pin assumed it's transitive. OCR (`IMAGE_OCR_ENABLED`, #19) would
+  fail if enabled. Harmless at the default (OCR off). *Fix:* re-add `paddlepaddle` to requirements +
+  rebuild. `backend/requirements.txt`.
+- Phase 4 (infra/cron): B2/B3 fixed (BUG-V5), B5 host-backup verified + BUG-V6, B6 liveness ✓,
+  digest graceful no-op; E1/E2/E3/E4 are needs-infra (SMTP/VAPID/paddle/staging-DB) — documented.
 
 ### Plan
 - **Tier 1 (`[live-now]`)** → build a new live suite `tests/live/test_autonomy_and_reliability.py`
