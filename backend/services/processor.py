@@ -166,7 +166,8 @@ def _extract_image(path: Path) -> str:
                     lines.append(text.strip())
         return "\n".join(lines)
     except ImportError:
-        logger.warning("[processor] paddleocr not installed")
+        logger.warning("[processor] OCR unavailable — paddlepaddle backend not installed "
+                       "(paddleocr needs it; `pip install paddlepaddle`). Returning empty text.")
         return ""
     except Exception as e:
         logger.warning("[processor] image ocr failed path=%s err=%s", path, e)
@@ -197,7 +198,8 @@ def extract_image_from_bytes(data: bytes) -> str:
                     lines.append(text.strip())
         return "\n".join(lines)
     except ImportError:
-        logger.warning("[processor] paddleocr not installed")
+        logger.warning("[processor] OCR unavailable — paddlepaddle backend not installed "
+                       "(paddleocr needs it; `pip install paddlepaddle`). Returning empty text.")
         return ""
     except Exception as e:
         logger.warning("[processor] image bytes ocr failed err=%s", e)

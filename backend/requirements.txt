@@ -79,8 +79,12 @@ nvidia-ml-py>=12.0.0
 # ── image OCR (Q2 #19) ───────────────────────────────────────────────────────
 # paddleocr ~= pins to 2.10.x — wider ranges (>=2.8.0) cause pip to backtrack
 # through every paddlex version (3.x → 2.x), adding minutes to the build.
-# paddlepaddle is a transitive dependency of paddleocr — do not list separately.
 paddleocr~=2.10.0
+# OCR also needs the paddlepaddle backend — it is NOT pulled transitively by
+# paddleocr 2.10. Left out by default to keep the image lean (it's large + slow
+# to build, and IMAGE_OCR_ENABLED defaults false). Uncomment to actually run OCR;
+# without it `_extract_image`/scanned-PDF OCR log a warning and return empty text.
+# paddlepaddle>=2.6.0
 Pillow>=10.0.0
 pypdfium2>=4.0.0
 
