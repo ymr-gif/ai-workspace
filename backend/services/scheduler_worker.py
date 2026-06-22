@@ -1,6 +1,7 @@
 """Standalone scheduler worker — runs APScheduler jobs for ScheduledPrompt rows."""
 import asyncio
 import logging
+import os
 import subprocess
 import uuid
 from datetime import datetime, timezone
@@ -13,7 +14,7 @@ from croniter import croniter
 from sqlalchemy import select
 
 import llm.client as llm_client
-from config import BACKUP_SCHEDULE, DIGEST_ENABLED, DIGEST_SCHEDULE, MODELS, REDIS_URL, REQUEST_TIMEOUT
+from config import BACKUP_SCHEDULE, DATABASE_URL, DIGEST_ENABLED, DIGEST_SCHEDULE, MODELS, REDIS_URL, REQUEST_TIMEOUT
 from core.arq_pool import init_arq_pool
 from core.db import AsyncSessionLocal, init_db
 from core.logger import setup_logging
@@ -250,18 +251,49 @@ async def run_digest() -> None:
 
 
 async def run_backup() -> None:
-    script = Path(__file__).resolve().parent.parent.parent / "docker" / "backup.sh"
-    logger.info("[backup] starting — %s", script)
+    """pg_dump the database directly to a gzip in the shared backups volume.
+
+    Runs inside the scheduler container (no docker CLI available), so it dumps the
+    Postgres host over the network with the in-image `pg_dump` (postgresql-client-16).
+    Credentials come from DATABASE_URL; the dump targets the **direct** Postgres host
+    (`POSTGRES_BACKUP_HOST`, default `postgres`) — pgBouncer's transaction pooling can't
+    serve pg_dump.
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(DATABASE_URL.replace("+asyncpg", ""))
+    user   = parsed.username or os.getenv("POSTGRES_USER", "scylla")
+    pw     = parsed.password or os.getenv("POSTGRES_PASSWORD", "scylla")
+    dbname = (parsed.path or "/nimrouter").lstrip("/")
+    host   = os.getenv("POSTGRES_BACKUP_HOST", "postgres")
+    port   = os.getenv("POSTGRES_BACKUP_PORT", "5432")
+    keep_days = int(os.getenv("BACKUP_KEEP_DAYS", "7"))
+
+    backup_dir = Path(__file__).resolve().parent.parent / "storage" / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    out = backup_dir / f"{dbname}_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}.sql.gz"
+
+    logger.info("[backup] starting — %s", out)
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "bash", str(script),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env = {**os.environ, "PGPASSWORD": pw}
+        proc = await asyncio.create_subprocess_shell(
+            f'pg_dump -h {host} -p {port} -U {user} {dbname} | gzip > "{out}"',
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode == 0:
-            logger.info("[backup] success — %s", stdout.decode().strip())
+        _, stderr = await proc.communicate()
+        if proc.returncode == 0 and out.exists() and out.stat().st_size > 0:
+            logger.info("[backup] success — %s (%d bytes)", out.name, out.stat().st_size)
+            # prune dumps older than keep_days
+            cutoff = datetime.now(timezone.utc).timestamp() - keep_days * 86400
+            pruned = 0
+            for f in backup_dir.glob(f"{dbname}_*.sql.gz"):
+                if f.stat().st_mtime < cutoff:
+                    f.unlink(missing_ok=True)
+                    pruned += 1
+            logger.info("[backup] pruned %d old backup(s)", pruned)
         else:
-            logger.warning("[backup] failed (rc=%d) — %s", proc.returncode, stderr.decode().strip())
+            out.unlink(missing_ok=True)
+            logger.warning("[backup] failed (rc=%s) — %s", proc.returncode, stderr.decode().strip()[:300])
     except Exception as e:
         logger.exception("[backup] exception — %s", e)
 
