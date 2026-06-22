@@ -127,6 +127,9 @@ breaker; Postgres `pg_stat_activity` conn count + disk.
 | Unit (existing + new config) | **175 passed**, 1 skipped |
 | Live E2E (`tests/live/`, core) | **42 passed, 3 skipped** (voice / push off; web search since enabled) |
 | Tool + integration sweep (`test_tools_integrations.py`) | **13 passed, 1 skipped** (Gmail not connected) |
+| Endpoint contracts (`test_endpoints_extra.py`) | **10 passed** (templates, export, search, conv ops, invite, conflicts, re-embed, scheduled-prompt run) |
+| Autonomy (`test_autonomy.py`) | **4 passed** (insights, compaction, graph extraction, auto-title) + A4/A5 DB-verified |
+| Reliability (`test_reliability.py`) | **2 passed** (rate-limit 429, cost-cap 402) + D1/D2 breaker+fallback run-script |
 | Smoke (`smoke.sh`) | **PASS** — 70B reply, `cost=$0.000242`, done contract complete |
 | Infra facts (direct) | pgvector ✓, `vector(1024)` ✓, alembic **047** = head ✓, redis PONG ✓, `entity_name_ft` ✓ |
 | Health | nim 791ms / embedding 944ms / redis / db all **ok** |
@@ -183,3 +186,35 @@ calendar list + create (confirm). Gmail covered but self-skips (not connected).
   returned). The 403 hardening remains as defense (tool returns `_forbidden()`, connector stays
   `active`, loop guard forces a tool-free final turn → actionable reply, never empty).
 - `test_gmail_when_connected` — **skipped**: Gmail connector not set up in this environment.
+
+---
+
+## Full backend coverage — autonomous run (2026-06-23)
+
+Extended live verification across the **non-tool** surface (autonomy, scheduler, admin
+mutations, reliability invariants). Full item-by-item ledger + bug log: root `BUGS.md`
+→ "Verification Coverage — Gaps" (V-A1…V-E5).
+
+New suites (all `RUN_LIVE_NIM=1`): `test_endpoints_extra.py` (10), `test_autonomy.py` (4),
+`test_reliability.py` (2). Plus run-script verifications for the unsafe/DB-only items
+(circuit breaker + fallback via an isolated coder-breaker trip, admin env PUT/reload,
+memory hard-reset + restore, behavior-profile + preference ARQ jobs via psql).
+
+**Bugs found and fixed during the run:**
+- **export Content-Length crash** (`api/export.py`) — `GET /export/full` aborted the
+  connection; fixed (length from payload bytes).
+- **REQUIRE_INVITE frozen import** (`auth/router.py`) — invite gate ignored `/admin/env`
+  live reload; switched to call-time `config.REQUIRE_INVITE`.
+- **scheduler ARQ pool never initialized** (`services/scheduler_worker.py`) — daily memory
+  compaction + 6h integration sync silently no-op'd; added `init_arq_pool`.
+
+**Open findings (logged in BUGS.md, need a decision — not auto-fixed):**
+- **BUG-V3** nonstream `POST /chat` is stateless → no cost accounting → cost cap doesn't apply.
+- **BUG-V6** scheduled in-container `run_backup` is dead (needs pg_dump/docker access); host
+  `bash docker/backup.sh` works (1.4 MB dump, 26 tables).
+- **BUG-V7** `paddlepaddle` missing from the image → OCR (#19) would fail if enabled.
+- **BUG-V2** `store_exchange` FK race (caught/logged) when a conversation is deleted before its
+  async embed.
+
+**Launch-relevant infra still to do (needs services this stack lacks):** SMTP for
+digest/email (V-B4/E2/E3), VAPID for push, restore-rehearsal on a staging DB (V-E4).
