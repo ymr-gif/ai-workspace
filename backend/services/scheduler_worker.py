@@ -13,7 +13,8 @@ from croniter import croniter
 from sqlalchemy import select
 
 import llm.client as llm_client
-from config import BACKUP_SCHEDULE, DIGEST_ENABLED, DIGEST_SCHEDULE, MODELS, REQUEST_TIMEOUT
+from config import BACKUP_SCHEDULE, DIGEST_ENABLED, DIGEST_SCHEDULE, MODELS, REDIS_URL, REQUEST_TIMEOUT
+from core.arq_pool import init_arq_pool
 from core.db import AsyncSessionLocal, init_db
 from core.logger import setup_logging
 from core.neo4j_client import close_neo4j, init_neo4j
@@ -269,6 +270,10 @@ async def main() -> None:
     logger.info("[scheduler] starting up")
     await init_db()
     await init_neo4j()
+    # Without this the ARQ pool is None, so run_memory_compaction and
+    # run_integration_sync silently skip ("no arq pool") and never enqueue work.
+    await init_arq_pool(REDIS_URL)
+    logger.info("[scheduler] arq pool ready")
 
     llm_client.client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
     logger.info("[scheduler] http client ready")
