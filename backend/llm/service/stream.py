@@ -287,6 +287,7 @@ async def generate_stream(
             yield {"type": "status", "stage": "budget", "detail": f"Context fitted to {ctx_window:,}-tok window (≤{max_out:,} out)", "level": "info"}
         model_done     = False
         tool_call_counts: dict[tuple[str, str], int] = {}
+        _force_no_tools = False  # set after a loop-guard trip → final turn answers in text
         _web_searched = False
         _url_fetched  = False
         _drive_read = False
@@ -301,7 +302,7 @@ async def generate_stream(
 
             _t_call = time.monotonic()
             try:
-                async for chunk in call_stream(current_model, tool_messages, request_id, model_params, tools):
+                async for chunk in call_stream(current_model, tool_messages, request_id, model_params, None if _force_no_tools else tools):
                     if isinstance(chunk, dict) and "__tool_calls__" in chunk:
                         tool_calls_done = chunk["__tool_calls__"]
                     elif isinstance(chunk, dict) and "__usage__" in chunk:
@@ -356,9 +357,19 @@ async def generate_stream(
                     _tool_def = get_tool(fn_name)
                     _call_limit = _tool_def.max_identical_calls if (_tool_def and _tool_def.max_identical_calls is not None) else _MAX_IDENTICAL_CALLS
                     if tool_call_counts[sig] > _call_limit:
-                        logger.warning("[service] tool_loop_guard: %s called %d times with identical args, aborting", fn_name, tool_call_counts[sig])
-                        yield {"type": "error", "message": f"Tool loop detected: {fn_name} called repeatedly with the same arguments"}
-                        return
+                        logger.warning("[service] tool_loop_guard: %s called %d times with identical args, forcing text answer", fn_name, tool_call_counts[sig])
+                        yield {"type": "status", "stage": "tool", "detail": f"Stopping repeated {fn_name} calls — answering with available info", "level": "error"}
+                        # Don't abort to an empty reply. Force one final tool-free turn so the
+                        # model responds in text, relaying any tool error already in context
+                        # (e.g. a 403 "reconnect the integration" message) to the user.
+                        tool_messages.append({"role": "system", "content": (
+                            f"You have called {fn_name} repeatedly with identical arguments and it is "
+                            f"not returning new information. Stop calling tools now and reply to the user "
+                            f"directly, using what you already have — including relaying verbatim any error "
+                            f"or instruction the tool returned (such as reconnecting an integration)."
+                        )})
+                        _force_no_tools = True
+                        break
 
                     yield {"type": "tool_call", "name": fn_name, "args": args}
                     args_summary = json.dumps(args, sort_keys=True)[:80]

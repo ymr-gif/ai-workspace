@@ -122,11 +122,11 @@
 
 - Tools (25 total): `list_files` · `read_file` (100k cap, capped to 12000 chars in context) · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `web_search` · `fetch_url` · `drive_list_files` · `drive_read_file` · `drive_search` · `calendar_list_events` · `calendar_get_event` · `calendar_search_events` · `calendar_create_event` · `calendar_update_event` · `calendar_delete_event` · `gmail_list_messages` · `gmail_get_message` · `gmail_search_messages`
 - Drive tool injection (3-way gating in `llm/service/stream.py:168-185`): explicit noun+action request → full `DRIVE_TOOL_SCHEMAS` (list+read+search); cache-active + read-intent (`_wants_drive_read`) → only `drive_read_file`; else → none. Both gates strip `'s` suffix for contraction support ("what's"). `_needs_drive_tools` requires noun AND action pair to prevent incidental "drive" from triggering listing
-- Calendar tool injection (same pattern as Drive, `calendar_active` flag): `_cal_full_gate` → `_needs_calendar_tools(message)` (noun+action pair). Nouns: `calendar`/`cal`/`event`/`meeting`/`appointment`/`agenda`/`availability`/`schedule`/`gcal`. Actions: `list`/`show`/`check`/`book`/`create`/`reschedule`/`cancel`/`delete` etc. Write tools (`create`/`update`/`delete`) return `CONFIRM_CALENDAR_PREFIX` sentinel — user must confirm via `POST /api/integrations/calendar/execute` before the Google API call. Execution endpoint dispatches to `llm/tools/calendar.py` impls.
+- Calendar tool injection (same pattern as Drive, `calendar_active` flag): `_cal_full_gate` → `_needs_calendar_tools(message)` (noun+action pair). Nouns: `calendar`/`cal`/`event`/`meeting`/`appointment`/`agenda`/`availability`/`schedule`/`gcal`. Actions: `list`/`show`/`check`/`book`/`create`/`reschedule`/`cancel`/`delete` etc. Write tools (`create`/`update`/`delete`) return `CONFIRM_CALENDAR_PREFIX` sentinel — user must confirm via `POST /api/integrations/calendar/execute` before the Google API call. Execution endpoint dispatches to `llm/tools/calendar.py` impls. **HTTP error handling (all 6 impls, DRY via `_mark_reauth`/`_forbidden`):** `401` → mark `needs_reauth` + `_expired()` message; `403` → `_forbidden()` message (Calendar API not enabled / `calendar.events` scope not granted → "enable the API and reconnect") but **stays `active`** so the tool keeps being offered and the model can relay the fix (do NOT flip to `needs_reauth` on 403 — that hides the tool). A connector error that makes the model retry trips the loop guard, which now forces a tool-free turn to surface the message instead of an empty reply.
 - Gmail tool injection (same noun+action gate as Drive/Calendar, `gmail_active` flag): `_gmail_full_gate` → `_needs_gmail_tools(message)` (noun+action pair). Nouns: `mail`/`email`/`inbox`/`message`/`messages`/`gmail`. Actions: `list`/`show`/`check`/`read`/`find`/`search`/`get`/`look`/`browse`/`open`/`view`/`fetch`/`what`. Read-only — no write-confirm sentinel. Impls in `llm/tools/gmail.py`; registration in `llm/tools/builtin/gmail_tools.py`.
 - `web_search` is conditionally injected (not always present): requires `WEB_SEARCH_ENABLED=true` **and** `_needs_web_search(message)` keyword match (`latest`, `current`, `today`, `news`, `price`, `weather`, `score`, `trending`, `live`, `breaking`, etc.); dispatches to SearXNG (`GET {SEARXNG_URL}/search?format=json`) or Tavily (`POST https://api.tavily.com/search`) based on `WEB_SEARCH_BACKEND`; returns at most 5 results as `[N] title\nurl\nsnippet`; `done` SSE includes `web_searched: bool` (true if any web_search call executed)
 - `fetch_url` is conditionally injected: message must contain `https?://`; fetches full page text via httpx + BeautifulSoup; ephemeral — no File record created; SSRF-hardened (`llm/tools/fetch_url.py`): scheme allowlist, DNS resolved once and connection pinned to that IP (TOCTOU-safe, `sni_hostname` extension preserves SSL cert verification), port allowlist `{80, 443}`, 1 MB streaming byte cap + Content-Length pre-check, Content-Type allowlist; each redirect hop re-validated; `done` SSE includes `url_fetched: bool`
-- Guards: same tool **with identical args** repeated → abort (signature = `(name, json.dumps(args, sort_keys))`). `_MAX_IDENTICAL_CALLS=3` for all tools. Bounded overall by `MAX_TOOL_ITERATIONS=60` · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
+- Guards: same tool **with identical args** repeated past the limit (signature = `(name, json.dumps(args, sort_keys))`; `_MAX_IDENTICAL_CALLS=3`, per-tool override via `Tool.max_identical_calls`) does **not** abort to an empty reply. Instead it appends a "stop calling tools, answer in text" system message, sets `_force_no_tools=True`, and `break`s to one final tool-free model turn — so the model relays any tool error already in context (e.g. a connector 403 → "enable the API and reconnect") to the user. Bounded overall by `MAX_TOOL_ITERATIONS=60` · tool result stored in context capped at 12000 chars (prevents 70B refusal on large repeated reads)
 - Tool activity stages: `stage:"tool"` event emitted before each `execute_tool()` call (`"Called: fn(args[:80])"`), `stage:"tool_result"` after call returns (`"fn: result[:100]"`). Accumulated into activity trace and persisted.
 - `ask_user` / `write_memory` / `calendar_create_event` / `calendar_update_event` / `calendar_delete_event` emit SSE + done → pauses loop; amber/green card in UI; `POST /api/memory/write` on user confirm; `POST /api/integrations/calendar/execute` for calendar writes; `ask_user` question persisted as assistant message content so model sees it on next turn
 - `append_to_file` for explicit write requests only; `search_in_file` preferred over `read_file` for sections
@@ -231,3 +231,62 @@ Injection order: system → GRAPH CONTEXT → GRAPH FACTS → USER STATE → ACT
 - **Recorded facts:** write terse, precise — next agent has no backend context.
 
 > Full protocol: `../HANDOFF_PROTOCOL.md`
+
+---
+
+## Verification & Test Tiers (since 2026-06-22)
+
+`pytest.ini` registers four markers; gating is automatic in `tests/conftest.py` — an opt-in
+tier with its prerequisite unmet **skips**, so a plain `pytest` stays green on a laptop.
+
+| Tier | Marker | Needs | Run |
+|------|--------|-------|-----|
+| Unit | `unit` (default) | nothing | `pytest -m "not infra and not live_nim and not optional"` |
+| Infra | `infra` | Postgres+pgvector / Redis / Neo4j | `RUN_INFRA=1 pytest -m infra` |
+| Live E2E | `live_nim` | running stack + live model | `RUN_LIVE_NIM=1 VERIFY_BASE_URL=… pytest -m live_nim` |
+| Optional | `optional` | per-feature creds/flags | `RUN_LIVE_NIM=1 VERIFY_BASE_URL=… pytest -m optional` |
+
+- `tests/conftest.py` — shared env defaults + HTTP fixtures (`client`, `user_token`/`admin_token`,
+  `user_headers`/`admin_headers`, `sse_post`). `VERIFY_BASE_URL` default `http://localhost:8000`;
+  seeded creds via `VERIFY_USER`/`VERIFY_USER_PW` (default `user`/`user-secret`).
+- `tests/live/` — **HTTP-driven** against a real running stack (the trustworthy E2E path; exercises
+  real NIM/DB/Redis/Neo4j). Covers chat SSE + `done` contract, grounding persistence, non-stream +
+  model override + cache-bypass, **RAG tool loop**, files CRUD/dedup, endpoint sweep, admin + secret
+  masking, auth lifecycle, health/metrics/401. 42 passed / 3 skipped on 2026-06-22.
+- `tests/integration/` — `infra` tier: migration integrity (single head, ≥47 revs, applied==head),
+  pgvector + `vector(1024)` invariant + core tables, Redis set/get/TTL/`SET NX`, Neo4j roundtrip +
+  `entity_name_ft`. Auto-skips services unreachable from host.
+- `scripts/smoke.sh <base_url>` — post-deploy smoke (health→login→upload→one live `/chat/stream`→
+  metrics→cleanup), exits non-zero on failure.
+- Full runbook + launch checklist: `tests/VERIFICATION_LAUNCH.md`. Non-stream `/chat` returns
+  `{success, data:{model,response}, meta}`; `cache_hit` is **stream-only** (`done` event) and `false`
+  on the stream path by design.
+
+### `tests/live/test_tools_integrations.py` — full tool + integration sweep (2026-06-22)
+
+Drives **every agent-tool family** through a real model and the set-up OAuth connectors.
+**13 passed / 1 skipped** on 2026-06-22 (gmail skip = not connected). Calendar passed once the
+Calendar API + `calendar.events` scope were enabled in Google Cloud and the connector reconnected.
+
+- **Assertion mechanism** (three ways): the `tool_call` SSE event names the tool; `GET
+  /tool-calls?conversation_id=` shows the `ToolCallLog` row persisted; flag-bearing tools set
+  their `done` flag (`web_searched` / `url_fetched`). Helpers: `_assert_completed` (fired +
+  `done` + persisted) for clean-finish tools; `_assert_fired` (tool_call only — no `done`
+  required) for paths that legitimately end in an `error` event (loop-guard abort, write tools);
+  `_skip_if_connector_error` turns a live connector API error into a skip-with-reason.
+- **Covered, firm:** `web_search` (+`web_searched`, +negative gating test), `fetch_url`
+  (+`url_fetched`), `list_files`, file-search family (`search_across_files`/`search_in_file`/
+  `read_file` — model's choice with one file), `query_graph`, `create_file`, `ask_user`
+  (+`ask_user` SSE pause), `write_memory` (+`confirm_write_memory` sentinel; never executed),
+  Drive `drive_list_files`/`drive_search` (admin), calendar `calendar_create_event`
+  (+`confirm_calendar_write` sentinel; never executed).
+- **Gating to fire a tool deterministically:** strongly-steering prompts ("Use the X tool to…").
+  Web search also needs `WEB_SEARCH_ENABLED=true` + searxng up (profile `web-search`). Drive/
+  calendar tests use **admin** headers (connectors are connected under admin, not user) and
+  self-skip if the connector isn't `active`.
+- **Calendar (resolved 2026-06-22):** previously 403'd because the Calendar API/`calendar.events`
+  scope weren't enabled in Google Cloud. After enabling both + reconnecting the connector, calendar
+  list/create verify live (real events returned). The 403 hardening stays as defense: tool returns
+  `_forbidden()` + keeps the connector `active`, and the loop guard forces a tool-free final turn —
+  so any future connector error surfaces as an actionable reply, never an empty one (the test still
+  asserts that graceful path before skipping if a 403 ever recurs).

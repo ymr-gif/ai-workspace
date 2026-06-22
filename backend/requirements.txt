@@ -77,8 +77,10 @@ psutil>=6.0.0
 nvidia-ml-py>=12.0.0
 
 # ── image OCR (Q2 #19) ───────────────────────────────────────────────────────
-paddlepaddle>=2.6.0
-paddleocr>=2.8.0
+# paddleocr ~= pins to 2.10.x — wider ranges (>=2.8.0) cause pip to backtrack
+# through every paddlex version (3.x → 2.x), adding minutes to the build.
+# paddlepaddle is a transitive dependency of paddleocr — do not list separately.
+paddleocr~=2.10.0
 Pillow>=10.0.0
 pypdfium2>=4.0.0
 

@@ -21,6 +21,19 @@ def _expired() -> str:
     return "Google Calendar access expired. Please reconnect via the Integrations panel."
 
 
+def _forbidden() -> str:
+    return (
+        "Google Calendar denied access (403). The Calendar API may not be enabled for this "
+        "project, or the calendar.events scope wasn't granted. Enable the Google Calendar API "
+        "in Google Cloud, then reconnect Google Calendar in the Integrations panel."
+    )
+
+
+async def _mark_reauth(db: AsyncSession, src: ExternalSource) -> None:
+    src.status = "needs_reauth"
+    await db.commit()
+
+
 async def _load_calendar_creds(db: AsyncSession, user_id: int) -> tuple[ExternalSource | None, dict | None]:
     return await load_google_credentials(db, user_id, "google_calendar", GoogleCalendarConnector)
 
@@ -57,9 +70,14 @@ async def _calendar_list_events(
 
     resp = await client.get(f"{CALENDAR_API}/calendars/primary/events", headers=headers, params=params)
     if resp.status_code == 401:
-        src.status = "needs_reauth"
-        await db.commit()
+        await _mark_reauth(db, src)
         return _expired()
+    if resp.status_code == 403:
+        # 403 = authenticated but not authorized (Calendar API disabled or scope
+        # missing). Keep the connector active so the tool stays offered and the
+        # model can relay the actionable message — do NOT flip to needs_reauth
+        # (that would hide the tool and leave the user with "no calendar access").
+        return _forbidden()
     resp.raise_for_status()
 
     data = resp.json()
@@ -96,9 +114,14 @@ async def _calendar_get_event(
 
     resp = await client.get(f"{CALENDAR_API}/calendars/primary/events/{event_id}", headers=headers)
     if resp.status_code == 401:
-        src.status = "needs_reauth"
-        await db.commit()
+        await _mark_reauth(db, src)
         return _expired()
+    if resp.status_code == 403:
+        # 403 = authenticated but not authorized (Calendar API disabled or scope
+        # missing). Keep the connector active so the tool stays offered and the
+        # model can relay the actionable message — do NOT flip to needs_reauth
+        # (that would hide the tool and leave the user with "no calendar access").
+        return _forbidden()
     if resp.status_code == 404:
         return f"Event not found: {event_id}"
     resp.raise_for_status()
@@ -138,9 +161,14 @@ async def _calendar_search_events(
 
     resp = await client.get(f"{CALENDAR_API}/calendars/primary/events", headers=headers, params=params)
     if resp.status_code == 401:
-        src.status = "needs_reauth"
-        await db.commit()
+        await _mark_reauth(db, src)
         return _expired()
+    if resp.status_code == 403:
+        # 403 = authenticated but not authorized (Calendar API disabled or scope
+        # missing). Keep the connector active so the tool stays offered and the
+        # model can relay the actionable message — do NOT flip to needs_reauth
+        # (that would hide the tool and leave the user with "no calendar access").
+        return _forbidden()
     resp.raise_for_status()
 
     data = resp.json()
@@ -194,9 +222,14 @@ async def _calendar_create_event(
 
     resp = await client.post(f"{CALENDAR_API}/calendars/primary/events", headers=headers, json=body)
     if resp.status_code == 401:
-        src.status = "needs_reauth"
-        await db.commit()
+        await _mark_reauth(db, src)
         return _expired()
+    if resp.status_code == 403:
+        # 403 = authenticated but not authorized (Calendar API disabled or scope
+        # missing). Keep the connector active so the tool stays offered and the
+        # model can relay the actionable message — do NOT flip to needs_reauth
+        # (that would hide the tool and leave the user with "no calendar access").
+        return _forbidden()
     resp.raise_for_status()
 
     ev = resp.json()
@@ -241,9 +274,14 @@ async def _calendar_update_event(
 
     resp = await client.patch(f"{CALENDAR_API}/calendars/primary/events/{event_id}", headers=headers, json=body)
     if resp.status_code == 401:
-        src.status = "needs_reauth"
-        await db.commit()
+        await _mark_reauth(db, src)
         return _expired()
+    if resp.status_code == 403:
+        # 403 = authenticated but not authorized (Calendar API disabled or scope
+        # missing). Keep the connector active so the tool stays offered and the
+        # model can relay the actionable message — do NOT flip to needs_reauth
+        # (that would hide the tool and leave the user with "no calendar access").
+        return _forbidden()
     if resp.status_code == 404:
         return f"Event not found: {event_id}"
     resp.raise_for_status()
@@ -271,9 +309,14 @@ async def _calendar_delete_event(
 
     resp = await client.delete(f"{CALENDAR_API}/calendars/primary/events/{event_id}", headers=headers)
     if resp.status_code == 401:
-        src.status = "needs_reauth"
-        await db.commit()
+        await _mark_reauth(db, src)
         return _expired()
+    if resp.status_code == 403:
+        # 403 = authenticated but not authorized (Calendar API disabled or scope
+        # missing). Keep the connector active so the tool stays offered and the
+        # model can relay the actionable message — do NOT flip to needs_reauth
+        # (that would hide the tool and leave the user with "no calendar access").
+        return _forbidden()
     if resp.status_code == 404:
         return f"Event not found: {event_id}"
     resp.raise_for_status()
