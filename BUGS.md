@@ -30,6 +30,99 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 
 ---
 
+## Verification Coverage — Gaps (audited 2026-06-22)
+
+> **Not bugs — unverified surface.** Tools + integrations are fully verified live (sweep
+> **13✓ / 1 skip**, only Gmail unconnected; runbook: `backend/tests/VERIFICATION_LAUNCH.md`).
+> Everything below is the **non-tool** backend surface that the live/integration/unit suites do
+> **not** yet cover end-to-end. Audit = all 22 routers + 10 ARQ jobs + 5 scheduler crons mapped
+> against `tests/live/`, `tests/integration/`, `tests/`.
+>
+> IDs `V-<group><n>`; check off as each is verified. Per-item tag:
+> `[live-now]` testable against the running stack today · `[needs-infra]` needs SMTP/OCR/etc. ·
+> `[timing]` fires on a cron/threshold so needs manual trigger or a wait.
+>
+> Already verified live (for contrast): chat SSE + `done` contract, routing/override/cache-bypass,
+> RAG loop, files CRUD/dedup, auth lifecycle, health/metrics, web search, fetch_url, all file/graph
+> tools, Drive, Calendar; goals **full CRUD**; notification-prefs PATCH; admin GET + secret masking;
+> infra tier (migrations→047, pgvector, Redis, Neo4j).
+
+### A. Autonomous / background pipeline — ARQ jobs (message/threshold-triggered)
+> Highest-value gap. Nothing here is exercised E2E — the HTTP sweep only reads the result endpoints.
+
+- `[ ]` **V-A1 Insight generation** `[live-now]` — `generate_insight_job` + `llm/agency.py`
+  (`generate_user_insight`). Only `GET /insights` (list) is tested; `test_webhook_roundtrip` stops
+  at the 202 and never asserts a `UserInsight` row appears. *Verify:* trigger via webhook / message
+  threshold → assert a row lands + shows in `/insights` + injects as `[RECENT INSIGHTS]`.
+- `[ ]` **V-A2 Memory compaction** `[live-now]` — `compact_memory_job` / `llm/summarizer/compact.py`
+  → `UserMemoryVersion` snapshot via real 70B. Planned `test_memory_autonomy` was never written.
+  *Verify:* enqueue compaction → assert a new `user_memory_versions` row + `/memory/versions`.
+- `[ ]` **V-A3 Graph extraction after chat** `[live-now]` — `extract_and_store` writing Neo4j
+  entities from a conversation. `query_graph` *reads* fine; the *write* path is unproven live.
+  *Verify:* drive a fact-rich turn → assert `/graph/stats` entity count grew.
+- `[ ]` **V-A4 Behavior profile** `[live-now]` — `update_behavior_profile_job` populating
+  `UserBehaviorProfile.profile` (query_types/topics/tools/models). No endpoint asserts it fills.
+- `[ ]` **V-A5 Preference extraction** `[timing]` — `extract_preferences_job` (every 50 asst msgs)
+  writing `[PREFERENCES]` into `UserMemory.content`. *Verify:* enqueue the job directly.
+- `[ ]` **V-A6 Auto-title** `[live-now]` — `api/chat/background.py:_auto_title` (atomic
+  UPDATE…WHERE title=:default) after the 2nd message. `test_conversation_continuity` doesn't check
+  the title changed. *Verify:* 2 turns → assert conversation title != default.
+
+### B. Scheduler / cron (worker is up, but firing/registration unproven)
+- `[ ]` **V-B1 Scheduled-prompt execution** `[live-now]` — create a schedule → `POST
+  /scheduled-prompts/{id}/run` → `execute_scheduled_prompt` runs it → `ScheduledPromptRun` row +
+  `next_run_at` advances. Only `GET /scheduled-prompts` is tested.
+- `[ ]` **V-B2 run_memory_compaction** `[timing]` — cron `0 3 * * *`.
+- `[ ]` **V-B3 run_integration_sync** `[timing]` — cron `0 */6 * * *` (id `__integration_sync__`).
+- `[ ]` **V-B4 run_digest** `[needs-infra]` — `DIGEST_SCHEDULE`; per-user `email_digest` gate; SMTP.
+- `[ ]` **V-B5 run_backup + `docker/backup.sh`** `[needs-infra]` — `BACKUP_SCHEDULE`; gzip dump +
+  **restore rehearsal** (launch-checklist item, not done).
+- `[ ]` **V-B6 Scheduler worker liveness** `[live-now]` — confirm the `scheduler` container is up
+  and its 4 jobs + user schedules are registered (no leader election — must stay a singleton).
+
+### C. Endpoints never hit by any test
+- `[ ]` **V-C1 Templates** `[live-now]` — `PromptTemplate` CRUD (`templates_router`). Zero coverage.
+- `[ ]` **V-C2 Export** `[live-now]` — `GET /export/full` (in-memory ZIP of convos/files/memory/graph).
+- `[ ]` **V-C3 Unified search** `[live-now]` — `GET /api/search` fan-out (files/conversations/
+  memory/graph via `asyncio.gather`); `?debug=true` shape.
+- `[ ]` **V-C4 Conversation ops** `[live-now]` — only `list` tested. Untested: export, PATCH
+  (title/archive), delete, `?q=` search, file attach/detach.
+- `[ ]` **V-C5 Admin mutations** `[live-now]` — `PUT /admin/env` + `POST /admin/env/reload` (live
+  config change), memory reset (soft/hard) + `/memory/versions` + `/memory/restore`, cost-limit set.
+- `[ ]` **V-C6 Invite gate** `[live-now]` — `REQUIRE_INVITE=true` blocks public register; valid
+  invite consumes once (`invite_router`).
+
+### D. Reliability invariants (matter for launch; all untested)
+- `[ ]` **V-D1 Fallback chain** `[live-now]` — chosen → reasoning → coder → llama; all-fail → 503
+  + `ALL_MODELS_FAILED` counter. Planned `test_fallback` never written. *Verify:* bad
+  `model_override` / pre-tripped breaker.
+- `[ ]` **V-D2 Circuit breaker** `[live-now]` — 5 failures → open, 90s cooldown, Redis `cb:open:*`
+  persisted, restored on startup.
+- `[ ]` **V-D3 Rate limiting** `[live-now]` — chat 15/60s/user; per-model llama15/coder10/reason5
+  → 429; fail-open on Redis down.
+- `[ ]` **V-D4 Cost cap** `[live-now]` — rolling `cost_window_days` → **402** with label
+  (`$x / $y 30d`); self-disable blocked. *Verify:* set a tiny limit via admin, exceed.
+- `[ ]` **V-D5 Memory conflict** `[live-now]` — `MemoryConflict` detect (`scan_conflicts`, +7d
+  expiry) + resolve (`POST /memory/conflicts/{id}/resolve`); expired → auto `keep_a`.
+
+### E. Optional / infra-dependent
+- `[ ]` **V-E1 Real OCR** `[needs-infra]` — `IMAGE_OCR_ENABLED` on → upload image/scanned-PDF →
+  `File.ocr_text` populated, chunks embedded (unit-mocked only today).
+- `[ ]` **V-E2 Notifications dispatch** `[needs-infra]` — actual email (SMTP/MailHog) + web push
+  send via `services/notification.py:notify()`; only prefs/subscribe contract is tested.
+- `[ ]` **V-E3 Digest email** `[needs-infra]` — see V-B4.
+- `[ ]` **V-E4 Backup → restore rehearsal** `[needs-infra]` — see V-B5.
+- `[ ]` **V-E5 Re-embed** `[live-now]` — `re_embed_batch_job` / `POST /admin/re-embed` /
+  `MODEL_EMBEDDING` change trigger; batches of 100.
+
+### Plan
+- **Tier 1 (`[live-now]`)** → build a new live suite `tests/live/test_autonomy_and_reliability.py`
+  covering A1–A4, A6, B1, B6, C1–C6, D1–D5, E5. Closes most of A–D against the running stack.
+- **Tier 2 (`[needs-infra]` / `[timing]`)** → A5, B2–B5, E1–E4: document as infra/cron-gated in the
+  runbook; verify opportunistically (MailHog for mail, flag flip for OCR, manual job enqueue for cron).
+
+---
+
 ## Decisions — Home-Server Port & #19 Vision (resolved 2026-06-17)
 
 > Design decisions, not bugs. Settled with the user; drive the Mixtral port + #19.

@@ -122,11 +122,15 @@ async def export_full(
     current_user: User = Depends(get_current_user),
 ):
     zip_buf = await _build_zip(current_user.id, db)
+    # Derive Content-Length from the actual payload — `_build_zip` rewinds the
+    # buffer (seek(0)), so `zip_buf.tell()` would be 0 and the streamed body would
+    # exceed the declared length, which makes uvicorn abort the connection.
+    data = zip_buf.getvalue()
     return StreamingResponse(
-        iter([zip_buf.getvalue()]),
+        iter([data]),
         media_type="application/zip",
         headers={
             "Content-Disposition": "attachment; filename=export.zip",
-            "Content-Length": str(zip_buf.tell()),
+            "Content-Length": str(len(data)),
         },
     )
