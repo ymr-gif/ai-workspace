@@ -14,6 +14,7 @@ from observability.prom_metrics import (
 )
 from rate_limiter import limit
 
+from .helpers import _check_cost_cap
 from .schemas import ChatRequest
 
 router = APIRouter(tags=["chat"])
@@ -25,9 +26,14 @@ async def chat(
     req:          ChatRequest,
     request:      Request,
     current_user: User = Depends(get_current_user),
+    db:           AsyncSession = Depends(get_db),
     _:            None = limit(15, 60, "chat"),
 ):
     rid          = request.state.request_id
+    # Cost cap applies here too — otherwise a capped user could bypass the limit
+    # via the stateless /chat path. Checked BEFORE the try below so the 402
+    # HTTPException isn't swallowed by the generic error handler.
+    await _check_cost_cap(current_user, db)
     t_start      = metrics.record_request_start()
     status       = "success"
     error_type   = None
