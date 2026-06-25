@@ -42,7 +42,7 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
 │    file I/O · fuzzy patch · graph query · memory write     │
 │    web search · fetch URL · ask_user · identical-sig abort │
 │                                                             │
-│  OAuth Connectors (on-demand, keyword-gated tools)         │
+│  OAuth Connectors (on-demand, capability-gated tools)      │
 │    Google Drive · Calendar · Gmail · Notion · GitHub       │
 │                                                             │
 │  Background (ARQ workers + APScheduler)                     │
@@ -110,17 +110,19 @@ Activated when file IDs are attached to a request; forces the 70B model.
 | `ask_user` | pause the loop and ask the user a question; resumes on reply |
 | `query_graph` | Cypher query against the user's Neo4j graph |
 | `write_memory` | propose a memory write; requires user confirmation |
-| `web_search` | search the web for live information; conditionally injected when `WEB_SEARCH_ENABLED=true` and query matches keyword heuristic; backends: SearXNG (self-hosted) or Tavily |
+| `web_search` | search the web for live information; offered whenever `WEB_SEARCH_ENABLED=true` (capability gate only — the model decides when to call it); backends: SearXNG (self-hosted) or Tavily |
 | `fetch_url` | fetch and read the full text of any web page mid-conversation; injected when the user's message contains a URL; ephemeral — content is returned as tool-result context, nothing stored; SSRF-hardened: scheme allowlist, DNS-pinned connection (TOCTOU-safe), port allowlist `{80, 443}`, 1 MB byte cap, Content-Type allowlist |
-| `drive_list_files` / `drive_read_file` / `drive_search` | read-only Google Drive access; keyword-gated (noun+action), no auto-context injection |
-| `calendar_list_events` / `calendar_get_event` / `calendar_search_events` | read Google Calendar; keyword-gated |
+| `drive_list_files` / `drive_read_file` / `drive_search` | read-only Google Drive access; offered whenever the Drive connector is active, no auto-context injection |
+| `calendar_list_events` / `calendar_get_event` / `calendar_search_events` | read Google Calendar; offered whenever the Calendar connector is active |
 | `calendar_create_event` / `calendar_update_event` / `calendar_delete_event` | calendar **writes** — never hit Google from the loop; return a confirm sentinel → `confirm_calendar_write` SSE → UI confirm card → `POST /api/integrations/calendar/execute` |
-| `gmail_list_messages` / `gmail_get_message` / `gmail_search_messages` | read-only Gmail access; keyword-gated |
+| `gmail_list_messages` / `gmail_get_message` / `gmail_search_messages` | read-only Gmail access; offered whenever the Gmail connector is active |
 
-**25 tools total** — 9 file/graph, `ask_user`, `write_memory`, `web_search`, `fetch_url`, 3 Drive, 6 Calendar, 3 Gmail. Connector tools are injected only when the message matches a noun+action keyword gate (e.g. "check my calendar", "search my drive").
+**25 tools total** — 9 file/graph, `ask_user`, `write_memory`, `web_search`, `fetch_url`, 3 Drive, 6 Calendar, 3 Gmail. Connector tools are injected on capability alone (connector connected / env enabled); the model decides when to call them via native function calling. `fetch_url` is the exception — injected only when the user's message contains a URL.
+
+Capability-available schemas are passed name-sorted for a byte-stable prompt prefix (so the KV prefix cache makes repeat cost near-zero). A `select_tool_schemas()` prefilter switch (`registry.py`) decides the final subset; below `TOOL_PREFILTER_THRESHOLD` (32) it is passthrough — all tools. Past the threshold it will fall back to an embedding prefilter (embed the query, cosine-match against cached tool-description vectors, pass top-k); that branch is scaffolded but not yet built, so it fails safe to passthrough today.
 
 ### OAuth Connectors
-On-demand, keyword-gated agent tools — no auto-context injection, no sync-to-File. Credentials are Fernet-encrypted at rest (`INTEGRATION_SECRET`); refresh-on-expiry; a 401 marks the source `needs_reauth`.
+On-demand, capability-gated agent tools — offered whenever the connector is active; the model decides when to call them via native function calling. No auto-context injection, no sync-to-File. Credentials are Fernet-encrypted at rest (`INTEGRATION_SECRET`); refresh-on-expiry; a 401 marks the source `needs_reauth`.
 
 | Connector | Mode | Scope | Tools |
 |---|---|---|---|
