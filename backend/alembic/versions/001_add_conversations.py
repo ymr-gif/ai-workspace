@@ -1,7 +1,7 @@
 """add conversations and messages tables
 
 Revision ID: 001
-Revises:
+Revises: 000
 Create Date: 2026-05-24
 """
 from alembic import op
@@ -11,7 +11,7 @@ from sqlalchemy import inspect
 
 
 revision = "001"
-down_revision = None
+down_revision = "000"
 branch_labels = None
 depends_on = None
 

@@ -18,7 +18,7 @@ def upgrade():
     op.create_table(
         "external_sources",
         sa.Column("id",            UUID(as_uuid=True), primary_key=True, default=sa.text("gen_random_uuid()")),
-        sa.Column("user_id",       sa.Integer,  sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True),
+        sa.Column("user_id",       sa.Integer,  sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("connector_type", sa.String(32),  nullable=False),
         sa.Column("display_name",  sa.String(200),  nullable=True),
         sa.Column("resource_id",   sa.String(512),  nullable=True),
@@ -29,9 +29,9 @@ def upgrade():
         sa.Column("created_at",    sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
     )
     op.create_index("ix_external_sources_user_id", "external_sources", ["user_id"])
-    op.create_unique_index(
+    op.create_index(
         "ix_external_sources_user_connector_resource",
-        "external_sources", ["user_id", "connector_type", "resource_id"]
+        "external_sources", ["user_id", "connector_type", "resource_id"], unique=True,
     )
 
 
