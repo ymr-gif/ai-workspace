@@ -67,5 +67,23 @@ def neo4j_conn():
         driver.verify_connectivity()
     except Exception as e:  # noqa: BLE001
         pytest.skip(f"Neo4j not reachable at NEO4J_URI: {e}")
+
+    # CI runs against a bare Neo4j service and never boots the app, so the
+    # graph-memory indexes the tests assert on do not exist yet. Create them
+    # here, mirroring core/neo4j_client.init_neo4j() (the startup DDL).
+    with driver.session() as s:
+        s.run(
+            "CREATE CONSTRAINT entity_key IF NOT EXISTS "
+            "FOR (e:Entity) REQUIRE (e.user_id, e.name) IS UNIQUE"
+        )
+        s.run(
+            "CREATE FULLTEXT INDEX entity_name_ft IF NOT EXISTS "
+            "FOR (e:Entity) ON EACH [e.name]"
+        )
+        s.run(
+            "CREATE INDEX entity_user_id IF NOT EXISTS "
+            "FOR (e:Entity) ON (e.user_id)"
+        )
+
     yield driver
     driver.close()
