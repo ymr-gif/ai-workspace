@@ -1,0 +1,6 @@
+# Test / CI dependencies — installed on top of the runtime requirements.
+# Kept out of requirements.txt so the production image stays lean.
+-r requirements.txt
+
+pytest==9.0.3
+pytest-asyncio==1.4.0

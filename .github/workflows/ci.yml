@@ -25,7 +25,7 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install -U pip
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
       - name: Unit tests
         run: pytest -m "not infra and not live_nim and not optional" -q
 
@@ -40,7 +40,7 @@ jobs:
           cache: pip
       - run: |
           python -m pip install -U pip
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
       - name: Retrieval eval
         run: pytest tests/retrieval/ -q
 
@@ -87,7 +87,7 @@ jobs:
           cache: pip
       - run: |
           python -m pip install -U pip
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
       - name: Apply migrations
         run: alembic upgrade head
       - name: Infra tests
@@ -108,7 +108,7 @@ jobs:
           cache: pip
       - run: |
           python -m pip install -U pip
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
       - name: Guard — base URL configured
         run: |
           test -n "$VERIFY_BASE_URL" || { echo "VERIFY_BASE_URL secret not set; skipping live tier"; exit 0; }
