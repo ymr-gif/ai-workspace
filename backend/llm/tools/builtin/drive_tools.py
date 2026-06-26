@@ -1,14 +1,12 @@
-"""Google Drive tools — the 3-way gate, behavioral rules, and post-listing stop
-message that were previously hardcoded in generate_stream, now co-located here.
+"""Google Drive tools — behavioral rules and post-listing stop message,
+co-located here.
 
-Gate (preserved exactly):
-- drive_list_files / drive_search: full gate — drive connected AND a noun+action
-  Drive request (`_needs_drive_tools`).
-- drive_read_file: full gate OR cache-active read path — a prior listing this
-  conversation (Redis `drive_listing:{conv}`) AND a read-intent message
-  (`_wants_drive_read`). This keeps follow-up "read X" working without re-listing.
+Gate: capability only — all three Drive tools are offered whenever the Drive
+connector is connected (`ctx.drive_active`). The model decides which to call
+from the schema descriptions; the behavioral rules below steer the list→ask→read
+flow. (Keyword/cache pre-filtering was removed in favor of native function
+calling.)
 
-Predicates lazy-imported to avoid the service→tools import cycle.
 The `_drive_*` impls stay in `llm/tools/drive.py` (unchanged path — tests patch them).
 """
 
@@ -40,20 +38,9 @@ _POST_LISTING = (
 )
 
 
-def _full_gate(ctx: ToolContext) -> bool:
-    if not ctx.drive_active:
-        return False
-    from llm.service.context import _needs_drive_tools
-    return _needs_drive_tools(ctx.message)
-
-
-def _read_gate(ctx: ToolContext) -> bool:
-    if not ctx.drive_active:
-        return False
-    from llm.service.context import _needs_drive_tools, _wants_drive_read
-    if _needs_drive_tools(ctx.message):
-        return True
-    return ctx.drive_cache_active and _wants_drive_read(ctx.message)
+def _drive_gate(ctx: ToolContext) -> bool:
+    # Capability gate only — offered whenever the Drive connector is active.
+    return ctx.drive_active
 
 
 async def _exec_drive_list_files(args: dict, ctx: ToolContext) -> str:
@@ -75,7 +62,7 @@ register_tool(Tool(
     name="drive_list_files",
     schema=SCHEMA_BY_NAME["drive_list_files"],
     execute=_exec_drive_list_files,
-    should_inject=_full_gate,
+    should_inject=_drive_gate,
     is_list_tool=True,
     max_identical_calls=1,
     behavioral_rules=_DRIVE_RULES,
@@ -86,7 +73,7 @@ register_tool(Tool(
     name="drive_read_file",
     schema=SCHEMA_BY_NAME["drive_read_file"],
     execute=_exec_drive_read_file,
-    should_inject=_read_gate,
+    should_inject=_drive_gate,
     behavioral_rules=_DRIVE_RULES,
 ))
 
@@ -94,7 +81,7 @@ register_tool(Tool(
     name="drive_search",
     schema=SCHEMA_BY_NAME["drive_search"],
     execute=_exec_drive_search,
-    should_inject=_full_gate,
+    should_inject=_drive_gate,
     is_list_tool=True,
     max_identical_calls=1,
     behavioral_rules=_DRIVE_RULES,

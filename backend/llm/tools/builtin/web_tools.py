@@ -1,7 +1,8 @@
 """web_search and fetch_url — conditionally injected, lazy-imported impls.
 
-web_search: needs WEB_SEARCH_ENABLED (carried on the context) + a keyword match.
-fetch_url:  needs a URL in the message.
+web_search: capability gate only — offered whenever WEB_SEARCH_ENABLED (carried
+            on the context). The model decides when to call it from the schema.
+fetch_url:  needs a URL in the message (nothing to fetch otherwise).
 """
 
 from __future__ import annotations
@@ -17,10 +18,8 @@ _URL_RE = re.compile(r'https?://')
 
 
 def _inject_web_search(ctx: ToolContext) -> bool:
-    if not ctx.web_search_enabled:
-        return False
-    from llm.service.context import _needs_web_search
-    return _needs_web_search(ctx.message)
+    # Capability gate only — offered whenever a search provider is configured.
+    return ctx.web_search_enabled
 
 
 async def _exec_web_search(args: dict, ctx: ToolContext) -> str:

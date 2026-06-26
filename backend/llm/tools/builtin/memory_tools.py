@@ -22,12 +22,10 @@ async def _exec_ask_user(args: dict, ctx: ToolContext) -> str:
     return f"{ASK_USER_PREFIX}{args.get('question', '')}"
 
 
-# write_memory: reasoning model only + explicit save request.
+# write_memory: capability gate only — reasoning model + a DB session. The model
+# decides when to persist a fact from the schema description.
 def _inject_write_memory(ctx: ToolContext) -> bool:
-    if ctx.db is None or not ctx.is_reasoning:
-        return False
-    from llm.service.context import _needs_memory_tool
-    return _needs_memory_tool(ctx.message)
+    return ctx.db is not None and ctx.is_reasoning
 
 
 async def _exec_write_memory(args: dict, ctx: ToolContext) -> str:

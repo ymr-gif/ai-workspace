@@ -21,10 +21,8 @@ _CALENDAR_RULES = (
 
 
 def _cal_full_gate(ctx: ToolContext) -> bool:
-    if not ctx.calendar_active:
-        return False
-    from llm.service.context import _needs_calendar_tools
-    return _needs_calendar_tools(ctx.message)
+    # Capability gate only — offered whenever the Calendar connector is active.
+    return ctx.calendar_active
 
 
 async def _exec_calendar_list_events(args: dict, ctx: ToolContext) -> str:

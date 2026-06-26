@@ -47,33 +47,29 @@ def test_inject_file_group_when_files_attached():
     }
 
 
-def test_inject_write_memory_only_on_reasoning_and_request():
-    assert _inject(message="remember that I like tea", db=_DB, user_id=1, is_reasoning=True) == {"write_memory"}
+# --- Capability gating (keyword pre-filter removed; model decides via schemas) ---
+
+def test_inject_write_memory_on_reasoning_regardless_of_wording():
+    # No keyword needed — reasoning model + db is the only gate.
+    assert _inject(message="hi", db=_DB, user_id=1, is_reasoning=True) == {"write_memory"}
     assert _inject(message="remember that I like tea", db=_DB, user_id=1, is_reasoning=False) == set()
 
 
 def test_inject_fetch_url_on_url():
+    # URL presence is a capability (nothing to fetch otherwise) — preserved.
     assert _inject(message="summarize https://example.com", db=_DB, user_id=1) == {"fetch_url"}
+    assert _inject(message="summarize this for me", db=_DB, user_id=1) == set()
 
 
-def test_inject_web_search_needs_flag_and_keyword():
-    assert _inject(message="latest news today", db=_DB, user_id=1, web_search_enabled=True) == {"web_search"}
+def test_inject_web_search_on_flag_regardless_of_wording():
+    assert _inject(message="hello", db=_DB, user_id=1, web_search_enabled=True) == {"web_search"}
     assert _inject(message="latest news today", db=_DB, user_id=1, web_search_enabled=False) == set()
 
 
-def test_inject_drive_full_gate_handles_punctuation():
-    assert _inject(message="can you check my drive?", db=_DB, user_id=1, drive_active=True) == {
-        "drive_list_files", "drive_read_file", "drive_search",
-    }
-
-
-def test_inject_drive_read_only_on_cache_followup():
-    # no Drive keyword, but a prior listing (cache) + read intent → read tool only
-    assert _inject(message="read JARVIS Test Note", db=_DB, user_id=1,
-                   drive_active=True, drive_cache_active=True) == {"drive_read_file"}
-    # cache active but no read intent → nothing
-    assert _inject(message="thanks", db=_DB, user_id=1,
-                   drive_active=True, drive_cache_active=True) == set()
+def test_inject_drive_all_tools_when_active_regardless_of_wording():
+    expected = {"drive_list_files", "drive_read_file", "drive_search"}
+    assert _inject(message="hello there", db=_DB, user_id=1, drive_active=True) == expected
+    assert _inject(message="can you check my drive?", db=_DB, user_id=1, drive_active=True) == expected
 
 
 def test_inject_nothing_when_drive_inactive():

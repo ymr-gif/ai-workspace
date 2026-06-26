@@ -13,7 +13,7 @@ from cache import get_cached_response, set_cached_response
 from observability import metrics, observability, events
 from llm.router import route, get_context_limit
 from llm.nim import call, call_stream
-from llm.tools import execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX, CONFIRM_CALENDAR_PREFIX, TOOL_REGISTRY, ToolContext, get_tool
+from llm.tools import execute_tool, ASK_USER_PREFIX, CONFIRM_WRITE_PREFIX, CONFIRM_CALENDAR_PREFIX, TOOL_REGISTRY, ToolContext, get_tool, select_tool_schemas
 
 from models import ExternalSource
 from .context import build_context_messages, apply_context_budget, _needs_memory_tool
@@ -213,8 +213,19 @@ async def generate_stream(
         calendar_active=_calendar_active,
         gmail_active=_gmail_active,
     )
-    injected_tools = [t for t in TOOL_REGISTRY.values() if t.should_inject(_tool_ctx)]
-    tools = [t.schema for t in injected_tools] or None
+    # Capability-available tools, name-sorted for a byte-stable prompt prefix
+    # (so the KV prefix cache makes repeat cost near-zero). The prefilter switch
+    # decides the final subset; today it is passthrough. Reconcile injected_tools
+    # to the survivors so behavioral_rules stay consistent if the prefilter later
+    # drops a tool.
+    injected_tools = sorted(
+        (t for t in TOOL_REGISTRY.values() if t.should_inject(_tool_ctx)),
+        key=lambda t: t.name,
+    )
+    schemas = select_tool_schemas(message, [t.schema for t in injected_tools])
+    _kept = {s["function"]["name"] for s in schemas}
+    injected_tools = [t for t in injected_tools if t.name in _kept]
+    tools = schemas or None
 
     # Tool-required turns (file ops) must not degrade to 8B — it emits tool
     # calls as plain text instead of using the tool-calling API. Drop llama from the
@@ -263,12 +274,17 @@ async def generate_stream(
         conflicted_facts=conflicted_facts, last_session=last_session,
     ) + [user_msg]
 
-    # Inject each active tool's behavioral rules once (de-duped) at base_messages[1].
+    # Inject active tools' behavioral rules once (de-duped), as a single block at
+    # base_messages[1] in deterministic (name-sorted) order — keeps the prompt
+    # prefix byte-stable for the KV cache. injected_tools is already name-sorted.
     _seen_rules: set[str] = set()
+    _rules_block: list[dict] = []
     for t in injected_tools:
         if t.behavioral_rules and t.behavioral_rules not in _seen_rules:
             _seen_rules.add(t.behavioral_rules)
-            base_messages.insert(1, {"role": "system", "content": t.behavioral_rules})
+            _rules_block.append({"role": "system", "content": t.behavioral_rules})
+    if _rules_block:
+        base_messages[1:1] = _rules_block
 
     for idx, current_model in enumerate(fallback_chain):
         fallback_used  = idx > 0

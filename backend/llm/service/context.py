@@ -8,119 +8,12 @@ _FILE_OP_KEYWORDS = frozenset({
     "correct", "improve", "refactor", "rename", "review", "check",
 })
 
-_DRIVE_NOUNS = frozenset({
-    "drive", "gdrive",
-    "sheet", "sheets", "spreadsheet", "spreadsheets",
-    "slides", "presentation", "presentations",
-    "folder", "folders",
-    "gdoc", "gdocs",
-})
-
-_DRIVE_ACTIONS = frozenset({
-    "list", "show", "open", "read", "find", "browse",
-    "search", "check", "files", "file", "view", "fetch",
-    "get", "enumerate", "contents", "what",
-})
-
-_DRIVE_READ_VERBS = frozenset({
-    "read", "open", "show", "view", "display",
-    "summarize", "summarise", "fetch", "get",
-    "contents", "content", "what",
-})
-
-
-_DRIVE_STRIP = "\"'.,!?;:()[]{}…"
-
-_CALENDAR_NOUNS = frozenset({
-    "calendar", "cal",
-    "event", "events",
-    "meeting", "meetings",
-    "appointment", "appointments",
-    "agenda",
-    "availability", "free time", "schedule", "scheduled",
-    "gcal",
-})
-
-_CALENDAR_ACTIONS = frozenset({
-    "list", "show", "what", "when", "check",
-    "book", "schedule", "create", "add",
-    "move", "reschedule", "update", "edit", "change",
-    "cancel", "delete", "remove",
-    "find", "search", "get",
-})
-
-_CALENDAR_STRIP = "\"'.,!?;:()[]{}…"
-
-_GMAIL_NOUNS = frozenset({
-    "mail", "email", "inbox",
-    "message", "messages",
-    "gmail",
-})
-
-_GMAIL_ACTIONS = frozenset({
-    "list", "show", "check", "read", "find",
-    "search", "get", "look", "browse",
-    "open", "view", "fetch", "what",
-})
-
-_GMAIL_STRIP = "\"'.,!?;:()[]{}…"
-
-
-def _gmail_tokens(message: str) -> set[str]:
-    out: set[str] = set()
-    for raw in message.lower().split():
-        t = raw.strip(_GMAIL_STRIP)
-        if not t:
-            continue
-        out.add(t)
-        if t.endswith("'s"):
-            out.add(t[:-2])
-    return out
-
-
-def _needs_gmail_tools(message: str) -> bool:
-    tokens = _gmail_tokens(message)
-    return bool(tokens & _GMAIL_NOUNS) and bool(tokens & _GMAIL_ACTIONS)
-
-
-def _calendar_tokens(message: str) -> set[str]:
-    out: set[str] = set()
-    for raw in message.lower().split():
-        t = raw.strip(_CALENDAR_STRIP)
-        if not t:
-            continue
-        out.add(t)
-        if t.endswith("'s"):
-            out.add(t[:-2])
-    return out
-
-
-def _needs_calendar_tools(message: str) -> bool:
-    tokens = _calendar_tokens(message)
-    return bool(tokens & _CALENDAR_NOUNS) and bool(tokens & _CALENDAR_ACTIONS)
-
-
-def _drive_tokens(message: str) -> set[str]:
-    # whitespace split + strip surrounding punctuation so "drive?" matches "drive"
-    out: set[str] = set()
-    for raw in message.lower().split():
-        t = raw.strip(_DRIVE_STRIP)
-        if not t:
-            continue
-        out.add(t)
-        if t.endswith("'s"):
-            out.add(t[:-2])
-    return out
-
-
-def _needs_drive_tools(message: str) -> bool:
-    tokens = _drive_tokens(message)
-    return bool(tokens & _DRIVE_NOUNS) and bool(tokens & _DRIVE_ACTIONS)
-
-
-def _wants_drive_read(message: str) -> bool:
-    return bool(_drive_tokens(message) & _DRIVE_READ_VERBS)
-
+# NOTE: Drive / Calendar / Gmail / web-search keyword predicates were removed.
+# Those tools are now offered on capability alone (connector active / env enabled)
+# and the model decides when to call them via native function calling. The gate
+# predicates live in llm/tools/builtin/*. Only the memory-write and file-fallback
+# keyword helpers remain — they still drive model routing / retrieval, not tool
+# dispatch.
 
 _MEMORY_WRITE_VERBS = frozenset({
     "save", "add", "store", "write", "put", "keep", "insert",
@@ -138,19 +31,6 @@ def _needs_file_tools(message: str) -> bool:
 
 
 _MEMORY_STANDALONE_TRIGGERS = frozenset({"remember", "memorize"})
-
-
-_WEB_SEARCH_KEYWORDS = frozenset({
-    "latest", "current", "today", "now", "recent", "newest",
-    "yesterday", "news", "price", "stock", "weather", "score",
-    "standings", "trending", "live", "breaking", "just", "released",
-    "announced", "search", "lookup", "google", "2025", "2026",
-})
-
-
-def _needs_web_search(message: str) -> bool:
-    tokens = set(message.lower().split())
-    return bool(tokens & _WEB_SEARCH_KEYWORDS)
 
 
 def _format_active_goals(active_goals: str) -> str:
@@ -192,7 +72,7 @@ def build_context_messages(
                 f"The user has attached these files:\n{files_list}\n"
                 "Rules for file tools:\n"
                 "- To ANSWER a question about file content: use read_file or search_in_file, then reply in chat. For specific sections of large files, prefer search_in_file over read_file.\n"
-                "- NEVER use write tools (write_file, append_to_file, patch_file) to answer questions. If asked to 'list', 'show', 'explain', 'display', 'summarize', or 'describe' — respond in chat text, not by writing to the file.\n"
+                "- NEVER use write tools (write_file, append_to_file, patch_file) to answer questions. To 'show', 'explain', 'display', 'summarize', or 'describe' file content — read it (read_file / search_in_file) and reply in chat text; never write to the file. (Enumerating which files exist is fine — use list_files.)\n"
                 "- To ADD new content to a file: use append_to_file — ONLY when user explicitly asks to add/write/append to the file.\n"
                 "- To EDIT a specific passage: use read_file first, then patch_file(old_text=<exact passage>, new_text=<replacement>)\n"
                 "- To REWRITE the whole file: use read_file first, then write_file with the COMPLETE rewritten content — never write_file without reading first\n"

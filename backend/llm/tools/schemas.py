@@ -119,9 +119,14 @@ DRIVE_TOOL_SCHEMAS = [
 
 WRITE_MEMORY_SCHEMA = _tool("write_memory", (
     "Propose saving a significant, durable fact about the user to long-term memory. "
-    "ONLY call this when the user explicitly says 'remember', 'save', 'store', 'keep in memory', or similar direct instructions. "
-    "NEVER call this when answering a question, reading a file, summarizing content, or when the user simply states a fact mid-conversation. "
-    "The user must be directly instructing you to save something — inference is not enough."
+    "This is a RARE action. Default to NOT calling it. "
+    "ONLY call this when the user's latest message is a direct instruction to save/remember — "
+    "containing an explicit imperative like 'remember that…', 'save this to memory', 'store…', 'keep in memory'. "
+    "NEVER call this when answering a question, searching the web, reading or summarizing a file, "
+    "performing any other task, or when the user merely states a fact in passing. "
+    "Examples — CALL: 'Remember that my dog's name is Rex.' / 'Save my address to memory.' "
+    "DO NOT CALL: 'What's the weather?' / 'Search the web for X.' / 'My meeting is at 3pm.' (a passing statement, no save instruction). "
+    "If the user did not explicitly tell you to save something, do not call this tool — answer in text instead."
 ), {
     "fact": {"type": "string", "description": "The fact about the user to record."},
 }, ["fact"])

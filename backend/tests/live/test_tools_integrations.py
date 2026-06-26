@@ -17,11 +17,12 @@ Markers:
   * integration tests → ``optional`` (additionally need an active OAuth connector;
     self-skip when the connector is absent — e.g. Gmail is not connected here)
 
-Gating reference (backend/CLAUDE.md "AI Agent Tool Loop"):
-  * ``web_search``  → WEB_SEARCH_ENABLED=true AND a keyword (latest/today/news/weather…)
+Gating reference (backend/CLAUDE.md "AI Agent Tool Loop") — capability-only now;
+the model decides when to call via native function calling (no keyword pre-filter):
+  * ``web_search``  → WEB_SEARCH_ENABLED=true
   * ``fetch_url``   → message contains an http(s):// URL
-  * file tools      → always offered once ``file_ids`` is non-empty
-  * drive/calendar/gmail → noun+action keyword pair AND an active connector
+  * file tools      → offered once ``file_ids`` is non-empty
+  * drive/calendar/gmail → an active connector
 """
 import time
 import uuid
@@ -153,11 +154,16 @@ def _connector_active(client, headers, connector_type):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Web search — the headline path (WEB_SEARCH_ENABLED + keyword gated)
+# Web search — the headline path (offered whenever WEB_SEARCH_ENABLED)
 # ══════════════════════════════════════════════════════════════════════════════
 def test_web_search_fires_and_flags(sse_post, client, user_headers):
+    # Strong steer: under capability-gated function calling the full tool menu is
+    # always offered, so the weak user-account model mis-selects on unsteered
+    # prompts (e.g. grabs write_memory). The test proves web_search *dispatches*,
+    # not the model's unsteered judgment — so name the tool explicitly with neutral
+    # wording (no file-op verbs, which would pull in file context via the fallback).
     events = _fire(sse_post, user_headers,
-                   "What is the latest news today? Please search the web.")
+                   "What is today's top news headline? Use the web_search tool to look it up.")
     done = _assert_completed(events, client, user_headers, "web_search")
     assert done.get("web_searched") is True, done
     # the search query arg is populated
@@ -165,8 +171,9 @@ def test_web_search_fires_and_flags(sse_post, client, user_headers):
     assert args.get("query"), args
 
 
-def test_web_search_not_triggered_without_keyword(sse_post, user_headers):
-    """Gating proof: a plain chat must NOT reach for the web."""
+def test_web_search_not_used_for_trivial_chat(sse_post, user_headers):
+    """Model-restraint proof: web_search is now always *offered* when enabled,
+    but the model must not actually search for a trivial greeting."""
     events = _fire(sse_post, user_headers, "Say hello and nothing else.")
     done = _done(events)
     assert done is not None
@@ -186,8 +193,12 @@ def test_fetch_url_fires_and_flags(sse_post, client, user_headers):
 # ══════════════════════════════════════════════════════════════════════════════
 def test_list_files_tool(sse_post, client, user_headers, kb_file):
     fid, _ = kb_file
+    # Strong steer with neutral verbs: for a single attached file the model can
+    # answer from the injected file name without a tool, so demand the call by name
+    # using verbs the attached-file rule doesn't route to chat text.
     events = _fire(sse_post, user_headers,
-                   "List all my files. Use the list_files tool.", file_ids=[fid])
+                   "Use the list_files tool to count my attached files and report the total.",
+                   file_ids=[fid])
     _assert_completed(events, client, user_headers, "list_files")
 
 

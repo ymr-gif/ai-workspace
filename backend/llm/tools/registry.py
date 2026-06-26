@@ -37,6 +37,33 @@ def get_tool(name: str) -> Tool | None:
     return TOOL_REGISTRY.get(name)
 
 
+# Prefilter switch — chooses which capability-available schemas to send the model.
+# Call site (generate_stream) never changes; only this function grows when the
+# tool count outgrows a single stable prompt prefix.
+TOOL_PREFILTER_THRESHOLD = 32  # activate embedding prefilter past this count
+
+
+def select_tool_schemas(query: str, schemas: list[dict]) -> list[dict]:
+    """Return the tool schemas to pass to the model.
+
+    <= threshold: passthrough (all tools). Cheap — a stable, name-sorted prompt
+                  prefix lets the KV prefix cache make repeat cost near-zero.
+    >  threshold: embedding prefilter (NOT YET BUILT). Embed the query, cosine-
+                  match against cached tool-description vectors, pass the top-k.
+
+    Switch is empty by design. Fill the else branch when the tool count grows.
+    """
+    if len(schemas) <= TOOL_PREFILTER_THRESHOLD:
+        return schemas
+
+    # TODO(>32 tools): embedding prefilter
+    #   1. embed query (reuse the text embedder)
+    #   2. cosine vs cached tool-description vectors
+    #   3. return top-k by score
+    # Until built, fail safe to passthrough:
+    return schemas
+
+
 async def run_tool(name: str, args: dict, ctx: ToolContext) -> str:
     """Execute a registered tool with the shared error/log envelope."""
     tool = TOOL_REGISTRY.get(name)

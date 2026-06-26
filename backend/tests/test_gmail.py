@@ -14,41 +14,21 @@ os.environ.setdefault("DATABASE_URL",   "postgresql+asyncpg://u:p@localhost/db")
 os.environ.setdefault("REDIS_URL",      "redis://localhost:6379/0")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 
-from llm.service.context import _needs_gmail_tools
+from llm.tools import ToolContext
+from llm.tools.builtin.gmail_tools import _gmail_full_gate
 
 
-class TestKeywordGating:
-    def test_gmail_noun_action_pair(self):
-        assert _needs_gmail_tools("check my email")
-        assert _needs_gmail_tools("read gmail")
-        assert _needs_gmail_tools("show inbox")
-        assert _needs_gmail_tools("list messages")
-        assert _needs_gmail_tools("find mail")
-        assert _needs_gmail_tools("search my inbox")
+class TestCapabilityGating:
+    """Gmail tools are now offered on capability alone (connector active),
+    independent of message wording — the model decides when to call them."""
 
-    def test_noun_only_no_match(self):
-        assert not _needs_gmail_tools("my email")
-        assert not _needs_gmail_tools("gmail")
-        assert not _needs_gmail_tools("inbox")
-        assert not _needs_gmail_tools("that email from yesterday")
-        assert not _needs_gmail_tools("the issue is email delivery")
+    def test_injected_when_connector_active(self):
+        for msg in ("check my email", "what is the weather today", "", "hi"):
+            assert _gmail_full_gate(ToolContext(message=msg, gmail_active=True))
 
-    def test_action_only_no_match(self):
-        assert not _needs_gmail_tools("list files")
-        assert not _needs_gmail_tools("search google")
-        assert not _needs_gmail_tools("read the document")
-
-    def test_empty_message(self):
-        assert not _needs_gmail_tools("")
-
-    def test_unrelated_message(self):
-        assert not _needs_gmail_tools("what is the weather today")
-
-    def test_apostrophe_stripping(self):
-        assert _needs_gmail_tools("what's in my inbox")
-
-    def test_search_email(self):
-        assert _needs_gmail_tools("search email from john about meeting")
+    def test_not_injected_when_connector_inactive(self):
+        for msg in ("read gmail", "show inbox", "list messages"):
+            assert not _gmail_full_gate(ToolContext(message=msg, gmail_active=False))
 
 
 @pytest.mark.asyncio

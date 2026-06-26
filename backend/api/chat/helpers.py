@@ -342,6 +342,14 @@ async def _build_stream_context(
         file_ids   = [fid for fid in req_fids if fid in name_map]
         file_names = [name_map[fid] for fid in file_ids]
 
+    # Global file fallback: when nothing is explicitly attached, pull RAG *context*
+    # from all ready files so globally-available content stays searchable — but do
+    # NOT populate file_ids. file_ids drives file-*tool* injection + reasoning-model
+    # forcing, which must require a genuine attachment (BUGS.md: decouple file
+    # context from file tools). These ids feed retrieval only; chunks land in
+    # [FILE CONTEXT] without claiming the files are "attached" and without offering
+    # the file toolset.
+    context_only_file_ids: list = []
     if not file_ids and query_emb and _needs_file_tools(req.message):
         all_res = await db.execute(
             select(File.id, File.filename)
@@ -349,13 +357,13 @@ async def _build_stream_context(
         )
         rows = all_res.all()
         if rows:
-            file_ids   = [r[0] for r in rows]
-            file_names = [r[1] for r in rows]
+            context_only_file_ids = [r[0] for r in rows]
 
-    if file_ids:
+    retrieval_file_ids = file_ids or context_only_file_ids
+    if retrieval_file_ids:
         if query_emb:
             file_chunks = await retriever.retrieve_from_files(
-                db, query_emb, file_ids,
+                db, query_emb, retrieval_file_ids,
                 top_k=policy["top_k"], query_text=req.message,
                 fusion_mode=policy["fusion_mode"], k_dense=policy["k_dense"],
                 k_sparse=policy["k_sparse"], alpha=policy["alpha"],
@@ -366,7 +374,7 @@ async def _build_stream_context(
                     c["final_score"] = c.get("final_score", 0.0) * fs_mult
                 file_chunks.sort(key=lambda c: -c.get("final_score", 0.0))
         else:
-            file_chunks = await retriever.retrieve_files_sequential(db, file_ids, top_k=10)
+            file_chunks = await retriever.retrieve_files_sequential(db, retrieval_file_ids, top_k=10)
         if file_chunks:
             for i, chunk in enumerate(file_chunks):
                 preview = chunk["content"][:120] if isinstance(chunk, dict) else chunk[:120]
@@ -376,10 +384,10 @@ async def _build_stream_context(
                             chunk.get("source_id") if isinstance(chunk, dict) else None,
                             chunk.get("final_score", 0.0) if isinstance(chunk, dict) else 0.0,
                             repr(preview))
-            _act("files", f"File RAG: {len(file_chunks)} chunk{'s' if len(file_chunks) != 1 else ''} from {len(file_ids)} file{'s' if len(file_ids) != 1 else ''}")
+            _act("files", f"File RAG: {len(file_chunks)} chunk{'s' if len(file_chunks) != 1 else ''} from {len(retrieval_file_ids)} file{'s' if len(retrieval_file_ids) != 1 else ''}")
         else:
-            logger.warning("[file_ctx] rid=%s file_ids=%d but NO chunks retrieved", rid, len(file_ids))
-            _act("files", f"File RAG: 0 chunks from {len(file_ids)} file{'s' if len(file_ids) != 1 else ''}", level="error")
+            logger.warning("[file_ctx] rid=%s file_ids=%d but NO chunks retrieved", rid, len(retrieval_file_ids))
+            _act("files", f"File RAG: 0 chunks from {len(retrieval_file_ids)} file{'s' if len(retrieval_file_ids) != 1 else ''}", level="error")
 
     conflicted_facts: frozenset[str] = frozenset()
     if memory_sheet:

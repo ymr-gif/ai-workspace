@@ -19,10 +19,8 @@ _GMAIL_RULES = (
 
 
 def _gmail_full_gate(ctx: ToolContext) -> bool:
-    if not ctx.gmail_active:
-        return False
-    from llm.service.context import _needs_gmail_tools
-    return _needs_gmail_tools(ctx.message)
+    # Capability gate only — offered whenever the Gmail connector is active.
+    return ctx.gmail_active
 
 
 async def _exec_gmail_list_messages(args: dict, ctx: ToolContext) -> str:
