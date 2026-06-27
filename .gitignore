@@ -52,9 +52,8 @@ design_handoff_ultrakill_reskin/
 CLAUDE.md
 **/CLAUDE.md
 CURSOR_IDE_MEMORY.md
-HANDOFF.md
 HANDOFF_ARCHIVE.md
 HANDOFF_PROTOCOL.md
-QUEUE.md
 SKILL.md
 **/SKILL.md
+# HANDOFF.md + QUEUE.md are tracked (force-tracked 2026-06-28 for cold-session portability)
