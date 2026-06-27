@@ -20,6 +20,14 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 > calendar tools never registered at startup — `builtin/__init__.py` omitted `calendar_tools`, so all 6
 > calendar tools were absent from `TOOL_REGISTRY` → never injected/dispatchable in the live agent loop
 > (connector tests passed by importing the exec fns directly, masking it) (`67ec91d`).
+> Verification audit 2026-06-22 — 7 bugs found + fixed: export Content-Length (`36c892e`),
+> store_exchange delete-race log (`b48a268`), cost-cap on nonstream `/chat` (`49cb6ea`),
+> live `REQUIRE_INVITE` reload (`945f67a`), scheduler arq-pool init → compaction/sync were dead (`6c98c84`),
+> scheduler backup pg_dump + postgresql-client-16 (`443df8e`), OCR paddle log/requirements note (`75370ae`).
+> De-keyword fallout fixes 2026-06-23 (`d3b73a7`): file-handling rule reworded so "list" no longer
+> suppresses `list_files`; global-file RAG fallback decoupled from file-tool injection
+> (`context_only_file_ids`); `write_memory` schema description hardened ("RARE action") to curb
+> spurious confirm cards.
 > All fixed & verified live.
 
 ---
@@ -28,162 +36,25 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 
 - `[ ]` **Reasoning trace is pipeline-level, not model chain-of-thought** — the `activity[]` trace in the `done` SSE (grounding badge → "Reasoning steps") shows the pipeline (retrieval/intent/route/budget/model/tools), not the model's internal deliberation. `meta/llama-3.3-70b-instruct` emits no native thinking tokens. Not a defect — closes the practical Dim-3 gap. Real CoT would need either a prompt-based `<thinking>` block (cheap, +tokens/latency, narrated not faithful) or a reasoning-tier model that emits traces (model/cost change). On the home server, a reasoning-capable model (e.g. a future MoE with thinking output) could close this for real. Revisit only if users ask "why did it answer that."
 
-- `[x]` **File-handling behavioral rule suppresses `list_files`** (fixed 2026-06-23) — when files are attached, `build_context_messages()` (`backend/llm/service/context.py`) injects a file-handling system rule that says: *"If asked to 'list', 'show', 'explain', 'display', 'summarize', or 'describe' — respond in chat text, not by writing to the file."* That rule is meant to stop the model using **write** tools to answer read questions, but the verb "list" also names the `list_files` tool, so a prompt like "list my files" got steered to a **plain-text answer** and `list_files` was never called. Surfaced 2026-06-23 when the live sweep's `test_list_files_tool` failed under capability-gated function calling: the model answered from the injected file chunk instead of calling the tool. **Why it bit:** with keyword gating removed the tool menu is always full, and the model leans harder on the injected behavioral rules; previously a narrower menu nudged it to call the tool anyway. Not a dispatch defect — `list_files` is correctly registered/offered (unit `test_tool_registry.py::test_inject_file_group_when_files_attached`) and the file-search family (`search_across_files`/`search_in_file`/`read_file`) fires fine live. **Fix:** reworded the rule (`context.py:75`) to scope it to file-**content** ops and explicitly carve out enumeration — *"To 'show', 'explain', 'display', 'summarize', or 'describe' file content — read it … never write to the file. (Enumerating which files exist is fine — use list_files.)"* — dropping the bare "list" verb that collided with the tool name. **Residual:** the live `test_list_files_tool` is still nondeterministic on the weak `user`-account model (passes/fails across runs with identical phrasing); the test keeps the strong-steer wording ("Use the list_files tool to count my attached files…"). Prompt-level fix is correct; remaining flake is model mis-selection from the full always-on menu (the accepted cost tradeoff), not a code defect.
-
-- `[x]` **Global-file RAG fallback injects the file toolset on any file-op keyword** (fixed 2026-06-23) — `api/chat/helpers.py` (~L345): when no files were explicitly attached, `if not file_ids and query_emb and _needs_file_tools(req.message)` retrieved chunks from **all** the user's ready files (so Drive-synced content stays searchable without manual attachment) and populated `file_ids`, which in turn made `should_inject` offer the **whole file toolset** to the model. `_needs_file_tools` matches a broad keyword set (`_FILE_OP_KEYWORDS`: read/write/search/find/check/summarize/…). So an unrelated request that merely contained e.g. "**search**" (as in "search the web") pulled in file context **and** the file tools. Surfaced 2026-06-23: the live `web_search` test prompt "…Please **search** the web" tripped this, the file toolset appeared alongside `web_search`, and the model picked `search_across_files` over `web_search`. **Why it bit:** combined with capability-gated always-on tools, the contaminated menu is larger and the weaker default (`user`-account) model mis-selects; under the old keyword gate the competing set was smaller. Pre-existing behavior (the fallback predates this change), not a regression in the dispatch path. **Fix:** decoupled file *context* from file *tool* injection. The fallback now fills a separate `context_only_file_ids` and a `retrieval_file_ids = file_ids or context_only_file_ids` drives retrieval only; the returned `file_ids`/`file_names` stay **empty** on the fallback path, so no file tools are injected, no reasoning-model forcing, and no false "attached" notice. Retrieved chunks still flow in as `[FILE CONTEXT]` (`context.py:143`, independent of `file_names`). Verified live: with the decouple, "search the web" no longer pulls the file toolset (the file-tool contamination is gone). **Residual:** the live `web_search` test still uses strong-steer wording because the *weak account model* can mis-pick from the always-on menu (e.g. fired `write_memory` instead) — see the open write_memory finding below; that's the accepted cost tradeoff, not this fallback.
-
-- `[x]` **De-keyworded `write_memory` fires spuriously on reasoning turns** (fixed 2026-06-23, option c) — the keyword-gating removal collapsed `_inject_write_memory` to `return ctx.db is not None and ctx.is_reasoning` (`backend/llm/tools/builtin/memory_tools.py`). It no longer checks `_needs_memory_tool(message)`, so `write_memory` is offered on **every** turn that routes to the 70B reasoning model — regardless of whether the user asked to remember anything. Surfaced 2026-06-23: the live `web_search` test (a pure web query) saw the model emit `write_memory` instead of `web_search`, producing a spurious `confirm_write_memory` sentinel. **User-visible impact:** unrelated reasoning-model turns can surface a "save to memory?" green confirm card — noise, not just a test artifact. **Why it bit:** keyword gating previously required a memory verb+target ("save … to memory") before the tool was even offered; without it the only gate left is the model-routing tier (`is_reasoning`). **Fix (user's call — steer via description, no keyword gate):** kept the tool always-offered (consistent with the de-keyword change) and hardened the `write_memory` schema `description` (`llm/tools/schemas.py:120`) — added "This is a RARE action. Default to NOT calling it.", an explicit CALL / DO-NOT-CALL example pair (incl. "Search the web for X." → do not call), and a closing "if the user did not explicitly tell you to save something, do not call this tool — answer in text instead." Steers the model away from spurious calls without re-introducing the keyword pre-filter. **Residual:** description-steering is probabilistic on the weak NIM `user`-account model — it reduces but cannot guarantee zero spurious calls; the homeserver/Mixtral target follows tool descriptions far more reliably. Rejected: (b) re-gate on `_needs_memory_tool` (re-introduces the removed keyword pre-filter), (d) UI-side confirm-card guard (splits intent logic across backend+frontend).
+- `[ ]` **Drive tools fire on greetings / trivial turns — `drive_list_files` dumped on "ehllo"** (found 2026-06-27) — a bare greeting triggers an unprompted full Drive listing. **Evidence (live DB):** conversation `f1beba8b-ba45-4f55-b2da-f37996c94147` (admin, 2026-06-27 12:19–12:20). User said `ehllo`, then `hello?`; both turns the model called `drive_list_files` with empty args (`{}`) and dumped the entire Drive file list instead of answering the greeting. `tool_call_logs` confirms 2× `drive_list_files {}`; admin has 40 lifetime `drive_list_files` calls — a pattern of over-firing. **Root cause (verified in code):** the de-keyword change (`d3b73a7`) is the regression of the old N1 ("Drive listing dumped on non-Drive turns", previously fixed with a keyword gate `91facbe`/`dc18773`). Chain: (1) `drive_tools.py:41` `_drive_gate` = `ctx.drive_active` — capability only, no message relevance; all 3 Drive schemas + the `_DRIVE_RULES` system block (`drive_tools.py:20`, injected at `stream.py:282-287`) are present on **every** Drive-active turn. (2) `registry.py:46` `select_tool_schemas()` is a **passthrough no-op** — the intended relevance prefilter (embed query → cosine vs tool descriptions → top-k) is an unbuilt `TODO` behind `TOOL_PREFILTER_THRESHOLD=32` (25 tools < 32), so nothing ever filters tools by what the user said. (3) `stream.py:233-236`: `tools` non-empty (always, when Drive active) → llama-8B dropped from the fallback chain → every turn routes to the tool-eager 70B (`meta/llama-3.3-70b-instruct`, matches the logged model). (4) `_DRIVE_RULES` ("After drive_list_files: present the file names…") describes the listing flow as expected behavior, priming a spurious call with no request. No default system prompt forces proactive tool use (`system_prompt` is None unless set) — this is purely gating + 70B over-eagerness. The second turn was worse: history then held the prior listing, priming the repeat. **Fix options:** (a) build the `select_tool_schemas` embedding prefilter + drop the threshold so query-relevance gating actually runs (high effort, the intended design); (b) add a "do not call tools on greetings/trivial turns" line to the base/behavioral prompt (cheap, leaky); (c) lightweight relevance gate for connector tools, no full keyword revert (medium); (d) stop force-routing every tool turn to the 70B (medium, but 8B can't use tools). Recommended: c+b short-term, a as the real fix. Same de-keyword tradeoff class as the shipped `write_memory` spurious-fire fix (`d3b73a7`, hardened via schema description) — `drive_list_files` is the connector-tool equivalent, still open.
 
 ---
 
-## Verification Coverage — Gaps (audited 2026-06-22)
+## Verification Coverage — residuals (audit 2026-06-22)
 
-> **Not bugs — unverified surface.** Tools + integrations are fully verified live (sweep
-> **13✓ / 1 skip**, only Gmail unconnected; runbook: `backend/tests/VERIFICATION_LAUNCH.md`).
-> Everything below is the **non-tool** backend surface that the live/integration/unit suites do
-> **not** yet cover end-to-end. Audit = all 22 routers + 10 ARQ jobs + 5 scheduler crons mapped
-> against `tests/live/`, `tests/integration/`, `tests/`.
->
-> IDs `V-<group><n>`; check off as each is verified. Per-item tag:
-> `[live-now]` testable against the running stack today · `[needs-infra]` needs SMTP/OCR/etc. ·
-> `[timing]` fires on a cron/threshold so needs manual trigger or a wait.
->
-> Already verified live (for contrast): chat SSE + `done` contract, routing/override/cache-bypass,
-> RAG loop, files CRUD/dedup, auth lifecycle, health/metrics, web search, fetch_url, all file/graph
-> tools, Drive, Calendar; goals **full CRUD**; notification-prefs PATCH; admin GET + secret masking;
-> infra tier (migrations→047, pgvector, Redis, Neo4j).
+> Full audit done: 22 routers + 10 ARQ jobs + 5 crons mapped against `tests/live/` /
+> `tests/integration/` / `tests/`. All A–D items (autonomy, scheduler, endpoints, reliability)
+> + tools/integrations verified live; 7 bugs found + fixed (BUG-V1–V7 → history note above).
+> Runbook: `backend/tests/VERIFICATION_LAUNCH.md`. Only the infra-gated residuals stay open:
 
-### A. Autonomous / background pipeline — ARQ jobs (message/threshold-triggered)
-> Highest-value gap. Nothing here is exercised E2E — the HTTP sweep only reads the result endpoints.
-
-- `[x]` **V-A1 Insight generation** `[live-now]` — ✅ webhook (`external.data`) →
-  `process_webhook_job` → `generate_user_insight` → `UserInsight` row appears in `/insights`.
-  `test_autonomy.py::test_insight_generated_from_webhook`.
-- `[x]` **V-A2 Memory compaction** `[live-now]` — ✅ `POST /memory/compact` → new `UserMemoryVersion`
-  visible in `GET /memory/history`. `test_autonomy.py::test_compaction_creates_version`.
-- `[x]` **V-A3 Graph extraction after chat** `[live-now]` — ✅ fact-rich chat → `/graph/stats`
-  entity count grows from 0. `test_autonomy.py::test_graph_extraction_after_chat`.
-- `[x]` **V-A4 Behavior profile** `[DB-verified]` — ✅ after 2 chats, `user_behavior_profiles.profile`
-  populated (`tools_used`/`models_used`/`query_types`/`topic_keywords`/`total_messages`). Verified
-  via psql (no HTTP surface — recorded in run log).
-- `[x]` **V-A5 Preference extraction** `[DB-verified]` — ✅ enqueued `extract_preferences_job` directly
-  via ARQ pool → wrote a correct `[PREFERENCES]` block (`verbosity: concise`, `response_style: direct`)
-  to `user_memory.content`. Verified via psql + arq logs.
-- `[x]` **V-A6 Auto-title** `[live-now]` — ✅ 2nd turn in a conversation → title changes off the raw
-  first message. `test_autonomy.py::test_auto_title_after_second_message`.
-
-### B. Scheduler / cron (worker is up, but firing/registration unproven)
-- `[x]` **V-B1 Scheduled-prompt execution** `[live-now]` — ✅ create (schedule alias→cron_expr) →
-  `POST /scheduled-prompts/{id}/run` → `ScheduledPromptRun` recorded with terminal status → delete.
-  Verified in `test_endpoints_extra.py`.
-- `[x]` **V-B2 run_memory_compaction** `[fixed]` — cron `0 3 * * *`. Was silently dead (no arq pool,
-  **BUG-V5**); after the fix it enqueues compaction for eligible users. Verified by direct invoke.
-- `[x]` **V-B3 run_integration_sync** `[fixed]` — cron `0 */6 * * *`. Same BUG-V5; now "integration
-  sync queued for 2 sources". Verified by direct invoke.
-- `[~]` **V-B4 run_digest** `[needs-infra]` — gated off (`DIGEST_ENABLED=False`, `SMTP_HOST=''`);
-  invoking it returns cleanly (graceful no-op). Full send path needs SMTP (MailHog).
-- `[x]` **V-B5 run_backup** — ✅ after **BUG-V6 fix**, the scheduled in-container `run_backup` produces
-  a valid gzip dump (1.5 MB, 26 tables) via direct pg_dump; host `docker/backup.sh` also works.
-  Restore-rehearsal over a staging DB still pending (V-E4).
-- `[x]` **V-B6 Scheduler worker liveness** `[live-now]` — ✅ container up 3d; all 5 jobs registered
-  (sync_schedules 5-min, compaction 3am, backup, integration-sync 6h) + arq pool now ready.
-
-### C. Endpoints never hit by any test
-- `[x]` **V-C1 Templates** `[live-now]` — `PromptTemplate` CRUD (`templates_router`). ✅ create/get/
-  list/update/apply/delete verified (`test_endpoints_extra.py`).
-- `[x]` **V-C2 Export** `[live-now]` — `GET /export/full` ZIP. ✅ verified — **BUG FOUND + FIXED**: declared
-  `Content-Length` from `zip_buf.tell()` (0 after rewind) → uvicorn aborted the connection and broke the
-  next keep-alive request. Fixed in `api/export.py` (length from actual bytes). Commit `36c892e`.
-- `[x]` **V-C3 Unified search** `[live-now]` — `GET /search?q=` fan-out. ✅ shape + finds freshly written
-  memory. (path is `/search`, not `/api/search`.)
-- `[x]` **V-C4 Conversation ops** `[live-now]` — ✅ PATCH, export (md+json), `?q=` search, delete, file
-  attach/detach all verified.
-- `[x]` **V-C5 Admin mutations** `[live-now/unsafe-isolated]` — ✅ `PUT /admin/env` + reload
-  (harmless probe key, host `.env` untouched), memory **hard** reset (memory + Neo4j graph cleared)
-  + `/memory/versions` + `/memory/restore` (snapshot → restored), cost-limit set/revert. All on a
-  throwaway user. Verified via run scripts.
-- `[x]` **V-C6 Invite gate** `[live-now]` — ✅ issuance/listing/register-with-token; and after
-  **BUG-V4 fix**, `REQUIRE_INVITE=true` (live reload) blocks token-less register (403) and a valid
-  token registers (201). Verified via env-flip script.
-
-### D. Reliability invariants (matter for launch; all untested)
-- `[x]` **V-D1 Fallback chain** `[unsafe-isolated]` — ✅ tripped the **coder** breaker (Redis +
-  restart → `restore_circuit_state`), then a coder-routed chat fell back to reasoning with
-  `done.fallback_used=True` + `Falling back → ...` status. Breaker cleared + coder restored healthy
-  (no lasting impact). Note: a *bad* `model_override` is resolved to a valid model, not fallback.
-- `[x]` **V-D2 Circuit breaker** `[unsafe-isolated]` — ✅ in-container: 5 `record_failure` → `is_open`
-  True + Redis `cb:open:*` set; `record_success` → reset; `restore_circuit_state` reloads from Redis
-  on restart. Trip logic tested on a **fake** model (zero blast radius); restore tested on coder.
-- `[x]` **V-D3 Rate limiting** `[live-now]` — ✅ >15 chat posts/60s on a throwaway user → 429.
-  `test_reliability.py`.
-- `[x]` **V-D4 Cost cap** `[live-now]` — ✅ near-zero cap on a throwaway user → **402** with label
-  `Cost cap reached ($x / $y 30d)` on the **stream** path. `test_reliability.py`. (See BUG-V3.)
-- `[x]` **V-D5 Memory conflict** `[live-now]` — ✅ `scan` (200) + `resolve` (keep_a) verified; scan is
-  LLM-judged so detection is best-effort (test resolves only if flagged).
-
-### E. Optional / infra-dependent
-- `[~]` **V-E1 Real OCR** `[needs-infra]` — `IMAGE_OCR_ENABLED=False`. ⚠️ **BUG-V7**: `paddleocr` is
-  installed but `paddlepaddle` (the `paddle` backend) is **not** — the `requirements.txt` pin dropped
-  explicit `paddlepaddle` assuming it's transitive, but it isn't pulled. Enabling OCR would fail.
-  Harmless while OCR is off (default), but blocks #19. Unit-mocked OCR tests still pass.
-- `[~]` **V-E2 Notifications dispatch** `[needs-infra]` — no `SMTP_HOST` / VAPID on this stack, so the
-  email + web-push send paths can't run live; covered by `tests/test_notifications.py` (mocked).
-- `[~]` **V-E3 Digest email** `[needs-infra]` — see V-B4 (gated off, graceful no-op; needs SMTP).
-- `[ ]` **V-E4 Backup → restore rehearsal** `[needs-infra]` — dump verified (V-B5); restore over a
-  **staging** DB not run (restoring over live is destructive).
-- `[x]` **V-E5 Re-embed** `[live-now]` — ✅ `POST /admin/re-embed` accepted (200/202). Verified.
-
-### Run log — autonomous verification (2026-06-22)
-> New suites under `tests/live/`. Bugs found are fixed aggressively + re-verified, each in its own commit.
-
-- **BUG-V1 (fixed, `36c892e`)** — `GET /export/full` crashed with `RuntimeError: Response content
-  longer than Content-Length`: header used `zip_buf.tell()` (0 after `_build_zip` rewinds) while the
-  body was the full ZIP → uvicorn aborted the connection (also broke the next keep-alive request).
-  Fixed: Content-Length from `len(zip_buf.getvalue())`. `api/export.py`.
-- **BUG-V2 (fixed, `b48a268`)** — `retriever.store_exchange` logged a full ERROR traceback on the
-  benign delete-race FK violation. Now caught as `IntegrityError` → rollback + debug log. Verified:
-  delete-immediately-after-chat produces zero ERROR logs. `llm/retriever/queries.py`.
-- Phase 1 (endpoint contracts): **10/10 live pass** after BUG-V1 fix.
-- Phase 2 (autonomy): **4/4 live pass** (`test_autonomy.py`); A4 behavior-profile + A5 preferences
-  verified via psql/ARQ (no HTTP surface) — both jobs produce correct rows. No bugs found.
-- **BUG-V3 (fixed, `49cb6ea`)** — nonstream `POST /chat` is stateless and skipped the cost cap, so a
-  capped user could bypass their limit via `/chat`. Added the `_check_cost_cap` pre-flight (capped
-  user → 402, verified). `/chat` remains deliberately stateless otherwise (no history/RAG/tools);
-  per-call cost still accrues only on `/chat/stream` — acceptable since the cap is now enforced
-  consistently from stream-recorded usage and `/chat` is rate-limited. `api/chat/router.py`.
-- **BUG-V4 (fixed, `945f67a`)** — `auth/router.py` used `from config import REQUIRE_INVITE` (frozen at
-  import), so flipping `REQUIRE_INVITE` via `/admin/env` reload didn't gate registration live. Switched
-  to call-time `config.REQUIRE_INVITE`; verified 403/201 live. (Gate already worked on restart.)
-- Phase 3 (reliability + unsafe-isolated): **D3/D4 4/4 live pass** (`test_reliability.py`); D1/D2
-  (fallback + breaker), C5 (env PUT/reload + memory reset/restore), C6 (invite gate) verified via
-  isolated run scripts — fake model + throwaway users + immediate restore (coder breaker cleared,
-  caps reverted, env reverted, no lasting impact). Found BUG-V3 + fixed BUG-V4.
-- **BUG-V5 (fixed, `6c98c84`)** — the scheduler worker never called `init_arq_pool`, so
-  `get_arq_pool()` was None and **daily memory compaction + 6h integration sync silently no-op'd**
-  ("no arq pool"). Added `init_arq_pool(REDIS_URL)` to `scheduler_worker.main()`; verified both now
-  enqueue. (The most impactful find — two background jobs were effectively dead.)
-- **BUG-V6 (fixed, `443df8e`)** — the scheduled backup was dead (`run_backup` shelled to
-  `docker/backup.sh`; no docker CLI / pg_dump in the scheduler). Rewrote `run_backup` to pg_dump the
-  `postgres` host directly (creds from `DATABASE_URL`, not pgbouncer) → gzip into the shared backups
-  volume + prune; added `postgresql-client-16` to the image. Verified: 1.5 MB dump (26 tables) from
-  the scheduler container. (Host `docker/backup.sh` still works too.)
-- **BUG-V7 (fixed, `75370ae`)** — `paddlepaddle` isn't installed and isn't pulled transitively by
-  paddleocr (the requirements comment was wrong). Missing `paddle` raises `ModuleNotFoundError` (an
-  `ImportError`) which the OCR path already catches → graceful empty text, **no crash**. Fixed the
-  misleading log + documented `paddlepaddle` as a commented opt-in (kept out by default to keep the
-  image lean; uncomment to actually enable OCR). `services/processor.py`, `requirements.txt`.
-- Phase 4 (infra/cron): B2/B3 fixed (BUG-V5), B5 host-backup verified + BUG-V6, B6 liveness ✓,
-  digest graceful no-op; E1/E2/E3/E4 are needs-infra (SMTP/VAPID/paddle/staging-DB) — documented.
-- **Follow-up pass (all 4 open findings fixed):** BUG-V2 (store_exchange), BUG-V3 (cost-cap on
-  `/chat`), BUG-V6 (scheduler backup + postgresql-client-16), BUG-V7 (OCR logging + paddle note).
-  Each verified live + committed separately; unit tier stayed at 175 pass. **Net: 7 bugs found, 7
-  fixed** during the autonomous verification run.
-
-### Plan
-- **Tier 1 (`[live-now]`)** → build a new live suite `tests/live/test_autonomy_and_reliability.py`
-  covering A1–A4, A6, B1, B6, C1–C6, D1–D5, E5. Closes most of A–D against the running stack.
-- **Tier 2 (`[needs-infra]` / `[timing]`)** → A5, B2–B5, E1–E4: document as infra/cron-gated in the
-  runbook; verify opportunistically (MailHog for mail, flag flip for OCR, manual job enqueue for cron).
+- `[~]` **V-B4 / V-E3 Digest email** `[needs-infra]` — `DIGEST_ENABLED=False`, `SMTP_HOST=''`;
+  graceful no-op live. Full send path needs SMTP (MailHog).
+- `[~]` **V-E1 Real OCR** `[needs-infra]` — `IMAGE_OCR_ENABLED=False`; `paddlepaddle` is a commented
+  opt-in (kept out to keep the image lean). Enabling needs the paddle backend installed. Blocks #19.
+- `[~]` **V-E2 Notifications dispatch** `[needs-infra]` — no SMTP/VAPID on this stack; email + web-push
+  send paths can't run live (mocked in `tests/test_notifications.py`).
+- `[ ]` **V-E4 Backup → restore rehearsal** `[needs-infra]` — dump verified; restore over a **staging**
+  DB not run (restoring over live is destructive).
 
 ---
 
