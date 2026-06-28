@@ -114,11 +114,19 @@ when chosen to activate.
 
 ---
 
-## Q3 — Drive over-fire fix (abstention rules → conditional semantic latch) — ✅ ACTIONABLE NOW (parked by root direction, NOT hardware-blocked)
+## Q3 — Drive over-fire fix (abstention rules → semantic latch) — 🔶 Task A DONE (no effect); Task B NOW MANDATORY
 
-- **Status:** runnable today on the NIM stack (Drive-active admin session). Parked here by user
-  direction, not blocked. Promote Task A into `HANDOFF.md` → `backend/` when chosen to activate.
-- **Owner-to-be:** `backend/` (both tasks) → root (close-out).
+- **Status:** **Task A shipped + measured live 2026-06-28 (root direct, override) — leak NOT reduced
+  (test-4 pass rate 0/5; fires on every greeting/ack turn).** `_DRIVE_RULES` is in-tree as the
+  post-latch abstention layer but does nothing alone. **Task B is now mandatory** (was conditional on
+  Task A's test-4 rate; rate = 0% → condition met). Promote Task B into `HANDOFF.md` → `backend/`.
+- **Owner-to-be:** `backend/` (Task B) → root (close-out). Task A is already merged.
+
+> **Task A measurement (2026-06-28, admin Drive-active, 5 trials/test, ground-truthed vs
+> `tool_call_logs`):** T1 `ehllo` 0/5 no-fire · T2 `hello?` 0/5 · T3 real request 5/5 fires (correct) ·
+> **T4 `thanks` 0/5** (the history-priming case). The 70B calls `drive_list_files {}` on every turn
+> while the schema is present — abstention prompt text had **zero** effect. This is the before-baseline
+> Task B must beat: T1 must become *structurally* 0-fire (schema absent), not merely discouraged.
 - **Bug:** BUGS.md → Open → "Drive tools fire on greetings / trivial turns — `drive_list_files`
   dumped on 'ehllo'". Root cause confirmed live (2026-06-27): capability-gate injects Drive schemas →
   `tools` non-empty → llama-8B dropped → tool-eager 70B calls `drive_list_files` from the schema alone.
@@ -130,7 +138,7 @@ when chosen to activate.
 ### Cold-start file map (resolve the bare filenames below to THESE; line nums = 2026-06-28 snapshot, re-anchor via graphify before editing)
 | Spec says | Actual file | Role / anchor |
 |---|---|---|
-| `drive_tools.py` | `backend/llm/tools/builtin/drive_tools.py` | `_DRIVE_RULES` L20 · `_drive_gate` L41 (three `should_inject=_drive_gate` regs L65/76/84) |
+| `drive_tools.py` | `backend/llm/tools/builtin/drive_tools.py` | `_DRIVE_RULES` L20 (now abstention text, ~L20–54 after Task A) · `_drive_gate` **L56** (three `should_inject=_drive_gate` regs **L80/91/99**) |
 | `stream.py` (define / assemble) | `backend/llm/service/stream.py` | `generate_stream` def **L92** (B2 signature) · `injected_tools` assembly **L221** · `_rules_block` injection **L281–287** (B3) |
 | `stream.py` (call site) | `backend/api/chat/stream.py` | `service.generate_stream(` call **L271** (B2-step2 — pass `query_emb` here) |
 | `helpers.py` | `backend/api/chat/helpers.py` | `query_emb` produced **L254** (`embed` task fired L241); used by RAG L259+ |
@@ -147,7 +155,13 @@ when chosen to activate.
 
 ---
 
-### Task A — Abstention-biased Drive rules
+### Task A — Abstention-biased Drive rules — ✅ DONE 2026-06-28 (shipped; measured ineffective)
+
+> **Outcome:** `_DRIVE_RULES` rewritten to abstention-biased text (`backend/llm/tools/builtin/drive_tools.py`,
+> one symbol; `_POST_LISTING`/`_drive_gate`/registrations untouched), image rebuilt, `graphify update .` run.
+> **Behavioral battery (5 trials/test, ground-truthed vs `tool_call_logs`): T1 0/5, T2 0/5, T3 5/5, T4 0/5.**
+> Zero reduction in spurious fires — confirms prompt steering cannot carry this fix; schema must be withheld.
+> Test conversations cleaned up post-run. Bug stays open (BUGS.md). → Task B mandatory.
 
 #### Scope
 Touch **one file**: `drive_tools.py`. Edit **one symbol**: `_DRIVE_RULES` (line ~20). Nothing else.
@@ -245,8 +259,8 @@ Task B as the before-baseline. **Do not start B until test 4's behavior is measu
 
 ---
 
-### Task B — Session-latched semantic Drive gate (CONDITIONAL on Task A's test-4 measurement)
-> Build only if Task A's test-4 pass-rate is unacceptable. Full spec below.
+### Task B — Session-latched semantic Drive gate (NOW MANDATORY — Task A's test-4 = 0/5)
+> Condition met: Task A's test-4 pass-rate measured 0/5 (2026-06-28). Build this. Full spec below.
 
 #### Scope
 Touches **four files**. Stay inside them:
