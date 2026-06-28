@@ -1,0 +1,40 @@
+{"text": "any new emails from my manager", "label": "gmail"}
+{"text": "open my latest message", "label": "gmail"}
+{"text": "search my email for the receipt", "label": "gmail"}
+{"text": "did the invoice email come in", "label": "gmail"}
+{"text": "show me unread messages in my inbox", "label": "gmail"}
+{"text": "find the email from amazon about my order", "label": "gmail"}
+{"text": "what's the most recent email I got", "label": "gmail"}
+{"text": "look through my inbox for the contract", "label": "gmail"}
+{"text": "check if I have mail from the bank", "label": "gmail"}
+{"text": "read the email about the interview", "label": "gmail"}
+{"text": "any messages from the support team", "label": "gmail"}
+{"text": "find emails I got this morning", "label": "gmail"}
+{"text": "show me what's in my gmail", "label": "gmail"}
+{"text": "did anyone reply to my email", "label": "gmail"}
+{"text": "look up the email with the boarding pass", "label": "gmail"}
+{"text": "search my messages for the password reset", "label": "gmail"}
+{"text": "what emails are in my inbox today", "label": "gmail"}
+{"text": "open the email from my landlord", "label": "gmail"}
+{"text": "find that message about the refund", "label": "gmail"}
+{"text": "do I have any important unread mail", "label": "gmail"}
+{"text": "ehllo", "label": "non_gmail"}
+{"text": "hello?", "label": "non_gmail"}
+{"text": "thanks", "label": "non_gmail"}
+{"text": "good morning", "label": "non_gmail"}
+{"text": "explain how recursion works", "label": "non_gmail"}
+{"text": "what's the difference between a list and a tuple", "label": "non_gmail"}
+{"text": "help me debug this stack trace", "label": "non_gmail"}
+{"text": "what time is it in tokyo", "label": "non_gmail"}
+{"text": "summarize the paragraph I just pasted", "label": "non_gmail"}
+{"text": "write a haiku about autumn", "label": "non_gmail"}
+{"text": "what's a hashmap", "label": "non_gmail"}
+{"text": "can you refactor this function", "label": "non_gmail"}
+{"text": "translate good night into french", "label": "non_gmail"}
+{"text": "why is the sky blue", "label": "non_gmail"}
+{"text": "give me a recipe for pancakes", "label": "non_gmail"}
+{"text": "what's 15 percent of 240", "label": "non_gmail"}
+{"text": "ok sounds good", "label": "non_gmail"}
+{"text": "tell me a joke", "label": "non_gmail"}
+{"text": "what meetings do I have tomorrow", "label": "non_gmail"}
+{"text": "find a file in my google drive", "label": "non_gmail"}

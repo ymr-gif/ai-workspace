@@ -29,6 +29,49 @@ _MAX_IDENTICAL_CALLS = 3
 logger = logging.getLogger("service")
 
 
+async def _resolve_connector_latches(actives: dict, latched: dict, conv_id, query_emb) -> dict:
+    """Resolve all connector session intent latches for this turn (Q3 Task B + generalization).
+
+    Single-winner: already-latched connectors stay latched (sticky; TTL refreshed). Among
+    ACTIVE, not-yet-latched connectors, score query_emb vs each centroid and latch ONLY the
+    top scorer if it clears its threshold (`{connector}_latched:{conv_id}`, ex=3600,
+    latch-then-serve same turn). Single-winner stops one connector's request from latching
+    the others (the connectors share a "check my X" structure → high cross-talk), so a
+    cross-talk/task-imperative false latch hits one connector, not all.
+
+    USE_REDIS off → same-turn score only (no cross-turn stickiness); never falls back to
+    capability-only (that reinstates the over-fire bug). query_emb None → all scores 0.0.
+    Returns the updated latched dict.
+    """
+    from llm.tools.connector_intent import intent_score, INTENT_THRESHOLDS
+    out = dict(latched)
+
+    # Sticky: refresh TTL on connectors already latched this session.
+    if conv_id and USE_REDIS:
+        for c, on in latched.items():
+            if actives.get(c) and on:
+                try:
+                    from core.redis_client import get_redis
+                    await get_redis().expire(f"{c}_latched:{conv_id}", 3600)
+                except Exception:
+                    pass
+
+    # Flip the single best-scoring not-yet-latched connector, if it clears its threshold.
+    scores = {c: await intent_score(c, query_emb)
+              for c in actives if actives.get(c) and not latched.get(c)}
+    if scores:
+        winner = max(scores, key=scores.get)
+        if scores[winner] >= INTENT_THRESHOLDS[winner]:
+            out[winner] = True
+            if conv_id and USE_REDIS:
+                try:
+                    from core.redis_client import get_redis
+                    await get_redis().set(f"{winner}_latched:{conv_id}", "1", ex=3600)
+                except Exception:
+                    pass
+    return out
+
+
 async def generate_response(message: str, request_id: str) -> dict:
     total_start = time.monotonic()
 
@@ -163,70 +206,57 @@ async def generate_stream(
 
     yield {"type": "status", "stage": "route", "detail": f"Routing → {fallback_chain[0]} ({route_reason})", "level": "info"}
 
-    # Resolve async Drive flags ONCE here so each tool's should_inject() stays a
+    # Resolve async connector flags ONCE here so each tool's should_inject() stays a
     # pure, synchronous predicate. Then offer whichever registered tools opt in.
     _is_reasoning = fallback_chain[0] == config.MODELS["reasoning"]
     _drive_active = False
     _drive_cache_active = False
     _drive_latched = False
     _calendar_active = False
+    _calendar_latched = False
     _gmail_active = False
+    _gmail_latched = False
     if db is not None:
-        _drive_active = bool(await db.scalar(
-            select(ExternalSource.id).where(
-                ExternalSource.user_id == user_id,
-                ExternalSource.connector_type == "google_drive",
-                ExternalSource.status == "active",
-            )
-        ))
-        if _drive_active and conv_id and USE_REDIS:
+        async def _connector_active(connector_type: str) -> bool:
+            return bool(await db.scalar(
+                select(ExternalSource.id).where(
+                    ExternalSource.user_id == user_id,
+                    ExternalSource.connector_type == connector_type,
+                    ExternalSource.status == "active",
+                )
+            ))
+        _drive_active = await _connector_active("google_drive")
+        _calendar_active = await _connector_active("google_calendar")
+        _gmail_active = await _connector_active("gmail")
+        if conv_id and USE_REDIS:
             try:
                 from core.redis_client import get_redis
                 _redis = get_redis()
-                _drive_cache_active = bool(await _redis.exists(f"drive_listing:{conv_id}"))
-                _drive_latched = bool(await _redis.exists(f"drive_latched:{conv_id}"))
+                if _drive_active:
+                    _drive_cache_active = bool(await _redis.exists(f"drive_listing:{conv_id}"))
+                    _drive_latched = bool(await _redis.exists(f"drive_latched:{conv_id}"))
+                if _calendar_active:
+                    _calendar_latched = bool(await _redis.exists(f"calendar_latched:{conv_id}"))
+                if _gmail_active:
+                    _gmail_latched = bool(await _redis.exists(f"gmail_latched:{conv_id}"))
             except Exception:
                 pass
-        _calendar_active = bool(await db.scalar(
-            select(ExternalSource.id).where(
-                ExternalSource.user_id == user_id,
-                ExternalSource.connector_type == "google_calendar",
-                ExternalSource.status == "active",
-            )
-        ))
-        _gmail_active = bool(await db.scalar(
-            select(ExternalSource.id).where(
-                ExternalSource.user_id == user_id,
-                ExternalSource.connector_type == "gmail",
-                ExternalSource.status == "active",
-            )
-        ))
 
-    # Drive intent latch (Q3 Task B). Withhold the Drive schema until genuine Drive
-    # intent appears, then latch it in for the rest of the session. Runs BEFORE the
-    # injected_tools assembly below so the schema serves THIS turn (latch-then-serve)
-    # — the first real Drive request isn't a dead turn. Reuses the already-computed
-    # query_emb; no new embed call. The cosine signal is a learned embedding match,
-    # not a keyword rule. The latch flips ONCE per session → one prefix-cache miss,
-    # then the Drive schema block is byte-stable.
-    if _drive_active and not _drive_latched:
-        from llm.tools.drive_intent import drive_intent_score, DRIVE_INTENT_THRESHOLD
-        if await drive_intent_score(query_emb) >= DRIVE_INTENT_THRESHOLD:
-            _drive_latched = True
-            if conv_id and USE_REDIS:
-                try:
-                    from core.redis_client import get_redis
-                    await get_redis().set(f"drive_latched:{conv_id}", "1", ex=3600)
-                except Exception:
-                    pass
-    elif _drive_active and _drive_latched and conv_id and USE_REDIS:
-        # Refresh TTL so an active session stays latched; >1h idle → expires →
-        # re-latches on the next Drive-intent turn (benign).
-        try:
-            from core.redis_client import get_redis
-            await get_redis().expire(f"drive_latched:{conv_id}", 3600)
-        except Exception:
-            pass
+    # Per-connector intent latch (Q3 Task B + calendar/gmail generalization). Withhold
+    # each connector's schemas until genuine intent for THAT connector appears, then latch
+    # it in for the session. Single-winner across connectors (one request can't latch the
+    # others — they share a "check my X" structure → high cross-talk). Runs BEFORE the
+    # injected_tools assembly below so the schema serves THIS turn (latch-then-serve) — the
+    # first real connector request isn't a dead turn. Reuses query_emb; no new embed call.
+    # The cosine signal is a learned embedding match, not a keyword rule. One flip per
+    # connector per session → one prefix-cache miss, then the schema block is byte-stable.
+    _latched = await _resolve_connector_latches(
+        {"drive": _drive_active, "calendar": _calendar_active, "gmail": _gmail_active},
+        {"drive": _drive_latched, "calendar": _calendar_latched, "gmail": _gmail_latched},
+        conv_id, query_emb,
+    )
+    _drive_latched, _calendar_latched, _gmail_latched = (
+        _latched["drive"], _latched["calendar"], _latched["gmail"])
 
     _tool_ctx = ToolContext(
         message=message,
@@ -242,7 +272,9 @@ async def generate_stream(
         drive_cache_active=_drive_cache_active,
         drive_latched=_drive_latched,
         calendar_active=_calendar_active,
+        calendar_latched=_calendar_latched,
         gmail_active=_gmail_active,
+        gmail_latched=_gmail_latched,
     )
     # Capability-available tools, name-sorted for a byte-stable prompt prefix
     # (so the KV prefix cache makes repeat cost near-zero). The prefilter switch

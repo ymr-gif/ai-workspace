@@ -19,16 +19,22 @@ from llm.tools.builtin.gmail_tools import _gmail_full_gate
 
 
 class TestCapabilityGating:
-    """Gmail tools are now offered on capability alone (connector active),
-    independent of message wording — the model decides when to call them."""
+    """Gmail tools are gated on capability AND the session intent latch (Q3 Task B
+    generalization): connector active AND the session latched on email intent. The
+    latch is resolved in generate_stream from an embedding cosine; the gate reads flags."""
 
-    def test_injected_when_connector_active(self):
+    def test_injected_when_connector_active_and_latched(self):
         for msg in ("check my email", "what is the weather today", "", "hi"):
-            assert _gmail_full_gate(ToolContext(message=msg, gmail_active=True))
+            assert _gmail_full_gate(ToolContext(message=msg, gmail_active=True, gmail_latched=True))
+
+    def test_not_injected_before_latch(self):
+        # Active but NOT latched → schema withheld even for an explicit email ask.
+        for msg in ("read gmail", "show inbox", "list messages", "hi"):
+            assert not _gmail_full_gate(ToolContext(message=msg, gmail_active=True, gmail_latched=False))
 
     def test_not_injected_when_connector_inactive(self):
         for msg in ("read gmail", "show inbox", "list messages"):
-            assert not _gmail_full_gate(ToolContext(message=msg, gmail_active=False))
+            assert not _gmail_full_gate(ToolContext(message=msg, gmail_active=False, gmail_latched=True))
 
 
 @pytest.mark.asyncio

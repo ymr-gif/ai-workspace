@@ -19,8 +19,12 @@ _GMAIL_RULES = (
 
 
 def _gmail_full_gate(ctx: ToolContext) -> bool:
-    # Capability gate only — offered whenever the Gmail connector is active.
-    return ctx.gmail_active
+    # Capability AND session intent latch (Q3 Task B generalization). Connector active
+    # is necessary but not sufficient: the three Gmail schemas (+ _GMAIL_RULES) only
+    # enter context once genuine email intent has latched the session, so the model
+    # can't fire gmail_list_messages / gmail_search_messages on a greeting. The latch
+    # is resolved once per turn in generate_stream (embedding cosine, not keyword).
+    return ctx.gmail_active and ctx.gmail_latched
 
 
 async def _exec_gmail_list_messages(args: dict, ctx: ToolContext) -> str:

@@ -85,12 +85,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("[startup] re_embed check failed: %s", e)
 
-    logger.info("[startup] warm drive-intent centroid...")
+    logger.info("[startup] warm connector-intent centroids (background)...")
     try:
-        from llm.tools.drive_intent import warm_centroid
-        await warm_centroid()
+        import asyncio as _asyncio
+        from llm.tools.connector_intent import warm_centroids
+        # Background so startup isn't blocked by ~3×18 phrase embeds; the lazy path
+        # covers any request that arrives before the warm completes.
+        _asyncio.create_task(warm_centroids())
     except Exception as e:
-        logger.warning("[startup] drive-intent warm failed (will build lazily): %s", e)
+        logger.warning("[startup] connector-intent warm failed to schedule (will build lazily): %s", e)
 
     from core.encryption import fernet_ready
     if not fernet_ready():

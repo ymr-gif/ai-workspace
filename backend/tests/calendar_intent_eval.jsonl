@@ -1,0 +1,40 @@
+{"text": "what meetings do I have tomorrow", "label": "calendar"}
+{"text": "pull up my schedule for next week", "label": "calendar"}
+{"text": "am I busy on friday afternoon", "label": "calendar"}
+{"text": "set up a meeting with sarah on monday", "label": "calendar"}
+{"text": "do I have anything on my calendar tonight", "label": "calendar"}
+{"text": "what's my first appointment today", "label": "calendar"}
+{"text": "book a 30 minute call for thursday", "label": "calendar"}
+{"text": "cancel my dentist appointment", "label": "calendar"}
+{"text": "when's my meeting with the client", "label": "calendar"}
+{"text": "add lunch with mom to my calendar saturday", "label": "calendar"}
+{"text": "show my events for this weekend", "label": "calendar"}
+{"text": "reschedule the standup to 10am", "label": "calendar"}
+{"text": "do I have any conflicts next tuesday", "label": "calendar"}
+{"text": "what's coming up on my calendar", "label": "calendar"}
+{"text": "put a doctor visit on wednesday at 2", "label": "calendar"}
+{"text": "list everything scheduled for today", "label": "calendar"}
+{"text": "how many meetings do I have this week", "label": "calendar"}
+{"text": "delete the event called review", "label": "calendar"}
+{"text": "when am I free to meet", "label": "calendar"}
+{"text": "remind me about my flight on my calendar", "label": "calendar"}
+{"text": "ehllo", "label": "non_calendar"}
+{"text": "hello?", "label": "non_calendar"}
+{"text": "thanks", "label": "non_calendar"}
+{"text": "good morning", "label": "non_calendar"}
+{"text": "explain how recursion works", "label": "non_calendar"}
+{"text": "what's the difference between a list and a tuple", "label": "non_calendar"}
+{"text": "help me debug this stack trace", "label": "non_calendar"}
+{"text": "what time is it in tokyo", "label": "non_calendar"}
+{"text": "summarize the paragraph I just pasted", "label": "non_calendar"}
+{"text": "write a haiku about autumn", "label": "non_calendar"}
+{"text": "what's a hashmap", "label": "non_calendar"}
+{"text": "can you refactor this function", "label": "non_calendar"}
+{"text": "translate good night into french", "label": "non_calendar"}
+{"text": "why is the sky blue", "label": "non_calendar"}
+{"text": "give me a recipe for pancakes", "label": "non_calendar"}
+{"text": "what's 15 percent of 240", "label": "non_calendar"}
+{"text": "ok sounds good", "label": "non_calendar"}
+{"text": "tell me a joke", "label": "non_calendar"}
+{"text": "how do I center a div in css", "label": "non_calendar"}
+{"text": "find a file in my google drive", "label": "non_calendar"}

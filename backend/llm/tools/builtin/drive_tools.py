@@ -8,7 +8,7 @@ schema is absent, so the model cannot fire a Drive tool on a greeting; post-latc
 the model picks which to call from the schema descriptions and the behavioral
 rules below steer the list→ask→read flow. (Keyword/cache pre-filtering was removed
 in favor of native function calling; the latch is an embedding-cosine signal, not
-a keyword match — see `llm/tools/drive_intent.py`.)
+a keyword match — see `llm/tools/connector_intent.py`.)
 
 The `_drive_*` impls stay in `llm/tools/drive.py` (unchanged path — tests patch them).
 """

@@ -21,8 +21,12 @@ _CALENDAR_RULES = (
 
 
 def _cal_full_gate(ctx: ToolContext) -> bool:
-    # Capability gate only — offered whenever the Calendar connector is active.
-    return ctx.calendar_active
+    # Capability AND session intent latch (Q3 Task B generalization). Connector active
+    # is necessary but not sufficient: the six calendar schemas (+ _CALENDAR_RULES) only
+    # enter context once genuine calendar intent has latched the session, so the model
+    # can't fire calendar_list_events / calendar_search_events on a greeting. The latch
+    # is resolved once per turn in generate_stream (embedding cosine, not keyword).
+    return ctx.calendar_active and ctx.calendar_latched
 
 
 async def _exec_calendar_list_events(args: dict, ctx: ToolContext) -> str:

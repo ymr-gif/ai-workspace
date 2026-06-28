@@ -18,16 +18,22 @@ from llm.tools.builtin.calendar_tools import _cal_full_gate
 
 
 class TestCapabilityGating:
-    """Calendar tools are now offered on capability alone (connector active),
-    independent of message wording — the model decides when to call them."""
+    """Calendar tools are gated on capability AND the session intent latch (Q3 Task B
+    generalization): connector active AND the session latched on calendar intent. The
+    latch is resolved in generate_stream from an embedding cosine; the gate reads flags."""
 
-    def test_injected_when_connector_active(self):
+    def test_injected_when_connector_active_and_latched(self):
         for msg in ("what's on my calendar", "what is the weather today", "", "hi"):
-            assert _cal_full_gate(ToolContext(message=msg, calendar_active=True))
+            assert _cal_full_gate(ToolContext(message=msg, calendar_active=True, calendar_latched=True))
+
+    def test_not_injected_before_latch(self):
+        # Active but NOT latched → schema withheld even for an explicit calendar ask.
+        for msg in ("list events", "book a meeting", "create event", "hi"):
+            assert not _cal_full_gate(ToolContext(message=msg, calendar_active=True, calendar_latched=False))
 
     def test_not_injected_when_connector_inactive(self):
         for msg in ("list events", "book a meeting", "create event"):
-            assert not _cal_full_gate(ToolContext(message=msg, calendar_active=False))
+            assert not _cal_full_gate(ToolContext(message=msg, calendar_active=False, calendar_latched=True))
 
 
 @pytest.mark.asyncio

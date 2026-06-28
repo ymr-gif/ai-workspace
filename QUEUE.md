@@ -62,11 +62,13 @@ when chosen to activate.
 - Backend config (2026-06-19): inert `LLM_BACKEND` flag; flips endpoints / model-collapse / ctx-32k / embedder / guard live via `/admin/env/reload`. See `backend/CLAUDE.md` → `LLM_BACKEND` invariant.
 - Files touched: `docker/docker-compose.yml`, `docker/docker-compose.homeserver.cpu.yml` (new), `docker/probe_tool_calls.sh` (new), `docker/CLAUDE.md`, `backend/config.py` + call-time consumers (`nim.py`/`embeddings.py`/`router.py`/`service/stream.py`/`api/system.py`), `backend/tests/test_backend_mode.py` (new), `.env.example`.
 - **To fill on the box:** served model id, context window confirmed, tool_calls verdict (live), re-embed avoided, TPS baseline.
-- **Drive-intent latch re-tune (Q3 Task B, cross-posted):** `llm/tools/drive_intent.py`'s centroid
-  auto-regenerates at boot under bge, but `DRIVE_INTENT_THRESHOLD` (=0.60) is tuned to nv-embedqa-e5-v5's
-  score geometry and is **wrong for bge-large-en-v1.5**. On the swap: re-run `tests/drive_intent_eval.jsonl`
-  under bge and re-set the threshold. Symptom if skipped: Drive schema latches too early/late silently.
-  (Also in `backend/CLAUDE.md` → LLM_BACKEND invariant.)
+- **Connector-intent latch re-tune (Q3 Task B, cross-posted):** `llm/tools/connector_intent.py`'s
+  per-connector centroids (drive/calendar/gmail) auto-regenerate at boot under bge, but `INTENT_THRESHOLDS`
+  (drive 0.60 / calendar 0.60 / gmail 0.65) are tuned to nv-embedqa-e5-v5's score geometry and are
+  **wrong for bge-large-en-v1.5**. On the swap: re-run `tests/{drive,calendar,gmail}_intent_eval.jsonl`
+  under bge, re-set all three thresholds, and recheck cross-talk (the single-winner margin shifts too).
+  Symptom if skipped: connector schemas latch too early/late silently. (Also in `backend/CLAUDE.md` →
+  LLM_BACKEND invariant.)
 
 ### Verification (final, on the box)
 1. API container reaches llama.cpp `/v1/chat/completions` + `/v1/embeddings`.
