@@ -10,8 +10,11 @@ const CONNECTOR_LABELS = {
 
 const CONNECTOR_TYPES = ['google_drive', 'google_calendar', 'gmail', 'notion', 'github']
 
-// Connectors with a live OAuth flow. Others render as "coming soon" placeholders.
-const ENABLED_CONNECTOR_TYPES = ['google_drive', 'google_calendar', 'gmail']
+// Add connector types here to expose OAuth flow in the UI.
+// All five are backend-complete; none currently exposed.
+// Note: existing ExternalSource rows for previously-connected users remain visible
+// (Connected card, no reconnect button). Clean up manually if needed.
+const ENABLED_CONNECTOR_TYPES = []
 
 export default function useIntegrations(token) {
   const [integOpen, setIntegOpen] = useState(false)

@@ -1,7 +1,7 @@
 # HANDOFF
 - Updated: 2026-06-28
-- Status: **Q3 Task B DONE + generalized to Calendar/Gmail — SHIPPED + verified live (root direct, override).** Drive latch generalized into `connector_intent.py` (drive/calendar/gmail, single-winner). Greeting over-fire now structurally impossible for **all three** connectors. Ready for root close-out.
-- Owner: root (close-out).
+- Status: **CLOSED.** Q3 Task B (connector intent latch) shipped and verified 2026-06-28. Drive/Calendar/Gmail subsequently moved to UI stubs (`ENABLED_CONNECTOR_TYPES = []`); latch code is harmless dead code while connectors are not exposed. No active phase. See Pipeline for next work.
+- Owner: root.
 
 > **graphify-first mandate applies.** Before reading/grepping any source file, run `graphify query "<q>"`
 > / `graphify explain` / `graphify path`. Raw reads only to orient-then-edit specific lines. After code: `graphify update .`.
@@ -35,7 +35,7 @@
 
 ---
 
-## COMPLETED PHASE: Q3 Task B — Session-latched semantic Drive gate (SHIPPED 2026-06-28, root override)
+## COMPLETED PHASE: Q3 Task B — Session-latched semantic Drive gate (SHIPPED 2026-06-28, root override) [SUBSEQUENTLY STUBBED — connectors moved to UI-only stubs 2026-06-28]
 
 > **graphify-first mandate.** Re-anchor every file/line below via `graphify query`/`explain` before
 > editing — line numbers are a 2026-06-28 snapshot and drift. After code: `graphify update .`.
@@ -201,6 +201,7 @@ To resume: promote one of the above (root specs via `AskUserQuestion` → writes
 ## History
 | Date       | Feature                                  | Notes |
 |------------|------------------------------------------|-------|
+| 2026-06-28 | **Drive/Calendar/Gmail moved to UI stubs** (root) | All three Google connectors (and Notion/GitHub already stubs) moved to "More integrations on the way" section. `ENABLED_CONNECTOR_TYPES = []` in `frontend/src/hooks/useIntegrations.js`. Backend code (OAuth, tools, `connector_intent.py` latch) fully retained; latch is now harmless dead code (no active connectors can exist). Re-enable any connector by adding its type back to `ENABLED_CONNECTOR_TYPES`. |
 | 2026-06-28 | **Connector over-fire fix generalized to Calendar + Gmail** (root direct, override) | Diagnosed same capability-only over-fire on calendar/gmail (`ehllo` fired `calendar_list_events`; logs showed `calendar_search_events {"query":"hi"}`). Generalized the Drive latch → `llm/tools/connector_intent.py` (per-connector centroids + `INTENT_THRESHOLDS` drive 0.60/cal 0.60/gmail 0.65; `drive_intent.py` deleted). `_cal_full_gate`/`_gmail_full_gate` now require `*_latched`; `ToolContext` +calendar_latched/gmail_latched; `_resolve_connector_latches` resolves all three **single-winner** (connectors share a "check my X" structure → cross-talk: a gmail req scores ≥0.60 on drive centroid 13/20 — single-winner latches only the argmax so a false latch hits 1 connector not 3). Eval sets `tests/{calendar,gmail}_intent_eval.jsonl`; thresholds tuned live; cross-talk measured. **Live 11/11:** `ehllo`→no fire/no latch; calendar req→fires+latches calendar only (drive not latched); drive req→fires+latches drive only (calendar not latched). Unit 59✓ (incl. new `test_connector_intent` + updated drive/cal/gmail gating). Docs: backend/root `CLAUDE.md`, `BUGS.md` (entry closed), `QUEUE.md` bge note; `graphify update .`. Gmail not live-tested (not connected) — unit + structural + eval coverage. |
 | 2026-06-28 | **Q3 Task B — session-latched semantic Drive gate SHIPPED + verified live** (root direct, override) | User overrode the HANDOFF protocol → root implemented all of Task B. New `llm/tools/drive_intent.py` (boot-derived e5 centroid from 18 file-anchored phrases, deterministic retry build, async cosine score, `DRIVE_INTENT_THRESHOLD=0.60`); `query_emb` threaded helpers→stream; Redis `drive_latched:{conv_id}` latch (latch-then-serve same turn, sticky, TTL 3600, `USE_REDIS`-gated); `_drive_gate` → `drive_active AND drive_latched`; `ToolContext.drive_latched`; centroid warmed in lifespan. **Live behavioral: T1 `ehllo` structurally schema-absent (no fire) — was 0/5 under Task A; T2 pass; T3 latch-flips-and-fires same turn; T5 latch-stable fires; T4 `thanks` leaks = Task A's post-latch territory, by design.** B's guarantees 4/4. Threshold tuned vs 40-set live (greetings clean-separated 0.29–0.39; task-imperatives overlap = single-centroid ceiling, chose precision-biased 0.60 → 32/40, recall 14/20, spec 18/20). Unit 7✓, regression (drive/calendar/retrieval) green; pollution cleaned; `graphify update .`; bge re-tune migration note in `backend/CLAUDE.md`. Bug (BUGS.md "Drive fires on greetings") → cold case closed; post-latch trivial-turn leak remains (Option C deferred, record-first). |
 | 2026-06-28 | **Q3 Task B promoted → backend** (root) | Task A's test-4 = 0/5 fired Task B's mandatory trigger. Root promoted the session-latched semantic Drive gate from `QUEUE.md` Q3 into this file as the active backend phase (B0 eval-set-first, B1 `drive_intent.py` centroid, B2 `query_emb` threading, B3 Redis `drive_latched:{conv_id}` latch + gate flip), deleted the Q3 Task B block from `QUEUE.md`, `mv`'d HANDOFF to `backend/`. Anchors re-verified via graphify (lines drifted from snapshot). Plan: `~/.claude/plans/read-queue-md-and-plan-cheeky-pancake.md`. |

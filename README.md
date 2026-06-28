@@ -1,6 +1,6 @@
 # NIM AI Gateway
 
-A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routing, hybrid RAG, persistent graph memory, an AI agent tool loop, and OAuth connectors (Google Drive / Calendar / Gmail, Notion, GitHub) — all in a single Docker Compose stack.
+A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routing, hybrid RAG, persistent graph memory, an AI agent tool loop, and OAuth connector infrastructure (Drive, Calendar, Gmail, Notion, GitHub — backend complete, UI-stubbed) — all in a single Docker Compose stack.
 
 **Backend:** Python / FastAPI · **Frontend:** React / Vite · **Infra:** PostgreSQL + pgvector, Redis, Neo4j, Prometheus, Grafana
 
@@ -42,8 +42,8 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
 │    file I/O · fuzzy patch · graph query · memory write     │
 │    web search · fetch URL · ask_user · identical-sig abort │
 │                                                             │
-│  OAuth Connectors (on-demand, capability-gated tools)      │
-│    Google Drive · Calendar · Gmail · Notion · GitHub       │
+│  OAuth Connector Infrastructure (backend complete,          │
+│    UI-stubbed — Drive · Calendar · Gmail · Notion · GitHub)│
 │                                                             │
 │  Background (ARQ workers + APScheduler)                     │
 │    embed · compact · insights · behavior profile · backup  │
@@ -117,23 +117,24 @@ Activated when file IDs are attached to a request; forces the 70B model.
 | `calendar_create_event` / `calendar_update_event` / `calendar_delete_event` | calendar **writes** — never hit Google from the loop; return a confirm sentinel → `confirm_calendar_write` SSE → UI confirm card → `POST /api/integrations/calendar/execute` |
 | `gmail_list_messages` / `gmail_get_message` / `gmail_search_messages` | read-only Gmail access; offered whenever the Gmail connector is active |
 
-**25 tools total** — 9 file/graph, `ask_user`, `write_memory`, `web_search`, `fetch_url`, 3 Drive, 6 Calendar, 3 Gmail. Connector tools are injected on capability alone (connector connected / env enabled); the model decides when to call them via native function calling. `fetch_url` is the exception — injected only when the user's message contains a URL.
+**25 tools total** — 9 file/graph, `ask_user`, `write_memory`, `web_search`, `fetch_url`, 3 Drive, 6 Calendar, 3 Gmail (connector tools are backend-registered but unreachable while connectors are UI-stubbed). `fetch_url` is the exception — injected only when the user's message contains a URL.
 
 Capability-available schemas are passed name-sorted for a byte-stable prompt prefix (so the KV prefix cache makes repeat cost near-zero). A `select_tool_schemas()` prefilter switch (`registry.py`) decides the final subset; below `TOOL_PREFILTER_THRESHOLD` (32) it is passthrough — all tools. Past the threshold it will fall back to an embedding prefilter (embed the query, cosine-match against cached tool-description vectors, pass top-k); that branch is scaffolded but not yet built, so it fails safe to passthrough today.
 
 ### OAuth Connectors
-On-demand, capability-gated agent tools — offered whenever the connector is active; the model decides when to call them via native function calling. No auto-context injection, no sync-to-File. Credentials are Fernet-encrypted at rest (`INTEGRATION_SECRET`); refresh-on-expiry; a 401 marks the source `needs_reauth`.
+Backend-implemented OAuth connector infrastructure. All five connectors are backend-complete but not exposed in the UI (`ENABLED_CONNECTOR_TYPES = []` in `frontend/src/hooks/useIntegrations.js`). Users see all five under "More integrations on the way." Credentials are Fernet-encrypted at rest (`INTEGRATION_SECRET`); refresh-on-expiry; a 401 marks the source `needs_reauth`.
 
-| Connector | Mode | Scope | Tools |
-|---|---|---|---|
-| Google Drive | read-only | `drive.readonly` | `drive_list_files`, `drive_search`, `drive_read_file` |
-| Google Calendar | read-write | `calendar.events` | list / get / search / **create / update / delete** |
-| Gmail | read-only | `gmail.readonly` | `gmail_list_messages`, `gmail_get_message`, `gmail_search_messages` |
-| Notion, GitHub | read | per-provider | (sync stubs) |
+| Connector | Backend | Scope | Tools | UI Status |
+|---|---|---|---|---|
+| Google Drive | read-only | `drive.readonly` | `drive_list_files`, `drive_search`, `drive_read_file` | Stub — "Soon" |
+| Google Calendar | read-write | `calendar.events` | list / get / search / create / update / delete | Stub — "Soon" |
+| Gmail | read-only | `gmail.readonly` | `gmail_list_messages`, `gmail_get_message`, `gmail_search_messages` | Stub — "Soon" |
+| Notion | read | per-provider | (sync stub) | Stub — "Soon" |
+| GitHub | read | per-provider | (sync stub) | Stub — "Soon" |
 
-- Drive + Calendar + Gmail share **one** Google OAuth app (`GOOGLE_CLIENT_ID/SECRET`); enable the respective API + scope in the Google Cloud console.
-- OAuth flow: `GET /api/integrations/oauth/start` → consent → `GET /api/integrations/oauth/callback` (no JWT; identity carried in a Redis state token, TTL 600s).
-- Calendar **writes never hit Google from the tool loop** — `create/update/delete` return a confirm sentinel → `confirm_calendar_write` SSE → UI confirm card → Accept calls `POST /api/integrations/calendar/execute`. Mirrors the `write_memory` flow.
+- Drive + Calendar + Gmail share **one** Google OAuth app (`GOOGLE_CLIENT_ID/SECRET`); shared base: `GoogleOAuthConnector`.
+- OAuth flow is implemented (`GET /api/integrations/oauth/start` → consent → callback) but unreachable from the UI while connectors are stubbed.
+- Calendar **writes never hit Google from the tool loop** — confirm sentinel flow is backend-complete; unreachable while UI-stubbed.
 - A scheduler job re-syncs all active sources every 6h.
 
 ### Image OCR & Voice Input

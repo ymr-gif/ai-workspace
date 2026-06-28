@@ -3,7 +3,7 @@
 > Vision: A multi-user AI system where each person has a private, continuously evolving digital mind
 > that unifies memory, reasoning, and future autonomous intelligence into one personalized cognitive workspace.
 
-Last updated: 2026-06-21 (P3 tail shipped — #20 Voice STT, #21 Horizontal Scaling (Redis-lock abstraction + multi-replica), Gmail (read) connector, onboarding wizard, out-of-UI notifications (email + web push); earlier #19 image CPU-OCR. Dim 5 → 95%, overall ~99%. Remaining: #22 Multi-Modal (trigger-gated), Outlook/CalDAV, real ASR + home-server box. Earlier: Google Calendar connector — read-write, confirm-card writes; P0 + P1 + P2 complete; P3 live webpage ingestion + external integrations; Reasoning Loop / Dim 3 hardened; Dim 2 closed)
+Last updated: 2026-06-28 (P3 tail shipped — #20 Voice STT, #21 Horizontal Scaling (Redis-lock abstraction + multi-replica), Gmail (read) connector, onboarding wizard, out-of-UI notifications (email + web push); earlier #19 image CPU-OCR. Earlier: Google Calendar connector — read-write, confirm-card writes; P0 + P1 + P2 complete; P3 live webpage ingestion + external integrations; Reasoning Loop / Dim 3 hardened; Dim 2 closed; 2026-06-28 all five OAuth connectors moved to UI stubs (ENABLED_CONNECTOR_TYPES = []), Dim 5 pulled back to ~80%)
 **This document is subject to change.** Add, remove, or reprioritize features freely. Treat it as a living spec.
 
 > **Deployment direction (2026-06-17):** NIM is a test backend; the app is porting to a self-hosted
@@ -123,7 +123,7 @@ Last updated: 2026-06-21 (P3 tail shipped — #20 Voice STT, #21 Horizontal Scal
 |-----|-------|
 | ~~Web search tool~~ | ~~No internet search during chat~~ ✅ |
 | ~~Live webpage ingestion~~ | ~~`ingest-url` exists but no live web fetch mid-conversation~~ ✅ |
-| ~~External integrations~~ | ~~No calendar, email, or third-party data stream connectors~~ ✅ Google Drive (read) + **Google Calendar (read-write, confirm-card writes)** + **Gmail (read)** + Notion + GitHub OAuth connectors. Other-calendar (Outlook/CalDAV) connectors still open. |
+| External integrations | OAuth connector backend complete (Drive read / Calendar rw / Gmail read / Notion / GitHub); all five are UI-stubs (`ENABLED_CONNECTOR_TYPES = []`). Re-expose by adding types to that array. Outlook/CalDAV not yet implemented. |
 
 ### Platform / UX
 | Gap | Notes |
@@ -320,5 +320,5 @@ P3 — future
 | 2. Unified Interface | 100% | Cross-conversation insight propagation shipped (`[RECENT INSIGHTS]` block) |
 | 3. Reasoning Loop | ~97% | Tool call trace + retrieval scores added; model chain-of-thought not exposed (no native thinking tokens — hard model constraint) |
 | 4. Autonomous Agency | 90% | P2 complete; goal tracker ✅ |
-| 5. Real-Time Perception | 95% | Web search + live fetch + OAuth integrations done; **Calendar (rw) + Gmail (read) connectors**; **#19 image CPU-OCR**; **out-of-UI notifications (email + web push)**; Outlook/CalDAV still open |
-| **Overall** | **~99%** | P0–P2 complete; P3 done (#19 OCR, voice STT, onboarding, notifications, Gmail); horizontal-scaling lock abstraction shipped; Dim 3 ~97% (model CoT ceiling); remaining: Outlook/CalDAV, real ASR + home-server box |
+| 5. Real-Time Perception | ~80% | Web search + live fetch + #19 image CPU-OCR + out-of-UI notifications done; OAuth connector backend complete (Drive/Calendar/Gmail/Notion/GitHub) but all UI-stubbed; Outlook/CalDAV not implemented |
+| **Overall** | **~97%** | P0–P2 complete; P3 done (#19 OCR, voice STT, onboarding, notifications); horizontal-scaling lock abstraction shipped; Dim 3 ~97% (model CoT ceiling); Dim 5 pulled back — connectors UI-stubbed; remaining: Outlook/CalDAV, real ASR + home-server box |
