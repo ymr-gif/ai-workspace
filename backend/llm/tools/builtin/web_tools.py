@@ -23,14 +23,22 @@ def _inject_web_search(ctx: ToolContext) -> bool:
 
 
 async def _exec_web_search(args: dict, ctx: ToolContext) -> str:
+    query = args.get("query", "").strip()
+    if not query:
+        return "Error: query must not be empty."
     from llm.tools.web_search import run_web_search
-    results = await run_web_search(args.get("query", ""))
+    results = await run_web_search(query)
     lines = [f"[{i+1}] {r['title']}\n{r['url']}\n{r['snippet']}" for i, r in enumerate(results)]
     return "\n\n".join(lines) if lines else "No results found."
 
 
 def _inject_fetch_url(ctx: ToolContext) -> bool:
-    return bool(_URL_RE.search(ctx.message))
+    if _URL_RE.search(ctx.message):
+        return True
+    for turn in (ctx.history or [])[-6:]:
+        if isinstance(turn.get("content"), str) and _URL_RE.search(turn["content"]):
+            return True
+    return False
 
 
 async def _exec_fetch_url(args: dict, ctx: ToolContext) -> str:

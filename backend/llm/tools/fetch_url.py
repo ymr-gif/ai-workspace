@@ -28,6 +28,8 @@ def _resolve_and_validate(hostname: str) -> tuple[str | None, str | None]:
         if (ip.is_loopback or ip.is_private or ip.is_link_local or
                 ip.is_reserved or ip.is_multicast or ip.is_unspecified):
             return f"Rejected: '{hostname}' resolves to non-public address {raw}", None
+    if not infos:
+        return f"Rejected: no addresses resolved for '{hostname}'", None
     return None, infos[0][4][0]
 
 

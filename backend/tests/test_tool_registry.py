@@ -49,9 +49,10 @@ def test_inject_file_group_when_files_attached():
 
 # --- Capability gating (keyword pre-filter removed; model decides via schemas) ---
 
-def test_inject_write_memory_on_reasoning_regardless_of_wording():
-    # No keyword needed — reasoning model + db is the only gate.
-    assert _inject(message="hi", db=_DB, user_id=1, is_reasoning=True) == {"write_memory"}
+def test_inject_write_memory_on_reasoning_with_explicit_intent():
+    # Gate = reasoning model + db + explicit memory-write keyword in message.
+    assert _inject(message="remember that I like tea", db=_DB, user_id=1, is_reasoning=True) == {"write_memory"}
+    assert _inject(message="hi", db=_DB, user_id=1, is_reasoning=True) == set()
     assert _inject(message="remember that I like tea", db=_DB, user_id=1, is_reasoning=False) == set()
 
 
@@ -61,15 +62,27 @@ def test_inject_fetch_url_on_url():
     assert _inject(message="summarize this for me", db=_DB, user_id=1) == set()
 
 
+def test_inject_fetch_url_from_history():
+    # fetch_url offered when a URL appeared in recent conversation (not just current message).
+    history_with_url = [
+        {"role": "user", "content": "check out https://example.com"},
+        {"role": "assistant", "content": "Sure, let me fetch that."},
+    ]
+    assert _inject(message="now summarize it", db=_DB, user_id=1, history=history_with_url) == {"fetch_url"}
+    # No URL anywhere → not offered
+    assert _inject(message="now summarize it", db=_DB, user_id=1, history=[]) == set()
+
+
 def test_inject_web_search_on_flag_regardless_of_wording():
     assert _inject(message="hello", db=_DB, user_id=1, web_search_enabled=True) == {"web_search"}
     assert _inject(message="latest news today", db=_DB, user_id=1, web_search_enabled=False) == set()
 
 
-def test_inject_drive_all_tools_when_active_regardless_of_wording():
+def test_inject_drive_all_tools_when_active_and_latched():
+    # Q3 Task B: drive_active alone is not enough — session must also be latched.
     expected = {"drive_list_files", "drive_read_file", "drive_search"}
-    assert _inject(message="hello there", db=_DB, user_id=1, drive_active=True) == expected
-    assert _inject(message="can you check my drive?", db=_DB, user_id=1, drive_active=True) == expected
+    assert _inject(message="hello there", db=_DB, user_id=1, drive_active=True, drive_latched=True) == expected
+    assert _inject(message="hello there", db=_DB, user_id=1, drive_active=True, drive_latched=False) == set()
 
 
 def test_inject_nothing_when_drive_inactive():
