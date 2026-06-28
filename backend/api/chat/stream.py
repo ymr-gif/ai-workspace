@@ -285,6 +285,7 @@ async def chat_stream(
                 fact_saliences=ctx.get("fact_saliences", {}),
                 last_session=last_session,
                 intent=ctx.get("intent", "question"),
+                query_emb=ctx.get("query_emb"),
             ):
                 if event["type"] == "token":
                     accumulated.append(event["content"])

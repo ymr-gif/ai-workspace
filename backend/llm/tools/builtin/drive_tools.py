@@ -1,11 +1,14 @@
 """Google Drive tools — behavioral rules and post-listing stop message,
 co-located here.
 
-Gate: capability only — all three Drive tools are offered whenever the Drive
-connector is connected (`ctx.drive_active`). The model decides which to call
-from the schema descriptions; the behavioral rules below steer the list→ask→read
-flow. (Keyword/cache pre-filtering was removed in favor of native function
-calling.)
+Gate: capability AND session intent latch (Q3 Task B). All three Drive tools are
+offered only when the Drive connector is connected (`ctx.drive_active`) AND the
+session has latched on genuine Drive intent (`ctx.drive_latched`). Pre-latch the
+schema is absent, so the model cannot fire a Drive tool on a greeting; post-latch
+the model picks which to call from the schema descriptions and the behavioral
+rules below steer the list→ask→read flow. (Keyword/cache pre-filtering was removed
+in favor of native function calling; the latch is an embedding-cosine signal, not
+a keyword match — see `llm/tools/drive_intent.py`.)
 
 The `_drive_*` impls stay in `llm/tools/drive.py` (unchanged path — tests patch them).
 """
@@ -54,8 +57,13 @@ _POST_LISTING = (
 
 
 def _drive_gate(ctx: ToolContext) -> bool:
-    # Capability gate only — offered whenever the Drive connector is active.
-    return ctx.drive_active
+    # Capability AND intent latch (Q3 Task B). Connector active is necessary but
+    # not sufficient: the Drive schemas (and _DRIVE_RULES, which rides on this same
+    # injection) only enter context once genuine Drive intent has latched the
+    # session. Pre-latch the schema is absent, so the model *cannot* spuriously
+    # call drive_list_files on a greeting. Post-latch, _DRIVE_RULES covers the
+    # trivial-turn case. The latch is resolved once per turn in generate_stream.
+    return ctx.drive_active and ctx.drive_latched
 
 
 async def _exec_drive_list_files(args: dict, ctx: ToolContext) -> str:

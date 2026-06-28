@@ -19,18 +19,26 @@ from llm.tools.builtin.drive_tools import _drive_gate
 
 
 class TestCapabilityGating:
-    """Drive tools are now offered on capability alone (connector active),
-    independent of message wording — the model decides when to call them."""
+    """Drive tools are gated on capability AND the session intent latch (Q3 Task B):
+    the connector must be active AND the session must have latched on Drive intent.
+    The latch is resolved in generate_stream from an embedding cosine; the gate
+    itself just reads the resolved flags, independent of message wording."""
 
-    def test_injected_when_connector_active(self):
-        # Active regardless of wording — even a message with no Drive keyword.
+    def test_injected_when_connector_active_and_latched(self):
+        # Latched + active → offered regardless of this turn's wording.
         for msg in ("check my drive", "what is the weather today", "", "hello"):
-            assert _drive_gate(ToolContext(message=msg, drive_active=True))
+            assert _drive_gate(ToolContext(message=msg, drive_active=True, drive_latched=True))
+
+    def test_not_injected_before_latch(self):
+        # Active but NOT latched → schema withheld even for an explicit Drive ask.
+        # This is the structural guarantee: pre-latch the model cannot call a Drive tool.
+        for msg in ("list my google drive files", "open gdrive", "show sheets", "hello"):
+            assert not _drive_gate(ToolContext(message=msg, drive_active=True, drive_latched=False))
 
     def test_not_injected_when_connector_inactive(self):
-        # Inactive regardless of wording — even an explicit Drive request.
+        # Inactive regardless of wording or latch — even an explicit Drive request.
         for msg in ("list my google drive files", "open gdrive", "show sheets"):
-            assert not _drive_gate(ToolContext(message=msg, drive_active=False))
+            assert not _drive_gate(ToolContext(message=msg, drive_active=False, drive_latched=True))
 
 
 @pytest.mark.asyncio

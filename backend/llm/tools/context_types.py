@@ -33,5 +33,9 @@ class ToolContext:
     # resolved once before the injection loop (async I/O lives there, not here)
     drive_active: bool = False
     drive_cache_active: bool = False
+    # Drive intent latch (Q3 Task B): True once genuine Drive intent has appeared
+    # in the session. The Drive gate requires drive_active AND drive_latched, so
+    # the schema stays out of context until intent fires (then sticky per session).
+    drive_latched: bool = False
     calendar_active: bool = False
     gmail_active: bool = False

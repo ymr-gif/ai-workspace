@@ -116,6 +116,7 @@ async def generate_stream(
     fact_saliences:   dict | None       = None,
     last_session:     str               = "",
     intent:           str               = "question",
+    query_emb:        list | None       = None,
 ):
     # Cache excludes file/image/custom-params requests; history + model included in key
     use_cache = not file_chunks and not image_b64 and not model_params
@@ -167,6 +168,7 @@ async def generate_stream(
     _is_reasoning = fallback_chain[0] == config.MODELS["reasoning"]
     _drive_active = False
     _drive_cache_active = False
+    _drive_latched = False
     _calendar_active = False
     _gmail_active = False
     if db is not None:
@@ -180,7 +182,9 @@ async def generate_stream(
         if _drive_active and conv_id and USE_REDIS:
             try:
                 from core.redis_client import get_redis
-                _drive_cache_active = bool(await get_redis().exists(f"drive_listing:{conv_id}"))
+                _redis = get_redis()
+                _drive_cache_active = bool(await _redis.exists(f"drive_listing:{conv_id}"))
+                _drive_latched = bool(await _redis.exists(f"drive_latched:{conv_id}"))
             except Exception:
                 pass
         _calendar_active = bool(await db.scalar(
@@ -198,6 +202,32 @@ async def generate_stream(
             )
         ))
 
+    # Drive intent latch (Q3 Task B). Withhold the Drive schema until genuine Drive
+    # intent appears, then latch it in for the rest of the session. Runs BEFORE the
+    # injected_tools assembly below so the schema serves THIS turn (latch-then-serve)
+    # — the first real Drive request isn't a dead turn. Reuses the already-computed
+    # query_emb; no new embed call. The cosine signal is a learned embedding match,
+    # not a keyword rule. The latch flips ONCE per session → one prefix-cache miss,
+    # then the Drive schema block is byte-stable.
+    if _drive_active and not _drive_latched:
+        from llm.tools.drive_intent import drive_intent_score, DRIVE_INTENT_THRESHOLD
+        if await drive_intent_score(query_emb) >= DRIVE_INTENT_THRESHOLD:
+            _drive_latched = True
+            if conv_id and USE_REDIS:
+                try:
+                    from core.redis_client import get_redis
+                    await get_redis().set(f"drive_latched:{conv_id}", "1", ex=3600)
+                except Exception:
+                    pass
+    elif _drive_active and _drive_latched and conv_id and USE_REDIS:
+        # Refresh TTL so an active session stays latched; >1h idle → expires →
+        # re-latches on the next Drive-intent turn (benign).
+        try:
+            from core.redis_client import get_redis
+            await get_redis().expire(f"drive_latched:{conv_id}", 3600)
+        except Exception:
+            pass
+
     _tool_ctx = ToolContext(
         message=message,
         history=history or [],
@@ -210,6 +240,7 @@ async def generate_stream(
         use_redis=USE_REDIS,
         drive_active=_drive_active,
         drive_cache_active=_drive_cache_active,
+        drive_latched=_drive_latched,
         calendar_active=_calendar_active,
         gmail_active=_gmail_active,
     )

@@ -490,6 +490,7 @@ async def _build_stream_context(
         "conflicted_facts":    conflicted_facts,
         "policy_used":         query_type,
         "intent":              intent,
+        "query_emb":           query_emb,
         "retrieval_top_k":     top_k,
         "fact_saliences":      fact_saliences,
         "last_session":        last_session,

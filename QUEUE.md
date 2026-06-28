@@ -62,6 +62,11 @@ when chosen to activate.
 - Backend config (2026-06-19): inert `LLM_BACKEND` flag; flips endpoints / model-collapse / ctx-32k / embedder / guard live via `/admin/env/reload`. See `backend/CLAUDE.md` → `LLM_BACKEND` invariant.
 - Files touched: `docker/docker-compose.yml`, `docker/docker-compose.homeserver.cpu.yml` (new), `docker/probe_tool_calls.sh` (new), `docker/CLAUDE.md`, `backend/config.py` + call-time consumers (`nim.py`/`embeddings.py`/`router.py`/`service/stream.py`/`api/system.py`), `backend/tests/test_backend_mode.py` (new), `.env.example`.
 - **To fill on the box:** served model id, context window confirmed, tool_calls verdict (live), re-embed avoided, TPS baseline.
+- **Drive-intent latch re-tune (Q3 Task B, cross-posted):** `llm/tools/drive_intent.py`'s centroid
+  auto-regenerates at boot under bge, but `DRIVE_INTENT_THRESHOLD` (=0.60) is tuned to nv-embedqa-e5-v5's
+  score geometry and is **wrong for bge-large-en-v1.5**. On the swap: re-run `tests/drive_intent_eval.jsonl`
+  under bge and re-set the threshold. Symptom if skipped: Drive schema latches too early/late silently.
+  (Also in `backend/CLAUDE.md` → LLM_BACKEND invariant.)
 
 ### Verification (final, on the box)
 1. API container reaches llama.cpp `/v1/chat/completions` + `/v1/embeddings`.
@@ -114,13 +119,17 @@ when chosen to activate.
 
 ---
 
-## Q3 — Drive over-fire fix (abstention rules → semantic latch) — 🔶 Task A DONE (no effect); Task B NOW MANDATORY
+## Q3 — Drive over-fire fix (abstention rules → semantic latch) — ✅ DONE (Task A + Task B shipped 2026-06-28)
 
-- **Status:** **Task A shipped + measured live 2026-06-28 (root direct, override) — leak NOT reduced
-  (test-4 pass rate 0/5; fires on every greeting/ack turn).** `_DRIVE_RULES` is in-tree as the
-  post-latch abstention layer but does nothing alone. **Task B is now mandatory** (was conditional on
-  Task A's test-4 rate; rate = 0% → condition met). Promote Task B into `HANDOFF.md` → `backend/`.
-- **Owner-to-be:** `backend/` (Task B) → root (close-out). Task A is already merged.
+- **Status:** **DONE.** Task A (abstention `_DRIVE_RULES`) shipped but measured ineffective (test-4 0/5).
+  **Task B (session-latched semantic Drive gate) shipped + verified live 2026-06-28 (root direct, override):**
+  Drive schema is withheld until an embedding-cosine intent latch fires, so the cold "ehllo" over-fire is
+  now **structurally impossible** (schema absent pre-latch) — confirmed live (T1 no-fire/latch-absent vs
+  Task A's 0/5). Latch-then-serve same turn; sticky Redis `drive_latched:{conv_id}`. Residual: post-latch
+  trivial-turn leak ("thanks" after a listing) stays — Task A's territory, Option C (8B pre-pass) deferred
+  record-first. Full record: `HANDOFF.md` → "COMPLETED PHASE: Q3 Task B" + History. Bug `BUGS.md` "Drive
+  fires on greetings" → cold case closed.
+- **Owner:** done (root). Task A + Task B both merged.
 
 > **Task A measurement (2026-06-28, admin Drive-active, 5 trials/test, ground-truthed vs
 > `tool_call_logs`):** T1 `ehllo` 0/5 no-fire · T2 `hello?` 0/5 · T3 real request 5/5 fires (correct) ·
@@ -259,175 +268,7 @@ Task B as the before-baseline. **Do not start B until test 4's behavior is measu
 
 ---
 
-### Task B — Session-latched semantic Drive gate (NOW MANDATORY — Task A's test-4 = 0/5)
-> Condition met: Task A's test-4 pass-rate measured 0/5 (2026-06-28). Build this. Full spec below.
-
-#### Scope
-Touches **four files**. Stay inside them:
-- `drive_tools.py` — the gate function (`_drive_gate`) and centroid loading
-- `stream.py` — thread `query_emb` into the `generate_stream` call (~line 271); inject Drive schemas conditionally on latch
-- a new module — `drive_intent.py` (centroid derivation + cosine + phrase store) — keep the logic out of the hot path files
-- `registry.py` / wherever `generate_stream` is defined — add the `query_emb` param to the signature
-
-Do **not**: touch routing, the fallback chain, `cache.py`, the RAG retrieval logic itself, or `_DRIVE_RULES` (A owns that — it stays, it covers post-latch).
-
-**First sub-task is the eval set, not the code.** The threshold is unsettable without it. Build the 20/20 labeled set before writing the centroid. If you write the gate first you'll set the threshold by feel — the exact `TOOL_PREFILTER_THRESHOLD=32` sin this whole effort is correcting.
-
-#### Objective
-Remove Drive schemas from the model's context until genuine Drive intent appears in the session. Once intent fires, latch the connector in for the rest of the session (binary, name-sorted, cache-stable). Reuse the already-computed `query_emb` — zero new embed calls.
-
-**The guarantee this buys:** before latch, the Drive schema is absent, so the model *cannot* call `drive_list_files` — the "ehllo" cold case becomes structurally impossible, not merely discouraged. After latch, A's abstention rules cover the trivial-turn case. Two windows, two mechanisms.
-
-#### Sub-task B0 — Build the eval set (do this first)
-Create `drive_intent_eval.jsonl` (or equivalent), **40 labeled examples**:
-- **20 Drive-intent turns** — varied phrasings that should latch: "show my files", "what's in my drive", "pull up that doc about X", "find the budget sheet", "anything in my folders on Y", "open my resume", "do I have a file called…", etc. Vary structure; don't cluster around one verb.
-- **20 non-Drive turns** — must NOT latch: "ehllo", "hello?", "thanks", "explain recursion", "what's a hashmap", "help me debug this", "what time is it", "summarize this paragraph" (no file reference), etc. Include the trivial/greeting cases *and* substantive non-Drive questions.
-
-This set does double duty: sets B's threshold **and** measures B's gate accuracy as a number. That number is the portfolio artifact.
-
-#### Sub-task B1 — `drive_intent.py` (centroid + cosine)
-```python
-# drive_intent.py
-import numpy as np
-from llm.embeddings import embed_text  # reuse existing embedder
-
-# Persisted phrases — the ONLY place example vocabulary lives.
-# Centroid is DERIVED from these at boot, never hardcoded as a vector.
-_DRIVE_INTENT_PHRASES = [
-    "show my files",
-    "what's in my drive",
-    "pull up that document",
-    "find the file about the budget",
-    "open my resume",
-    "do I have a file called that",
-    "look it up in my documents",
-    "what's in my folders",
-    "search my drive for the report",
-    "list my files",
-    "get the spreadsheet from my drive",
-    "find my notes on this",
-    "open the folder with the photos",
-    "what documents do I have",
-    "check my drive for it",
-    # ~15–20 total, varied
-]
-
-_centroid = None
-
-def _build_centroid():
-    # CRITICAL: input_type must MATCH the query embed used at request time.
-    # helpers.py:241 uses input_type="query". The NIM e5 embedder is
-    # ASYMMETRIC — query- and passage-encoded text occupy different
-    # subspaces. Embed these phrases as "query" or the cosine ranks wrong
-    # while looking plausible.
-    vecs = [embed_text(p, input_type="query") for p in _DRIVE_INTENT_PHRASES]
-    arr = np.array(vecs, dtype=np.float32)
-    c = arr.mean(axis=0)
-    c = c / np.linalg.norm(c)  # normalize for cosine via dot product
-    return c
-
-def get_centroid():
-    global _centroid
-    if _centroid is None:
-        _centroid = _build_centroid()
-    return _centroid
-
-def drive_intent_score(query_emb) -> float:
-    if query_emb is None:
-        return 0.0  # no signal → fail toward NOT latching (fewer tools)
-    q = np.asarray(query_emb, dtype=np.float32)
-    q = q / (np.linalg.norm(q) + 1e-8)
-    return float(np.dot(q, get_centroid()))
-
-# Set from the 40-example eval set in B0, not by feel.
-DRIVE_INTENT_THRESHOLD = 0.0  # PLACEHOLDER — tune against eval set
-```
-
-**Build at startup, not lazily on the hot path if you can avoid it** — call `get_centroid()` once at app init so the first request doesn't eat the phrase-embedding cost. If init-time embedding isn't reachable, lazy is acceptable (it's one-time per process), but prefer warm.
-
-#### Sub-task B2 — Thread `query_emb` through
-The vector exists at `helpers.py:254` (`query_emb`), spent on RAG, then dropped. `generate_stream` (called at `stream.py:271`) has no access to it.
-1. **Add `query_emb` to `generate_stream`'s signature** (default `None` so other callers don't break).
-2. **At `stream.py:271`**, pass the already-computed `query_emb` in alongside `retrieved_chunks`.
-3. **Confirm `query_emb` is unconditional** at `helpers.py:241`. If there's any path where RAG/embedding is skipped, `query_emb` is `None` on those turns — `drive_intent_score` already handles that by returning 0.0 (fail toward not-latched). Verify the guard; don't assume.
-
-No new embed call. Pure plumbing. Show the signature diff and the call-site diff.
-
-#### Sub-task B3 — Latch + conditional schema injection
-
-**Latch storage — PINNED: Redis, mirroring `drive_listing:{conv_id}`.** (Resolves the spec's
-`session.drive_latched` placeholder — there is **no** `session` object in the hot path.) Implement in
-`backend/llm/service/stream.py`, the same block that resolves `_drive_active`/`_drive_cache_active` (~L180):
-- **Key:** `drive_latched:{conv_id}` — plain string flag (the listing cache is a hash; the latch is just presence).
-- **Read** (gate `if _drive_active and conv_id and USE_REDIS`, beside `_drive_cache_active` at L183):
-  `_drive_latched = bool(await get_redis().exists(f"drive_latched:{conv_id}"))`.
-- **Flip** (same-turn, AFTER `query_emb` is threaded in per B2): if not already latched and
-  `drive_intent_score(query_emb) >= DRIVE_INTENT_THRESHOLD` →
-  `await get_redis().set(f"drive_latched:{conv_id}", "1", ex=3600)` **and** set `_drive_latched = True`
-  in-process so the schema serves THIS turn (latch-then-serve). The score+set must run **before** the
-  `ToolContext` / `injected_tools` assembly (L221).
-- **TTL = 3600s**, matching `drive_listing`'s `expire(key, 3600)`. Refresh on each latched turn
-  (`await get_redis().expire(f"drive_latched:{conv_id}", 3600)`) so an active session stays latched;
-  >1h idle → expires → re-latches on the next Drive-intent turn (benign).
-- **Thread into `ToolContext`:** add a `drive_latched: bool` field (mirror the existing `drive_cache_active`
-  field) set from `_drive_latched`; the gate reads `ctx.drive_latched`.
-- **`USE_REDIS` off → no persistence (documented degradation):** `_drive_latched` falls back to the
-  same-turn score only — no cross-turn stickiness. Cold case still protected (non-Drive turns score low →
-  no tools); the anaphora follow-up ("open that one" after a listing) loses tools until it re-scores.
-  Fail toward fewer tools — consistent with `_drive_cache_active` staying False when Redis is off. Do
-  **NOT** fall back to capability-only (that reinstates the bug).
-
-**Schema assembly** — the Drive schemas + `_DRIVE_RULES` enter context **iff `ctx.drive_latched`**:
-- Currently (`drive_tools.py:41`) `_drive_gate = ctx.drive_active` — capability only. Change the *effective* gate to `ctx.drive_active AND ctx.drive_latched`.
-- Before latch: Drive schemas absent, `_DRIVE_RULES` absent. Leading prompt block has no Drive content. Model cannot call a Drive tool.
-- After latch: all Drive schemas present, name-sorted (preserve existing sort), `_DRIVE_RULES` present. Block is byte-stable for the rest of the session.
-
-**Cache invariant:** the latch flips **once** per session. One prefix-cache miss on the flip turn, then stable. Do NOT re-evaluate or reorder per turn. Sticky = the schema block is identical across all post-latch turns → prefix cache holds.
-
-**The flip-turn question — decide and document:** when intent fires on turn N, does the Drive schema appear *that same turn* (latch-then-serve, schema available to answer the triggering request immediately) or turn N+1 (next turn)? **Choose latch-then-serve-same-turn** — otherwise the first real Drive request gets a dead turn where the model has no schema to act on. Same-turn means: score → set flag → assemble schemas using the now-true flag → generate. Verify the ordering in the request path puts the latch decision *before* schema assembly.
-
-#### Constraints
-- No regex, no keyword matching in code. The latch signal is the embedding cosine — learned, not string-matched. The phrase list is *example sentences for centroid derivation*, not match rules; the embedding generalizes past the exact words.
-- Centroid **derived at boot from persisted phrases**, never hardcoded as a vector. (Homeserver bge swap must regenerate it — see migration note.)
-- `query_emb is None` → score 0.0 → not latched. Fail toward fewer tools.
-- Latch is sticky and per-session. One flip, one cache miss, then stable.
-- Do not touch RAG retrieval, routing, fallback chain, or `_DRIVE_RULES` content.
-
-#### Verification
-**First: set the threshold (B0 output).** Embed all 40 eval turns as `query`, score each against the centroid. Pick `DRIVE_INTENT_THRESHOLD` as the value that best separates the 20 Drive from the 20 non-Drive. Record: at the chosen threshold, how many of 40 are classified correctly, and which ones miss. **That accuracy number is the deliverable.** If separation is poor (Drive and non-Drive scores overlap heavily), the centroid phrases need revision *before* you trust the gate — report it, don't paper over it.
-
-**Then: behavioral tests** (Drive-active session, check `tool_call_logs`):
-
-| # | Input | Setup | Pass condition | What it proves |
-|---|---|---|---|---|
-| 1 | `ehllo` | Fresh session | No call — **schema absent**, not just declined | Pre-latch removal works; cold case structurally impossible |
-| 2 | `hello?` | After #1, still pre-latch | No call, schema still absent | Latch hasn't spuriously flipped |
-| 3 | real Drive request | Triggers latch | Latch flips, schema appears **same turn**, `drive_list_files` fires, names presented | Same-turn serve works; intent detected |
-| 4 | `thanks` | Immediately after #3 | No call (schema now present — this is A's job) | Post-latch abstention; A + B division of labor |
-| 5 | another real Drive request | Later in same session | Fires normally, **no new cache-disrupting reassembly** | Latch stays put, stable block |
-
-**Test 1 changed meaning from Task A.** In A, passing 1 meant "model declined." In B, passing 1 means "**model couldn't** — schema wasn't there." Verify the *schema absence*, not just the absence of a call. Log or assert that the Drive schemas are not in the assembled tool list pre-latch. That's the structural guarantee; confirm it structurally, don't infer it from behavior.
-
-**Test 4 is still A's territory** — schema is present post-latch, so B doesn't protect this turn. If 4 leaks here and leaked in Task A, that's the documented case for hardening `_DRIVE_RULES` further or considering the 8B pre-pass (Option C) for post-latch turns. But don't pre-build C; record whether 4 is a real problem first.
-
-#### Homeserver migration note — add to the migration doc on build
-> Drive intent centroid is embedder-specific. nv-embedqa-e5-v5 and bge-large-en-v1.5 share dimension (1024) but NOT geometry — same phrases embed to different points. On migration: centroid auto-regenerates at boot from `_DRIVE_INTENT_PHRASES` (correct, automatic). BUT `DRIVE_INTENT_THRESHOLD` is tuned to e5's score distribution and will be wrong for bge. **Re-run the 40-example eval set under bge and re-tune the threshold.** Symptom if skipped: latch fires too early/late silently.
-
-Write this down while you understand why. Future-you debugging a mistuned latch won't.
-
-#### Done =
-- 40-example eval set built, threshold set from it, gate accuracy recorded.
-- `query_emb` threaded, `None`-path confirmed.
-- Latch sticky + same-turn serve, schema conditional on latch.
-- All 5 behavioral tests run; test 1 verified as *schema-absent* structurally.
-- Migration note written.
-- Before/after: Task A's test-4 leak rate vs. Task B's test-1 (now structurally clean) — the number that shows what B bought.
-
-Report B0's separation quality first (it's the early kill-signal — bad separation means revise phrases before trusting anything downstream), then the behavioral results.
-
-#### Root implementation notes (adaptation gotchas — not in the original spec)
-- **`embed` is async.** `helpers.py:241` does `asyncio.create_task(embed(...))`. B1's `_build_centroid` list-comp (`embed_text(p, …)`) returns coroutines, not vectors — it must `await` each (e.g. `await asyncio.gather(*[embed(p, input_type="query") for p in …])`) inside an async init, or run via `asyncio.run` at a sync boot point. Don't ship the sync list-comp as-is.
-- **Symbol name.** The embedder export is `embed` (`llm/embeddings.py`); `helpers.py` imports it as `embed as embed_text`. B1's `from llm.embeddings import embed_text` will ImportError unless aliased — use `from llm.embeddings import embed as embed_text`.
-- **`input_type="query"` is correct here (confirmed).** Phrases are example *queries* matched against a live *query* → same encoder side. This is NOT the passage-side case (that's query↔document, e.g. tool-description matching — a different design). Do not "fix" it to passage.
-- **`session.drive_latched` storage — DECIDED (Redis).** No `session` object exists in the hot path; latch lives in Redis as `drive_latched:{conv_id}`, mirroring `drive_listing:{conv_id}` (string flag, `set(..., ex=3600)`, read via `exists`, `USE_REDIS`-gated, refreshed per latched turn). Full mechanism + the Redis-off degradation are pinned in B3 above. Rejected a durable `conversations` column: the listing cache it pairs with is already ephemeral Redis (1h), so a durable latch outliving the listing it depends on would desync; matching the existing pattern keeps them consistent.
-- **On promote:** cross-post the homeserver migration note into the real migration location (`QUEUE.md` Q1 Recorded + `backend/CLAUDE.md` `LLM_BACKEND` invariant) so it's found during the port, not just here.
+> **Task B** (session-latched semantic Drive gate) was promoted into `backend/HANDOFF.md` on
+> 2026-06-28 and is **in flight** — its full spec (B0 eval set → B1 `drive_intent.py` centroid →
+> B2 `query_emb` threading → B3 Redis latch + gate flip) lives there now, not here. The Q3 header
+> above + the shared file map / verification runbook remain as the reference it was cut from.

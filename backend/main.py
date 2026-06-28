@@ -85,6 +85,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("[startup] re_embed check failed: %s", e)
 
+    logger.info("[startup] warm drive-intent centroid...")
+    try:
+        from llm.tools.drive_intent import warm_centroid
+        await warm_centroid()
+    except Exception as e:
+        logger.warning("[startup] drive-intent warm failed (will build lazily): %s", e)
+
     from core.encryption import fernet_ready
     if not fernet_ready():
         logger.warning("[startup] INTEGRATION_SECRET not set — OAuth integrations disabled (all connector endpoints return 503)")

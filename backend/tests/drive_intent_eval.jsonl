@@ -1,0 +1,40 @@
+{"text": "can you grab the quarterly report from my drive", "label": "drive"}
+{"text": "open the doc I wrote about onboarding", "label": "drive"}
+{"text": "what's the file name of my tax return", "label": "drive"}
+{"text": "i need the slides from last week's meeting", "label": "drive"}
+{"text": "find the spreadsheet with the sales numbers", "label": "drive"}
+{"text": "show me everything in my projects folder", "label": "drive"}
+{"text": "pull my CV so I can review it", "label": "drive"}
+{"text": "do I have any pdfs about the lease", "label": "drive"}
+{"text": "look in my drive for the invoice", "label": "drive"}
+{"text": "open the notes from the design review", "label": "drive"}
+{"text": "what files did I upload yesterday", "label": "drive"}
+{"text": "retrieve the contract draft from my documents", "label": "drive"}
+{"text": "search my google drive for anything on marketing", "label": "drive"}
+{"text": "where did I save the budget plan", "label": "drive"}
+{"text": "list the documents in my shared folder", "label": "drive"}
+{"text": "read me the summary file I keep in drive", "label": "drive"}
+{"text": "find that image of the whiteboard in my files", "label": "drive"}
+{"text": "get my expense sheet", "label": "drive"}
+{"text": "open the folder named clients", "label": "drive"}
+{"text": "i think I have a doc about the API keys, can you find it", "label": "drive"}
+{"text": "ehllo", "label": "non_drive"}
+{"text": "hello?", "label": "non_drive"}
+{"text": "thanks", "label": "non_drive"}
+{"text": "good morning", "label": "non_drive"}
+{"text": "explain how recursion works", "label": "non_drive"}
+{"text": "what's the difference between a list and a tuple", "label": "non_drive"}
+{"text": "help me debug this stack trace", "label": "non_drive"}
+{"text": "what time is it in tokyo", "label": "non_drive"}
+{"text": "summarize the paragraph I just pasted", "label": "non_drive"}
+{"text": "write a haiku about autumn", "label": "non_drive"}
+{"text": "what's a hashmap", "label": "non_drive"}
+{"text": "can you refactor this function", "label": "non_drive"}
+{"text": "translate good night into french", "label": "non_drive"}
+{"text": "why is the sky blue", "label": "non_drive"}
+{"text": "give me a recipe for pancakes", "label": "non_drive"}
+{"text": "what's 15 percent of 240", "label": "non_drive"}
+{"text": "ok sounds good", "label": "non_drive"}
+{"text": "tell me a joke", "label": "non_drive"}
+{"text": "how do I center a div in css", "label": "non_drive"}
+{"text": "what are the best practices for error handling in python", "label": "non_drive"}
