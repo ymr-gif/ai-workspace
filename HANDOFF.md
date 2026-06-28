@@ -162,10 +162,16 @@ summarize/debug-style turns leak (then Task A's `_DRIVE_RULES` covers the post-l
 **Regression:** `test_drive` (gate updated for latch), `test_drive_intent` (7), `test_calendar` (7),
 `tests/retrieval` (26) all green on host. `graphify update .` run (2050 nodes).
 
-**Known limitation / future hardening:** T4 post-latch leak is the documented case for hardening
-`_DRIVE_RULES` further or an 8B pre-pass (Option C) — NOT built (record-first per spec). The task-imperative
-false-positive band (summarize/debug latching) is the single-centroid ceiling; a 2-class or contrastive
-gate would tighten it if it ever matters.
+**Known limitations / future hardening (all tracked in BUGS.md residual):**
+- **T4 post-latch leak** — `thanks` after a listing still fires; documented case for hardening `_DRIVE_RULES`
+  or an 8B pre-pass (Option C). NOT built (record-first per spec).
+- **Session-poisoning via false latch** — the latch is sticky 1h, and task/coding imperatives
+  ("help me debug" 0.66, "summarize" 0.61) overlap weak Drive asks (gate 32/40, single-centroid ceiling).
+  So one false latch on a coding turn flips Drive on for the whole session → the T4 leak then applies to
+  every following turn. Milder than the original bug (session-scoped, only after a wrong latch) but same
+  family. Mitigations: raise threshold to 0.65–0.70, make the latch decay/non-sticky, or a 2-class/contrastive gate.
+- **Verification rigor** — T1/T2 are structural/deterministic (firm). T3/T4/T5 are probabilistic 70B
+  behavior, run **once each**, not the spec's 3–5 repeats — suggestive, not statistically settled.
 
 ---
 

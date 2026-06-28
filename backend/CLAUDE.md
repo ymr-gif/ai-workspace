@@ -124,6 +124,12 @@ decides when to call each one via native function calling (descriptions are the 
 Each `Tool.should_inject(ctx)` is a pure capability predicate; the keyword `_needs_*(message)`
 checks are gone (drive/calendar/gmail/web). Capability = connector active / env enabled / files
 attached / URL present / reasoning model.
+- **Exception — Drive (Q3 Task B, since 2026-06-28):** the three Drive tools are gated on capability
+  **AND** a session intent latch (`ctx.drive_active AND ctx.drive_latched`), not capability alone — the
+  schema is withheld until embedding-cosine Drive intent latches the session (fixes the greeting
+  over-fire). `_drive_gate` is no longer a *pure* capability predicate; the latch flag is resolved in
+  `generate_stream` before the injection loop and threaded via `ToolContext`. See the Drive injection
+  bullet below + `llm/tools/drive_intent.py`. All other tools remain pure-capability.
 - **Assembly point** (`llm/service/stream.py`): `injected_tools` = registered tools whose
   `should_inject` passes, **name-sorted** for a byte-stable prompt prefix (KV prefix cache →
   near-zero repeat cost). The schema list is routed through `select_tool_schemas(message, schemas)`
