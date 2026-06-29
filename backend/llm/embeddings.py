@@ -8,7 +8,7 @@ logger = logging.getLogger("embeddings")
 
 async def embed(text: str, input_type: str = "passage") -> list[float] | None:
     if llm_client.client is None:
-        logger.warning("[embeddings] HTTP client not initialized")
+        logger.error("[embeddings] HTTP client not initialized")
         return None
     try:
         headers = {"Content-Type": "application/json"}
@@ -28,5 +28,5 @@ async def embed(text: str, input_type: str = "passage") -> list[float] | None:
         resp.raise_for_status()
         return resp.json()["data"][0]["embedding"]
     except Exception as e:
-        logger.warning("[embeddings] embed failed: %s", e)
+        logger.error("[embeddings] embed failed: %s", e)
         return None

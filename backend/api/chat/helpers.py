@@ -44,6 +44,22 @@ def _extract_model_params(req: ChatRequest) -> dict | None:
     return p or None
 
 
+_TRIVIAL_PATTERNS = frozenset({
+    "hello", "hi", "hey", "thanks", "thank you", "ok", "okay", "bye",
+    "goodbye", "good morning", "good afternoon", "good evening",
+    "yes", "no", "👍", "nice", "great", "cool", "sure", "yeah",
+})
+
+
+def _is_trivial(message: str) -> bool:
+    msg = message.strip().lower().rstrip(".!?,")
+    if msg in _TRIVIAL_PATTERNS:
+        return True
+    if len(msg.split()) <= 2:
+        return True
+    return False
+
+
 async def _check_cost_cap(user: User, db: AsyncSession) -> None:
     if user.cost_limit_usd is None:
         return
@@ -238,7 +254,13 @@ async def _build_stream_context(
     # task → leave retrieval as-is
     _act("intent", f"Intent: {intent}")
 
-    embed_task = asyncio.create_task(embed_text(req.message, input_type="query"))
+    if _is_trivial(req.message):
+        embed_task = None
+        embed_status = "skipped"
+        logger.info("[embed] rid=%s trivial message — embedding skipped", rid)
+    else:
+        embed_task = asyncio.create_task(embed_text(req.message, input_type="query"))
+        embed_status = "pending"
 
     history_summary = conv.history_summary or ""
     candidates: list = []
@@ -251,7 +273,23 @@ async def _build_stream_context(
         )
         candidates = list(reversed(cand_result.scalars().all()))
 
-    query_emb = (await embed_task) if embed_task else None
+    if embed_status == "pending":
+        query_emb = await embed_task
+        if query_emb is not None:
+            embed_status = "ok"
+            logger.info("[embed] rid=%s embedding succeeded (dim=%d)", rid, len(query_emb))
+        else:
+            embed_status = "failed"
+            logger.error("[embed] rid=%s embedding call failed", rid)
+    else:
+        query_emb = None
+
+    if embed_status == "ok":
+        _act("embed", f"Computed embedding ({len(query_emb)} dim)")
+    elif embed_status == "failed":
+        _act("embed", "Embedding call failed — RAG and connector latches disabled", level="error")
+    else:
+        _act("embed", "Skipped (trivial message)")
 
     history: list[dict] = []
     if candidates:
@@ -491,6 +529,7 @@ async def _build_stream_context(
         "policy_used":         query_type,
         "intent":              intent,
         "query_emb":           query_emb,
+        "embed_status":        embed_status,
         "retrieval_top_k":     top_k,
         "fact_saliences":      fact_saliences,
         "last_session":        last_session,

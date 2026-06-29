@@ -144,9 +144,9 @@ when chosen to activate.
 | Spec says | Actual file | Role / anchor |
 |---|---|---|
 | `drive_tools.py` | `backend/llm/tools/builtin/drive_tools.py` | `_DRIVE_RULES` L20 (now abstention text, ~L20–54 after Task A) · `_drive_gate` **L56** (three `should_inject=_drive_gate` regs **L80/91/99**) |
-| `stream.py` (define / assemble) | `backend/llm/service/stream.py` | `generate_stream` def **L92** (B2 signature) · `injected_tools` assembly **L221** · `_rules_block` injection **L281–287** (B3) |
-| `stream.py` (call site) | `backend/api/chat/stream.py` | `service.generate_stream(` call **L271** (B2-step2 — pass `query_emb` here) |
-| `helpers.py` | `backend/api/chat/helpers.py` | `query_emb` produced **L254** (`embed` task fired L241); used by RAG L259+ |
+| `stream.py` (define / assemble) | `backend/llm/service/stream.py` | `generate_stream` def **L141** (B2 signature L165) · `injected_tools` assembly **L284** · `_resolve_connector_latches` call **L257–260** (embed_status threaded) |
+| `stream.py` (call site) | `backend/api/chat/stream.py` | `service.generate_stream(` call **L288** (passes `query_emb` + `embed_status`) |
+| `helpers.py` | `backend/api/chat/helpers.py` | `query_emb` produced **L276–285** (`embed` task fired L262 if !_is_trivial); carries `embed_status` in return dict; used by RAG L297+ |
 | `registry.py` | `backend/llm/tools/registry.py` | `select_tool_schemas`/`run_tool` only — **`generate_stream` is NOT here.** The Scope line "registry.py / wherever generate_stream is defined" is misleading: the signature edit is in `llm/service/stream.py:92`. Touch `registry.py` only if you route the latch through `select_tool_schemas`; otherwise skip it. |
 
 > ⚠ Two different `stream.py` files. `llm/service/stream.py` = the engine (define + assemble); `api/chat/stream.py` = the HTTP caller (call site). There is also `api/files/stream.py` — unrelated, do not touch. Graphify-first mandate applies (re-locate every anchor with `graphify query`/`explain` before editing; lines drift).

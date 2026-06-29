@@ -29,7 +29,7 @@ _MAX_IDENTICAL_CALLS = 3
 logger = logging.getLogger("service")
 
 
-async def _resolve_connector_latches(actives: dict, latched: dict, conv_id, query_emb) -> dict:
+async def _resolve_connector_latches(actives: dict, latched: dict, conv_id, query_emb, embed_status: str = "ok") -> dict:
     """Resolve all connector session intent latches for this turn (Q3 Task B + generalization).
 
     Single-winner: already-latched connectors stay latched (sticky; TTL refreshed). Among
@@ -43,7 +43,7 @@ async def _resolve_connector_latches(actives: dict, latched: dict, conv_id, quer
     capability-only (that reinstates the over-fire bug). query_emb None → all scores 0.0.
     Returns the updated latched dict.
     """
-    from llm.tools.connector_intent import intent_score, INTENT_THRESHOLDS
+    from llm.tools.connector_intent import intent_score, INTENT_THRESHOLDS, FLOOR_THRESHOLD
     out = dict(latched)
 
     # Sticky: refresh TTL on connectors already latched this session.
@@ -59,9 +59,12 @@ async def _resolve_connector_latches(actives: dict, latched: dict, conv_id, quer
     # Flip the single best-scoring not-yet-latched connector, if it clears its threshold.
     scores = {c: await intent_score(c, query_emb)
               for c in actives if actives.get(c) and not latched.get(c)}
+    if query_emb is None and scores and all(v == 0.0 for v in scores.values()):
+        logger.info("[latch] all scores 0.0 — query_emb=%s (embed_status=%s, conv=%s)",
+                    "None", embed_status, conv_id)
     if scores:
         winner = max(scores, key=scores.get)
-        if scores[winner] >= INTENT_THRESHOLDS[winner]:
+        if scores[winner] >= INTENT_THRESHOLDS[winner] and scores[winner] >= FLOOR_THRESHOLD:
             out[winner] = True
             if conv_id and USE_REDIS:
                 try:
@@ -69,6 +72,9 @@ async def _resolve_connector_latches(actives: dict, latched: dict, conv_id, quer
                     await get_redis().set(f"{winner}_latched:{conv_id}", "1", ex=3600)
                 except Exception:
                     pass
+        elif scores[winner] < FLOOR_THRESHOLD:
+            logger.info("[latch] winner=%s score=%.3f below floor=%.2f (conv=%s)",
+                        winner, scores[winner], FLOOR_THRESHOLD, conv_id)
     return out
 
 
@@ -160,6 +166,7 @@ async def generate_stream(
     last_session:     str               = "",
     intent:           str               = "question",
     query_emb:        list | None       = None,
+    embed_status:     str               = "ok",
 ):
     # Cache excludes file/image/custom-params requests; history + model included in key
     use_cache = not file_chunks and not image_b64 and not model_params
@@ -253,7 +260,7 @@ async def generate_stream(
     _latched = await _resolve_connector_latches(
         {"drive": _drive_active, "calendar": _calendar_active, "gmail": _gmail_active},
         {"drive": _drive_latched, "calendar": _calendar_latched, "gmail": _gmail_latched},
-        conv_id, query_emb,
+        conv_id, query_emb, embed_status,
     )
     _drive_latched, _calendar_latched, _gmail_latched = (
         _latched["drive"], _latched["calendar"], _latched["gmail"])

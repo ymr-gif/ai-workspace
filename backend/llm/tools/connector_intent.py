@@ -123,6 +123,12 @@ INTENT_THRESHOLDS: dict[str, float] = {
     "gmail": 0.65,     # recall 20/20, spec 19/20 (gmail separates cleanly)
 }
 
+# Global floor: a connector must clear BOTH its per-connector threshold AND
+# this floor to latch. Prevents latching on a weak winner that only "won"
+# because every connector scored low — a confident wrong latch is worse than
+# a humble abstention. Already-latched connectors (sticky TTL) unaffected.
+FLOOR_THRESHOLD = 0.65
+
 _centroids: dict[str, list[float] | None] = {}
 _locks: dict[str, asyncio.Lock] = {c: asyncio.Lock() for c in INTENT_PHRASES}
 
@@ -200,6 +206,7 @@ async def intent_score(connector: str, query_emb) -> float:
     (fewer tools). Centroid unbuildable (embedder down at boot) → 0.0 likewise.
     """
     if not query_emb:
+        logger.debug("[intent_score] %s query_emb=%s → 0.0", connector, type(query_emb).__name__ if query_emb is not None else "None")
         return 0.0
     centroid = await get_centroid(connector)
     if not centroid:
