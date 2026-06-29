@@ -12,7 +12,7 @@ NOT a keyword match — the cosine generalizes past the exact example words. The
 phrase lists are example sentences for centroid derivation only.
 
 Mechanism (resolved per turn in `llm/service/stream.py`): score the reused
-`query_emb` vs `get_centroid(connector)`; `>= INTENT_THRESHOLDS[connector]` →
+`query_emb` vs `get_centroid(connector)`; `>= max(INTENT_THRESHOLDS[connector], FLOOR_THRESHOLD)` →
 latch (Redis `{connector}_latched:{conv_id}`, latch-then-serve same turn, sticky
 1h). The gate for each connector is `ctx.{connector}_active AND ctx.{connector}_latched`.
 
@@ -32,7 +32,9 @@ cross-talk/task-imperative false latch from all connectors to one.
 
 Known ceiling (per connector): a single-centroid cosine separates greetings/chit-chat
 cleanly from connector requests, but connector-vs-connector-vs-task-imperative bands
-overlap — thresholds are precision-biased ("fail toward fewer tools"). The latch is
+overlap — thresholds are precision-biased ("fail toward fewer tools"). The global
+`FLOOR_THRESHOLD` (0.65) rejects weak winners that only "won" because every connector
+scored low — a confident wrong latch is worse than a humble abstention. The latch is
 sticky 1h, so a false latch poisons that one connector for the session until TTL. See
 BUGS.md residual.
 """

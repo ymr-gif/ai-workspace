@@ -34,10 +34,12 @@ async def _resolve_connector_latches(actives: dict, latched: dict, conv_id, quer
 
     Single-winner: already-latched connectors stay latched (sticky; TTL refreshed). Among
     ACTIVE, not-yet-latched connectors, score query_emb vs each centroid and latch ONLY the
-    top scorer if it clears its threshold (`{connector}_latched:{conv_id}`, ex=3600,
+    top scorer if it clears BOTH its per-connector threshold AND the global floor
+    (`FLOOR_THRESHOLD=0.65`; `{connector}_latched:{conv_id}`, ex=3600,
     latch-then-serve same turn). Single-winner stops one connector's request from latching
     the others (the connectors share a "check my X" structure → high cross-talk), so a
-    cross-talk/task-imperative false latch hits one connector, not all.
+    cross-talk/task-imperative false latch hits one connector, not all. The floor prevents
+    latching on a weak winner that only "won" because every score was low.
 
     USE_REDIS off → same-turn score only (no cross-turn stickiness); never falls back to
     capability-only (that reinstates the over-fire bug). query_emb None → all scores 0.0.
