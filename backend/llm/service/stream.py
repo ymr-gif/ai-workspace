@@ -27,9 +27,16 @@ _MAX_IDENTICAL_CALLS = 3
 # Per-tool overrides (e.g. listing tools → 1) come from Tool.max_identical_calls.
 
 logger = logging.getLogger("service")
+# Phase 0 instrumentation: one JSON line per turn carrying every connector-intent score and
+# the flip/no-flip decision, so traffic can be replayed into eval sets (none_intent /
+# weak_real / tie) without re-running the model. Distinct logger name → greppable / routable
+# (`grep '"evt": "latch_score"'`) without drowning in the service log.
+latch_logger = logging.getLogger("connector_intent.scores")
 
 
-async def _resolve_connector_latches(actives: dict, latched: dict, conv_id, query_emb, embed_status: str = "ok") -> dict:
+async def _resolve_connector_latches(actives: dict, latched: dict, conv_id, query_emb,
+                                     embed_status: str = "ok", *, message: str = "",
+                                     turn: int | None = None) -> dict:
     """Resolve all connector session intent latches for this turn (Q3 Task B + generalization).
 
     Single-winner: already-latched connectors stay latched (sticky; TTL refreshed). Among
@@ -43,9 +50,13 @@ async def _resolve_connector_latches(actives: dict, latched: dict, conv_id, quer
 
     USE_REDIS off → same-turn score only (no cross-turn stickiness); never falls back to
     capability-only (that reinstates the over-fire bug). query_emb None → all scores 0.0.
-    Returns the updated latched dict.
+
+    Phase 0: ALL three connectors are scored every turn (not just the active+unlatched flip
+    candidates) so the structured log captures cross-talk — the flip itself still considers
+    only the active, not-yet-latched subset, so behavior is unchanged. Returns the updated
+    latched dict.
     """
-    from llm.tools.connector_intent import intent_score, INTENT_THRESHOLDS, FLOOR_THRESHOLD
+    from llm.tools.connector_intent import intent_score, INTENT_THRESHOLDS, FLOOR_THRESHOLD, INTENT_PHRASES
     out = dict(latched)
 
     # Sticky: refresh TTL on connectors already latched this session.
@@ -58,25 +69,57 @@ async def _resolve_connector_latches(actives: dict, latched: dict, conv_id, quer
                 except Exception:
                     pass
 
-    # Flip the single best-scoring not-yet-latched connector, if it clears its threshold.
-    scores = {c: await intent_score(c, query_emb)
-              for c in actives if actives.get(c) and not latched.get(c)}
-    if query_emb is None and scores and all(v == 0.0 for v in scores.values()):
-        logger.info("[latch] all scores 0.0 — query_emb=%s (embed_status=%s, conv=%s)",
-                    "None", embed_status, conv_id)
-    if scores:
-        winner = max(scores, key=scores.get)
-        if scores[winner] >= INTENT_THRESHOLDS[winner] and scores[winner] >= FLOOR_THRESHOLD:
+    # Score ALL connectors (cross-talk observability); the flip considers only the active,
+    # not-yet-latched subset. Cheap: reuses query_emb + pre-warmed centroids.
+    all_scores = {c: await intent_score(c, query_emb) for c in INTENT_PHRASES}
+    candidates = {c: all_scores[c] for c in actives if actives.get(c) and not latched.get(c)}
+
+    winner = None
+    decision = "none"
+    why = "no_active_unlatched_candidate"
+    if candidates:
+        winner = max(candidates, key=candidates.get)
+        s = all_scores[winner]
+        if s >= INTENT_THRESHOLDS[winner] and s >= FLOOR_THRESHOLD:
             out[winner] = True
+            decision = f"latched_{winner}"
+            why = f"{s:.3f} >= max(thr {INTENT_THRESHOLDS[winner]:.2f}, floor {FLOOR_THRESHOLD:.2f})"
             if conv_id and USE_REDIS:
                 try:
                     from core.redis_client import get_redis
                     await get_redis().set(f"{winner}_latched:{conv_id}", "1", ex=3600)
                 except Exception:
                     pass
-        elif scores[winner] < FLOOR_THRESHOLD:
-            logger.info("[latch] winner=%s score=%.3f below floor=%.2f (conv=%s)",
-                        winner, scores[winner], FLOOR_THRESHOLD, conv_id)
+        elif s < FLOOR_THRESHOLD:
+            why = f"winner {winner} {s:.3f} < floor {FLOOR_THRESHOLD:.2f}"
+        else:
+            why = f"winner {winner} {s:.3f} < per-connector thr {INTENT_THRESHOLDS[winner]:.2f}"
+
+    # Structured per-turn score log (Phase 0; one JSON line per turn for eval-set building).
+    try:
+        ranked = sorted(all_scores.items(), key=lambda kv: kv[1], reverse=True)
+        argmax_c, argmax_s = ranked[0]
+        runner_c, runner_s = ranked[1] if len(ranked) > 1 else (None, 0.0)
+        reason = {"ok": "ok", "failed": "embed_fail", "skipped": "rag_skip"}.get(embed_status, embed_status)
+        latch_logger.info(json.dumps({
+            "evt": "latch_score",
+            "conv_id": str(conv_id) if conv_id else None,
+            "turn": turn,
+            "query_emb_present": bool(query_emb),
+            "reason": reason,
+            "scores": {c: round(s, 4) for c, s in all_scores.items()},
+            "prior_latch_state": {c: bool(latched.get(c)) for c in INTENT_PHRASES},
+            "active": {c: bool(actives.get(c)) for c in INTENT_PHRASES},
+            "argmax": argmax_c, "argmax_score": round(argmax_s, 4),
+            "runner_up": runner_c, "runner_up_score": round(runner_s, 4),
+            "margin": round(argmax_s - runner_s, 4),
+            "decision": decision,
+            "why": why,
+            "msg": (message or "")[:120],
+        }, ensure_ascii=False))
+    except Exception:
+        logger.warning("[latch] score-log failed", exc_info=True)
+
     return out
 
 
@@ -263,6 +306,7 @@ async def generate_stream(
         {"drive": _drive_active, "calendar": _calendar_active, "gmail": _gmail_active},
         {"drive": _drive_latched, "calendar": _calendar_latched, "gmail": _gmail_latched},
         conv_id, query_emb, embed_status,
+        message=message, turn=len(history or []),
     )
     _drive_latched, _calendar_latched, _gmail_latched = (
         _latched["drive"], _latched["calendar"], _latched["gmail"])

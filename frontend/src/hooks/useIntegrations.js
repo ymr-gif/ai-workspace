@@ -11,10 +11,12 @@ const CONNECTOR_LABELS = {
 const CONNECTOR_TYPES = ['google_drive', 'google_calendar', 'gmail', 'notion', 'github']
 
 // Add connector types here to expose OAuth flow in the UI.
-// All five are backend-complete; none currently exposed.
+// Google connectors re-enabled 2026-06-29 so admin can OAuth in and drive real traffic
+// through the connector-intent latch (Phase 0 score-logging data collection). Notion/GitHub
+// stay stubbed. Re-stub by emptying this array once enough latch_score data is collected.
 // Note: existing ExternalSource rows for previously-connected users remain visible
 // (Connected card, no reconnect button). Clean up manually if needed.
-const ENABLED_CONNECTOR_TYPES = []
+const ENABLED_CONNECTOR_TYPES = ['google_drive', 'google_calendar', 'gmail']
 
 export default function useIntegrations(token) {
   const [integOpen, setIntegOpen] = useState(false)
