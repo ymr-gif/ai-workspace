@@ -4,6 +4,32 @@ Tooling for the data-first tuning plan (`plans/connector-latch-data-plan.md`). A
 labeled synthetic traffic; the latch logs scores; this harness joins them and prints the Phase 2
 A/B/C measurements. **No tuning lives here** — it only describes the data.
 
+## START HERE (read first)
+
+**Your mission:** generate *labeled* traffic through the latch, confirm it logs, then report the
+A/B/C measurement + emit eval sets. You are **collecting data, not fixing the latch.**
+
+**Hard rules:**
+1. **Do NOT tune** `INTENT_THRESHOLDS` / `FLOOR_THRESHOLD` or add a margin gate. Collect + measure only;
+   hand the numbers back. Tuning is a later human-gated step.
+2. **Connectors are OAuth'd under `admin`** (not `user`). Flip-traffic (anything you want to actually
+   latch) MUST use `--user admin --pw admin-secret`, or every `decision` is `none`. Pure score-band
+   traffic can run as any user.
+3. **Graphify first** (`graphify query "<q>"`) before reading/grepping source — project rule.
+
+**Step 0 — go/no-go (run before collecting anything):**
+```bash
+python agent_capture.py --message "what files do I have in my google drive" \
+  --band positive --connector drive --user admin --pw admin-secret
+(cd ../../../docker && docker compose logs api --since 120s) | grep latch_score | tail -1
+```
+Green = a `latch_score` line with `"reason": "ok"` and `"decision": "latched_drive"`. If `reason` is
+`embed_fail` → embedder outage, pause. If `decision` is `none` → wrong account / connector inactive.
+Repeat per connector (calendar/gmail) if you want all three.
+
+**Full briefing + runbook:** `plans/latch-data-session-kickoff.md` (role, traffic weighting, cold/warm
+scripting, measurement, don'ts). Read it before scaling up.
+
 ## Pieces
 - `agent_capture.py` — **API** wrapper the agents send through. One labeled capture row per send.
 - `ui_capture.py` — **browser** twin (Playwright): drives the real UI at `localhost:3000`. Same
