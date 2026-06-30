@@ -4,31 +4,56 @@ Tooling for the data-first tuning plan (`plans/connector-latch-data-plan.md`). A
 labeled synthetic traffic; the latch logs scores; this harness joins them and prints the Phase 2
 A/B/C measurements. **No tuning lives here** — it only describes the data.
 
-## START HERE (read first)
+## START HERE — cold-start runbook (read first, do in order)
 
-**Your mission:** generate *labeled* traffic through the latch, confirm it logs, then report the
-A/B/C measurement + emit eval sets. You are **collecting data, not fixing the latch.**
+**Goal:** generate *labeled* traffic through the connector-intent latch, confirm it logs, then report
+the A/B/C measurement + emit eval sets. You are **collecting data, NOT tuning the latch.**
 
-**Hard rules:**
-1. **Do NOT tune** `INTENT_THRESHOLDS` / `FLOOR_THRESHOLD` or add a margin gate. Collect + measure only;
-   hand the numbers back. Tuning is a later human-gated step.
-2. **Connectors are OAuth'd under `admin`** (not `user`). Flip-traffic (anything you want to actually
-   latch) MUST use `--user admin --pw admin-secret`, or every `decision` is `none`. Pure score-band
-   traffic can run as any user.
-3. **Graphify first** (`graphify query "<q>"`) before reading/grepping source — project rule.
+**Run every command below from THIS directory** (`backend/tests/latch`) using **`python3`** — the
+relative paths and `PYTHONPATH=../..` assume it. Graphify-first if you read code (`graphify query`).
 
-**Step 0 — go/no-go (run before collecting anything):**
+**Hard rules**
+1. Do NOT tune `INTENT_THRESHOLDS` / `FLOOR_THRESHOLD` or add a margin gate. Collect + measure only;
+   the fork decision is human-gated — hand the numbers back.
+2. Connectors are OAuth'd under **`admin`** (not `user`). Anything that must actually latch uses
+   `--user admin --pw admin-secret`, else `decision` stays `none`. Score-band traffic can use any user.
+3. Use the seeded throwaway accounts (`admin`/`admin-secret`, `user`/`user-secret`) — never real data.
+
+**0. Prereqs — stack must be running**
 ```bash
-python agent_capture.py --message "what files do I have in my google drive" \
-  --band positive --connector drive --user admin --pw admin-secret
+curl -s -o /dev/null -w 'api %{http_code}\n' localhost:8000/health    # want 200
+```
+Not 200? → `(cd ../../../docker && docker compose up -d)`, wait ~20s, recheck.
+
+**1. Go/no-go — confirm a real flip + a healthy embedder (before scaling)**
+```bash
+python3 agent_capture.py --message "what files do I have in my google drive" \
+  --band positive --connector drive --user admin --pw admin-secret --capture gng.jsonl
 (cd ../../../docker && docker compose logs api --since 120s) | grep latch_score | tail -1
 ```
-Green = a `latch_score` line with `"reason": "ok"` and `"decision": "latched_drive"`. If `reason` is
-`embed_fail` → embedder outage, pause. If `decision` is `none` → wrong account / connector inactive.
-Repeat per connector (calendar/gmail) if you want all three.
+GREEN = a line with `"reason": "ok"` AND `"decision": "latched_drive"`.
+`reason: embed_fail` → embedder outage, pause. `decision: none` → wrong account / connector inactive.
+(`gng.jsonl` is throwaway — go/no-go only reads the log line.)
 
-**Full briefing + runbook:** `plans/latch-data-session-kickoff.md` (role, traffic weighting, cold/warm
-scripting, measurement, don'ts). Read it before scaling up.
+**2. Collect — one command**
+```bash
+python3 fleet.py --capture run.jsonl --admin-target 150 --score-target 400
+```
+Paced (~12/min/account) → expect ~30–60 min unattended. Two seeded accounts ⇒ 2 workers (admin =
+flips+warm, user = score volume). Wider: seed more users (`../../create_user.py`) and pass
+`--accounts u1:pw,u2:pw,...`. Watch the logs for `embed_fail` creeping in mid-run — if it dominates,
+the embedder relapsed; pause.
+
+**3. Measure + report**
+```bash
+(cd ../../../docker && docker compose logs api) | grep latch_score > scores.txt
+PYTHONPATH=../.. python3 measure.py --capture run.jsonl --scores scores.txt --emit-evalsets ..
+```
+**Report back:** the `by reason` split, A (GAP/OVERLAP), B (margin cluster), C (cold/warm over-fires),
+which eval sets were written, and a one-line read of the fork the data points to. **Do NOT pick or
+apply the fork — that is the human's call.**
+
+**Full briefing:** `plans/latch-data-session-kickoff.md` (role, weighting, cold/warm, don'ts).
 
 ## Pieces
 - `agent_capture.py` — **API** wrapper the agents send through. One labeled capture row per send.
@@ -50,8 +75,8 @@ The connector latch is a pure server-side function of (message, query_emb), so A
   connectors as a user sees them). Needs `pip install playwright && playwright install chromium`
   (run from the host). `new_conversation()` = fresh COLD turn; consecutive `send()` = WARM.
 ```bash
-python ui_capture.py --message "find my things" --band none_intent           # one cold send
-python ui_capture.py --message "get that document" --band weak_real --connector drive --headed
+python3 ui_capture.py --message "find my things" --band none_intent           # one cold send
+python3 ui_capture.py --message "get that document" --band weak_real --connector drive --headed
 ```
 
 ## How the join works
@@ -70,21 +95,21 @@ python ui_capture.py --message "get that document" --band weak_real --connector 
 **Scaled collection (recommended) — one command:**
 ```bash
 # Layer 2 fleet: admin worker (flips+warm) + score workers, all → run.jsonl
-python fleet.py --capture run.jsonl --admin-target 150 --score-target 400
+python3 fleet.py --capture run.jsonl --admin-target 150 --score-target 400
 # or a single Layer 1 worker:
-python run_collection.py --target 300 --user admin --pw admin-secret --capture run.jsonl
+python3 run_collection.py --target 300 --user admin --pw admin-secret --capture run.jsonl
 # then harvest + measure + emit eval sets:
 (cd ../../../docker && docker compose logs api) | grep latch_score > scores.txt
-PYTHONPATH=../.. python measure.py --capture run.jsonl --scores scores.txt --emit-evalsets ..
+PYTHONPATH=../.. python3 measure.py --capture run.jsonl --scores scores.txt --emit-evalsets ..
 ```
 
 **Manual single sends (debugging / go-no-go):**
 ```bash
-python agent_capture.py --message "find my things"    --band none_intent
-python agent_capture.py --message "get that document" --band weak_real --connector drive --user admin --pw admin-secret
+python3 agent_capture.py --message "find my things"    --band none_intent
+python3 agent_capture.py --message "get that document" --band weak_real --connector drive --user admin --pw admin-secret
 # multi-turn WARM session: keep the conv id and continue it
-CONV=$(python agent_capture.py --message "what's on my calendar" --band positive --connector calendar --user admin --pw admin-secret)
-python agent_capture.py --message "ok thanks" --band easy_neg --conv "$CONV" --expect-warm --user admin --pw admin-secret
+CONV=$(python3 agent_capture.py --message "what's on my calendar" --band positive --connector calendar --user admin --pw admin-secret)
+python3 agent_capture.py --message "ok thanks" --band easy_neg --conv "$CONV" --expect-warm --user admin --pw admin-secret
 ```
 `measure.py` imports the live `INTENT_THRESHOLDS`/`FLOOR_THRESHOLD` when run with the backend on the
 path (run from `backend/`, or set `PYTHONPATH=backend`); otherwise it falls back to documented
