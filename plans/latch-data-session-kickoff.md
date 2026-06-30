@@ -54,6 +54,9 @@ All commands from `cd /home/scylla/dev/python-projects/ai-api/backend/tests/latc
 ### 1. Preconditions
 - Stack up: `curl -s -o/dev/null -w '%{http_code}\n' localhost:8000/health` → 200; UI `localhost:3000` → 200.
 - **Embedder healthy** — drive one send, confirm the latch line shows `"reason": "ok"` (not `embed_fail`).
+  Note: `embed()` retries transient NIM 5xx/timeout as of 2026-06-30 (`e0a0206`), which took a smoke run
+  from 2/9 ok to 12/12 ok — intermittent 500s are absorbed, so don't re-diagnose them. Only a *sustained*
+  embedder outage will make `embed_fail` dominate; if it climbs mid-run, pause (retries can't save a dead backend).
 - **One connector `active`** under the account the agents use. Connectors are OAuth'd under **admin**
   today; either drive flip-traffic as admin (`--user admin --pw admin-secret`) or OAuth a connector
   under a throwaway user first via `python ui_capture.py --headed` (do the Google consent in the
@@ -69,7 +72,8 @@ PYTHONPATH=../.. python measure.py --capture latch_capture.jsonl --scores scores
 ```
 **Green if:** capture rows have real `conv_id`s, score lines parse, `reason: ok`, and `active:{drive:true}`
 with at least one `decision: latched_drive` appears. If `decision` is always `none` → connector isn't
-active for that user. If `reason: embed_fail` dominates → fix the embedder first.
+active for that user (the main remaining setup step). `reason: embed_fail` should be rare now (embed
+retries 5xx); if it still dominates the embedder is in a sustained outage — pause until it recovers.
 
 ### 3. Generate traffic (the run)
 - **Bulk (API):** loop `agent_capture.py` over `prompt_bank.py`, weighted ~ none_intent 40% /
