@@ -22,7 +22,9 @@
 ├── auth/                   — JWT, bcrypt (direct, no passlib), API key fallback (SHA-256 hashed), invite validation
 ├── tests/
 │   ├── test.py + test_memory_hygiene.py + test_content_filter.py + test_drive.py + test_gmail.py + test_reasoning_loop.py + test_image_ocr.py + test_pdf_ocr.py + test_voice.py — 104 tests (36 memory hygiene, 12 content filter, 11 drive, 11 gmail, 11 reasoning loop, 9 image OCR, 9 PDF OCR, 4 voice STT, 1 circuit breaker)
-│   └── retrieval/conftest.py + test_hybrid_eval.py — 26 tests, mock DB, no NIM
+│   ├── retrieval/conftest.py + test_hybrid_eval.py — 26 tests, mock DB, no NIM
+│   ├── {drive,calendar,gmail}_intent_eval.jsonl — 40 lines each (20 pos + 20 easy-neg); latch threshold tuning sets
+│   └── latch/ — connector-intent latch data-collection harness (Phase 0→2): agent_capture.py (API) + ui_capture.py (Playwright UI twin) write labeled capture rows; measure.py joins them with `latch_score` logs → outputs A/B/C + emits eval sets; prompt_bank.py (hard-band prompts); README.md. Runbook: `plans/latch-data-session-kickoff.md`
 ├── llm/
 │   ├── service/            — context build, context budget allocator, SSE stream + tool loop (MAX_TOOL_ITERATIONS=60); paste-path OCR injection (image_b64 → OCR text → context, no model_vision needed when IMAGE_OCR_ENABLED=true)
 │   ├── nim.py              — NIM API call, accumulates tool_call deltas
