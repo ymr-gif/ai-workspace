@@ -5,9 +5,23 @@ labeled synthetic traffic; the latch logs scores; this harness joins them and pr
 A/B/C measurements. **No tuning lives here** — it only describes the data.
 
 ## Pieces
-- `agent_capture.py` — wrapper the agents send through. One labeled capture row per send.
+- `agent_capture.py` — **API** wrapper the agents send through. One labeled capture row per send.
+- `ui_capture.py` — **browser** twin (Playwright): drives the real UI at `localhost:3000`. Same
+  capture schema → same `measure.py`. For UI-realism passes; for bulk volume use `agent_capture.py`.
 - `prompt_bank.py` — band-tagged example prompts (weight toward none_intent / weak_real / tie).
 - `measure.py` — joins capture labels with `latch_score` log lines → outputs A/B/C, can emit eval sets.
+
+## Two drive paths (identical at the latch)
+The connector latch is a pure server-side function of (message, query_emb), so API and UI produce the
+**same** `latch_score` data. Pick by goal:
+- **`agent_capture.py` (API)** — bulk latch-score volume. Fast, robust, precise labels. Default.
+- **`ui_capture.py` (browser)** — full-stack realism (agent loop, confirm cards, OAuth-connected
+  connectors as a user sees them). Needs `pip install playwright && playwright install chromium`
+  (run from the host). `new_conversation()` = fresh COLD turn; consecutive `send()` = WARM.
+```bash
+python ui_capture.py --message "find my things" --band none_intent           # one cold send
+python ui_capture.py --message "get that document" --band weak_real --connector drive --headed
+```
 
 ## How the join works
 - The label must NOT go in the message text (it would be embedded into `query_emb` and shift every
