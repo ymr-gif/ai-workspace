@@ -35,6 +35,11 @@ scripting, measurement, don'ts). Read it before scaling up.
 - `ui_capture.py` — **browser** twin (Playwright): drives the real UI at `localhost:3000`. Same
   capture schema → same `measure.py`. For UI-realism passes; for bulk volume use `agent_capture.py`.
 - `prompt_bank.py` — band-tagged example prompts (weight toward none_intent / weak_real / tie).
+- `run_collection.py` — **Layer 1**: one paced orchestrator. Weighted bands, cold/warm scripting,
+  templated phrasing variation, rate-limit pacing. Turns a whole run into one command.
+- `fleet.py` — **Layer 2**: spawns several Layer-1 workers in parallel (one per account; admin =
+  flips+warm, others = score-band), all → one capture file. `--briefings` prints paste-ready prompts
+  for human-launched LLM agents instead.
 - `measure.py` — joins capture labels with `latch_score` log lines → outputs A/B/C, can emit eval sets.
 
 ## Two drive paths (identical at the latch)
@@ -61,20 +66,25 @@ python ui_capture.py --message "get that document" --band weak_real --connector 
   alignment holds.
 
 ## Run
+
+**Scaled collection (recommended) — one command:**
 ```bash
-# 1. collect (each agent, many sends; --connector required for positive/weak_real)
-python agent_capture.py --message "find my things"    --band none_intent
-python agent_capture.py --message "get that document" --band weak_real --connector drive
-# multi-turn WARM session (shell): keep the conv id and continue it
-CONV=$(python agent_capture.py --message "what's on my calendar" --band positive --connector calendar)
-python agent_capture.py --message "ok thanks" --band easy_neg --conv "$CONV" --expect-warm
-
-# 2. harvest the score lines the latch logged
+# Layer 2 fleet: admin worker (flips+warm) + score workers, all → run.jsonl
+python fleet.py --capture run.jsonl --admin-target 150 --score-target 400
+# or a single Layer 1 worker:
+python run_collection.py --target 300 --user admin --pw admin-secret --capture run.jsonl
+# then harvest + measure + emit eval sets:
 (cd ../../../docker && docker compose logs api) | grep latch_score > scores.txt
+PYTHONPATH=../.. python measure.py --capture run.jsonl --scores scores.txt --emit-evalsets ..
+```
 
-# 3. measure (+ optionally emit the three eval sets next to the existing ones)
-python measure.py --capture latch_capture.jsonl --scores scores.txt
-python measure.py --capture latch_capture.jsonl --scores scores.txt --emit-evalsets ..
+**Manual single sends (debugging / go-no-go):**
+```bash
+python agent_capture.py --message "find my things"    --band none_intent
+python agent_capture.py --message "get that document" --band weak_real --connector drive --user admin --pw admin-secret
+# multi-turn WARM session: keep the conv id and continue it
+CONV=$(python agent_capture.py --message "what's on my calendar" --band positive --connector calendar --user admin --pw admin-secret)
+python agent_capture.py --message "ok thanks" --band easy_neg --conv "$CONV" --expect-warm --user admin --pw admin-secret
 ```
 `measure.py` imports the live `INTENT_THRESHOLDS`/`FLOOR_THRESHOLD` when run with the backend on the
 path (run from `backend/`, or set `PYTHONPATH=backend`); otherwise it falls back to documented
