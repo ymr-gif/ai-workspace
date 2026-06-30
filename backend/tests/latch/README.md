@@ -67,6 +67,10 @@ PYTHONPATH=../.. python3 measure.py --capture run.jsonl --scores scores.txt --em
 which eval sets were written, and a one-line read of the fork the data points to. **Do NOT pick or
 apply the fork — that is the human's call.**
 
+**4. Log it.** Append a dated entry to **`RUNLOG.md`** (rows, reason split, A/B/C, anomalies) — and
+read its "Keep in account" notes + checklist *before* you start. That file is the running memory of
+what's been done and what's intentionally deferred (e.g. adding more connectors, the bge re-tune).
+
 **Full briefing:** `plans/latch-data-session-kickoff.md` (role, weighting, cold/warm, don'ts).
 
 ## Pieces
