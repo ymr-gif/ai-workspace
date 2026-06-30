@@ -37,12 +37,26 @@ GREEN = a line with `"reason": "ok"` AND `"decision": "latched_drive"`.
 
 **2. Collect — one command**
 ```bash
+# fixed size:
 python3 fleet.py --capture run.jsonl --admin-target 150 --score-target 400
+# or run for hours (admin worker uses sessions → cold + lots of warm; score worker = cold volume):
+python3 fleet.py --capture run.jsonl --duration 3h
 ```
-Paced (~12/min/account) → expect ~30–60 min unattended. Two seeded accounts ⇒ 2 workers (admin =
-flips+warm, user = score volume). Wider: seed more users (`../../create_user.py`) and pass
-`--accounts u1:pw,u2:pw,...`. Watch the logs for `embed_fail` creeping in mid-run — if it dominates,
-the embedder relapsed; pause.
+Two seeded accounts ⇒ 2 workers (admin = mixed/sessions for flips+warm, user = score volume).
+Throughput is bounded by per-send latency (~5–7s healthy), so ~8–10/min/worker → a 3h run ≈ ~1500–1800
+rows/worker. Wider: seed more users (`../../create_user.py`) and pass `--accounts u1:pw,u2:pw,...`.
+Watch the logs for `embed_fail` creeping in — if it dominates, the embedder relapsed; pause.
+
+**Long runs & token budget (important):** two separate meters.
+- *NIM tokens* (the traffic): **lean mode is ON by default** — each send caps the reply to 1 token, so
+  the tool loop (the real token sink) never starts and the cache is bypassed (latch always logs). Add
+  `--lean-model meta/llama-3.1-8b-instruct` to pin the cheapest model and dodge fallback churn. A
+  multi-hour 2-worker run is single-digit dollars. (If NIM degrades, sends just get *slow* — tokens
+  stay capped, you simply collect less.)
+- *Claude tokens* (your agent tester): keep it **launch-and-poll**. Let `fleet.py`/`run_collection.py`
+  generate the messages (zero LLM cost) and have your agent check back periodically. Do NOT have an
+  LLM reason out every message for hours — that's the only thing that explodes. Reserve the
+  `fleet.py --briefings` LLM-agent path for a short diversity burst, not the long haul.
 
 **3. Measure + report**
 ```bash
@@ -60,8 +74,9 @@ apply the fork — that is the human's call.**
 - `ui_capture.py` — **browser** twin (Playwright): drives the real UI at `localhost:3000`. Same
   capture schema → same `measure.py`. For UI-realism passes; for bulk volume use `agent_capture.py`.
 - `prompt_bank.py` — band-tagged example prompts (weight toward none_intent / weak_real / tie).
-- `run_collection.py` — **Layer 1**: one paced orchestrator. Weighted bands, cold/warm scripting,
-  templated phrasing variation, rate-limit pacing. Turns a whole run into one command.
+- `run_collection.py` — **Layer 1**: one paced orchestrator. `--mode singles|sessions|mixed`
+  (sessions = multi-turn continuous chats → the efficient WARM-row source), `--duration 3h` or
+  `--target N`, weighted bands, templated phrasing, lean-by-default. One command = a whole run.
 - `fleet.py` — **Layer 2**: spawns several Layer-1 workers in parallel (one per account; admin =
   flips+warm, others = score-band), all → one capture file. `--briefings` prints paste-ready prompts
   for human-launched LLM agents instead.

@@ -53,16 +53,19 @@ def briefings():
         print(_brief(band, acct), "\n")
 
 
-def fleet(capture, accounts, admin_target, score_target, rate, base):
-    """accounts: list of (user, pw). The first admin-named account runs flip+warm; others score-band."""
+def fleet(capture, accounts, admin_target, score_target, duration, rate, base):
+    """accounts: list of (user, pw). The admin-named account runs mixed (flips+warm via sessions);
+    others run score-band singles. duration (e.g. '3h') overrides the per-worker targets if set."""
     procs = []
     seed = 1000
     for user, pw in accounts:
         is_admin = "admin" in user
         if is_admin:
-            args = ["--target", str(admin_target), "--warm-rate", "0.3"]   # mixed weights = flips + warm
+            args = ["--mode", "mixed"]                              # sessions → flips + warm rows
+            args += ["--duration", duration] if duration else ["--target", str(admin_target)]
         else:
-            args = ["--target", str(score_target), "--band-focus", "none_intent", "--warm-rate", "0"]
+            args = ["--mode", "singles", "--band-focus", "none_intent"]   # cold score volume
+            args += ["--duration", duration] if duration else ["--target", str(score_target)]
         cmd = [sys.executable, "run_collection.py",
                "--user", user, "--pw", pw, "--capture", capture,
                "--base", base, "--rate", str(rate), "--seed", str(seed)] + args
@@ -103,6 +106,7 @@ def main():
                     help="comma list of user:pw; admin-named account runs flips+warm, rest score-band")
     ap.add_argument("--admin-target", type=int, default=150)
     ap.add_argument("--score-target", type=int, default=400)
+    ap.add_argument("--duration", type=str, default="", help="run every worker this long (e.g. 3h); overrides targets")
     ap.add_argument("--rate", type=float, default=12.0)
     ap.add_argument("--base", default="http://localhost:8000")
     a = ap.parse_args()
@@ -110,7 +114,7 @@ def main():
     if a.briefings:
         briefings()
         return
-    fleet(a.capture, _parse_accounts(a.accounts), a.admin_target, a.score_target, a.rate, a.base)
+    fleet(a.capture, _parse_accounts(a.accounts), a.admin_target, a.score_target, a.duration, a.rate, a.base)
 
 
 if __name__ == "__main__":

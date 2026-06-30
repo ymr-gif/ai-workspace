@@ -64,8 +64,14 @@ class LatchCapture:
         return r.json()["access_token"]
 
     def send(self, message, *, band, connector=None, conv_id=None,
-             expect_cold=None, note=""):
-        """Send one turn, record a labeled capture row, return the (server) conv_id."""
+             expect_cold=None, note="", max_tokens=None, model_override=None):
+        """Send one turn, record a labeled capture row, return the (server) conv_id.
+
+        max_tokens caps the model reply. Passing max_tokens=1 ("lean") is the cheap path for
+        data collection: the latch runs BEFORE the model so the score is unaffected, the cache
+        is bypassed (model_params present) so the latch always logs, and a 1-token reply can't
+        emit a tool call — so the tool loop (the real token sink) never starts.
+        """
         if band not in BANDS:
             raise ValueError(f"band must be one of {BANDS}, got {band!r}")
         if connector is not None and connector not in CONNECTORS:
@@ -74,6 +80,10 @@ class LatchCapture:
         body = {"message": message}
         if conv_id:
             body["conversation_id"] = conv_id
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
+        if model_override:
+            body["model_override"] = model_override
 
         done: dict = {}
         err: str | None = None
