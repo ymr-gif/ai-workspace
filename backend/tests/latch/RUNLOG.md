@@ -81,6 +81,16 @@ Append newest at the bottom. Template:
 - notes: sessions are the efficient warm-row source. Healthy sends ~5–7s; a 40s/send window earlier was
   transient NIM degradation (70B circuit tripped), since recovered (all models probe ok).
 
+### 2026-07-01 — richest-rich exerciser added (`rich_exercise.py`)
+- Opposite of lean: full agent loop, real tool execution + connector round-trips + web search + write
+  confirms executed for real with auto-clean. Half API (writes), half headed-UI (watch live).
+- Validated live: latch-first read → `calendar_list_events`; then `calendar_create_event` →
+  confirm → execute create=200 → parse id → delete=200 (Google calendar left CLEAN). `write_memory` →
+  `POST /memory/write` 200 (fact tagged RICHTEST-<run>, reported for manual removal). `enable_web` PUT
+  /admin/env + reload = 200.
+- notes: connector tools are latch-gated → cold write turn won't fire; sessions MUST lead with a read to
+  latch. Rich = short & thorough, not a multi-hour soak. UI half needs a display (`--api-only` if headless).
+
 ### YYYY-MM-DD — <next real collection run>
 - run:
 - rows:

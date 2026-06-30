@@ -85,6 +85,9 @@ what's been done and what's intentionally deferred (e.g. adding more connectors,
   flips+warm, others = score-band), all → one capture file. `--briefings` prints paste-ready prompts
   for human-launched LLM agents instead.
 - `measure.py` — joins capture labels with `latch_score` log lines → outputs A/B/C, can emit eval sets.
+- `rich_exercise.py` — **the opposite of lean**: drives the FULL agent loop (real tool calls, connector
+  round-trips, web search, write confirms **executed for real + auto-cleaned**), in back-to-back
+  sessions. For *integration/realism*, NOT latch tuning. See its own section below.
 
 ## Two drive paths (identical at the latch)
 The connector latch is a pure server-side function of (message, query_emb), so API and UI produce the
@@ -139,6 +142,34 @@ defaults and says so.
 - **B** — margin distribution on none_intent + tie → δ sits above this cluster.
 - **C** — cold/warm split of over-fires → COLD ⇒ θ_min + clarify fixes it; WARM ⇒ the leak is
   stickiness/TTL, fix that layer, do **not** raise θ_min to mask it.
+
+## Richest-rich exerciser (`rich_exercise.py`)
+
+The opposite end of lean: full agent loop, real tool execution, real connector round-trips, web
+search, and write confirms **executed for real with auto-cleanup**. Use it to confirm *everything
+actually works end-to-end* — not for latch tuning. NIM tokens burn freely here (intended); it's
+deterministic so it costs **zero AI-agent (Claude) tokens** to generate — launch and read the summary.
+
+```bash
+python3 rich_exercise.py --capture rich.jsonl     # mixed: API write-sessions + headed UI read-sessions
+python3 rich_exercise.py --api-only               # headless (no display needed)
+python3 rich_exercise.py --no-web                 # skip web_search/searxng setup
+```
+
+How it behaves:
+- **Latch-first prompts.** Connector tools are latch-gated, so each connector session LEADS with a read
+  ("use the calendar tool to show this week") to latch it, then does breadth/writes on the same conv.
+  Verified: read fires `calendar_list_events`, then create fires `calendar_create_event`.
+- **Writes execute + auto-clean.** `confirm_calendar_write` → `POST /integrations/calendar/execute`
+  (create), parses `(id=…)`, then deletes it (verified create=200 → delete=200, calendar left clean).
+  `confirm_write_memory` → `POST /memory/write`; the fact is tagged `RICHTEST-<run>` and **reported for
+  you to remove** (no per-fact delete endpoint).
+- **Web:** auto-enables `WEB_SEARCH_ENABLED` (admin env) + starts the `searxng` compose profile, then
+  exercises `web_search` + `fetch_url`. Use `--no-web` to skip.
+- **UI half (headed):** read/web/file sessions through the real frontend so you can WATCH the tool pills
+  + cards live (needs a display — use `--api-only` on a headless box). Writes are executed on the API half.
+- **Pacing:** each message runs to completion (the model finishes its whole tool loop, ~30–75s in rich
+  mode) before the next — no token cap. Rich is **short & thorough**, NOT a multi-hour soak.
 
 ## Collection caveats (read before the run)
 - **Connector must be `active`** under the agents' user, or `decision` stays `none` (scores still log
