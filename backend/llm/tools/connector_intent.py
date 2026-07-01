@@ -154,7 +154,14 @@ INTENT_THRESHOLDS: dict[str, float] = {
 # this floor to latch. Prevents latching on a weak winner that only "won"
 # because every connector scored low — a confident wrong latch is worse than
 # a humble abstention. Already-latched connectors (sticky TTL) unaffected.
-FLOOR_THRESHOLD = 0.65
+#
+# Recalibrated 0.65→0.70 on 2026-07-01 for the nearest-example (max) scoring, which runs hotter
+# than the old mean cosine. A/B on 150 weak_real + 150 none_intent: at 0.65 the new scoring
+# over-fires 61% of vague turns; at 0.70 over-fire drops to ~15% (vs 37% for old@0.65) while genuine
+# recall is ~28% — the rest is meant to be recovered by the clarify fallback (the bands overlap;
+# no floor separates them). Provisional/precision-biased; the per-connector INTENT_THRESHOLDS above
+# (0.60/0.60/0.65) are mean-tuned and now DOMINATED by this floor. Re-measure with more data.
+FLOOR_THRESHOLD = 0.70
 
 _anchors: dict[str, list[list[float]] | None] = {}
 _locks: dict[str, asyncio.Lock] = {c: asyncio.Lock() for c in INTENT_PHRASES}
