@@ -91,8 +91,34 @@ Append newest at the bottom. Template:
 - notes: connector tools are latch-gated → cold write turn won't fire; sessions MUST lead with a read to
   latch. Rich = short & thorough, not a multi-hour soak. UI half needs a display (`--api-only` if headless).
 
-### YYYY-MM-DD — <next real collection run>
-- run:
-- rows:
-- A: · B: · C:
-- notes:
+### 2026-07-01 — first real collection (fleet, 550 rows)
+- run: `fleet.py --capture run.jsonl --admin-target 150 --score-target 400 --rate 6`
+- accounts: admin (mixed sessions, 150 sends) + user (singles none_intent, 400 sends)
+- rows: 550 | reason {ok: 546, embed_fail: 0, rag_skip: 4} | cold-heavy
+- A: OVERLAP -0.286 (max none 0.748 vs min weak 0.462) · B: margins p50=0.016 p75=0.033 p90=0.051 max=0.127 · C: actual latched 15 (9+6w) / would-fire 122 (114+8w) — mostly cold
+- notes: Embedder healthy (0 embed_fail). Admin had ~5 timeouts early then recovered. 15 over-fires at current θ (all single-winner gated — 122 would-fire shows the latch is doing heavy lifting). Margins are tight: δ < 0.05 for 90% of ambiguous rows. Fork points to COLD over-fires → θ_min + clarify fallback, NOT decay fix. Eval sets emitted: none_intent=461, weak_real=41, tie=15.
+
+### 2026-07-01 — targeted weak_real run (150) [tie/positive killed mid-run]
+- run: `run_collection --band-focus weak_real --target 150 --user admin` (lean). ~18s/send (NIM slow,
+  2 timeouts). tie+positive runs were killed after weak_real finished.
+- weak_real target-score dist (n=148 ok): min=0.425 p10=0.480 p25=0.554 **p50=0.610** p75=0.657 max=0.789.
+  **103/148 (70%) BELOW the 0.65 floor**; 68/148 (46%) below 0.60.
+- read: genuine terse requests score LOW (median 0.61). min DROPPED vs n=41 (0.462→0.425) → the OVERLAP
+  is real, not a thin-data artifact. At θ=0.65: ~26% of none_intent over-fire AND ~70% of weak_real
+  under-fire — **θ_min alone CANNOT separate these.** Implications: (1) clarify fallback is now ESSENTIAL,
+  not optional; (2) centroids likely need terse/short phrasings (or multi-centroid) — terse genuine
+  requests embed far from the full-sentence INTENT_PHRASES. Do NOT just raise θ. Human decision point.
+
+### 2026-07-01 — FIX: nearest-example scoring + terse anchors (c3b020d, floor 194b335)
+- Changed `intent_score` from cosine-vs-mean-centroid to MAX cosine over each connector's phrase
+  embeddings; added terse noun-bearing phrases (23/connector). Unit-tested. Motivation: terse genuine
+  scored low under the mean.
+- Offline A/B (150 weak_real + 150 none_intent, same embeds, old vs new scoring):
+  - weak_real med 0.614→0.658 (recall up) BUT none_intent med 0.625→0.663 (vague up ~same).
+  - gap p10(weak) vs p90(none): -0.196 → -0.159 (barely moved — STILL no separation).
+  - @0.65 over-fire 37%→61% (worse, new scoring hotter); @0.70 recall 18→28% / over-fire 17→15% (Pareto pt).
+- DECISION: scoring change is a mild improvement, NOT the fix — the embedder fundamentally conflates
+  terse-genuine vs terse-vague. Recalibrated FLOOR 0.65→0.70 (over-fire 37%→15% vs original; precision-
+  biased). **The real fix is the CLARIFY FALLBACK** (accept under-fire on vague, model asks "which X?").
+  θ still provisional — re-measure with more balanced data. NIM embedder 500-stormed during the probe.
+- NEXT: verify + strengthen the clarify fallback (Task A rules); it now carries the recall the floor sheds.
