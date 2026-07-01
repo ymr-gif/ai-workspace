@@ -152,3 +152,19 @@ Append newest at the bottom. Template:
 - Verdict: fork-B recovery path is LIVE and working. Residual: 70B `stream_network_error` recurs
   intermittently (streaming half), separate from the embedder storms — worth a look but not this task.
 - NEXT (human): pick the fork from A/B/C on balanced data, then set θ_min/δ. Collection agent is done.
+
+### 2026-07-02 — clarify nudge light-tuned + regression-checked (fork-B locked)
+- Change (`stream.py:403` clarify block): more directive trigger — enumerate the vague-fetch verb class
+  (get/find/open/pull up/grab/check/show me + no clear object/referent) as ask-cases, KEEP an escape
+  hatch (clear in-chat referent OR normal question → answer normally, don't ask). Guards over-clarify.
+- Probes (admin, fresh conv, pinned `llama` 8B — nudge is model-agnostic):
+  - POSITIVE: `pull that up for me` → none (drive 0.655<0.70) → *"Do you mean a file in your Google
+    Drive? Which one?"* — **PASS** (this phrase MISSED pre-tune, now clarifies). `find it for me` →
+    none (gmail 0.574) → *"Could you be referring to a file in your Google Drive? Which one?"* — PASS.
+    `get that document for me` → **latched_drive 0.790** (genuine → tools; not a fallback case, correct).
+  - REGRESSION (must NOT clarify): `explain a hash map` / `what is a mutex` / `write a haiku about the
+    sea` → all answered normally, NO connector clarify — **PASS** (no over-clarify from the stronger wording).
+- Verdict: light-tune fixed the weak spot with zero regression. **Fork-B is locked** (floor 0.70 +
+  clarify). Decision recorded in `plans/connector-latch-data-plan.md` → Phase 4 DECIDED; BUGS.md item
+  → `[~]`. `nv-embedqa` collection CLOSED; connectors re-stubbed after this.
+- Aside: 70B streaming still throws `stream_network_error attempt=0` intermittently (filed in BUGS.md).

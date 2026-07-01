@@ -11,12 +11,16 @@ const CONNECTOR_LABELS = {
 const CONNECTOR_TYPES = ['google_drive', 'google_calendar', 'gmail', 'notion', 'github']
 
 // Add connector types here to expose OAuth flow in the UI.
-// Google connectors re-enabled 2026-06-29 so admin can OAuth in and drive real traffic
-// through the connector-intent latch (Phase 0 score-logging data collection). Notion/GitHub
-// stay stubbed. Re-stub by emptying this array once enough latch_score data is collected.
-// Note: existing ExternalSource rows for previously-connected users remain visible
-// (Connected card, no reconnect button). Clean up manually if needed.
-const ENABLED_CONNECTOR_TYPES = ['google_drive', 'google_calendar', 'gmail']
+// Google connectors were re-enabled 2026-06-29 for connector-intent latch data collection, then
+// RE-STUBBED 2026-07-02 once enough latch_score data was collected and the tuning closed (fork-B:
+// floor 0.70 + clarify fallback; see plans/connector-latch-data-plan.md → Phase 4 DECIDED). The
+// backend connector code + latch stay intact — this only removes the OAuth button so NO NEW users
+// can connect. It does NOT deactivate connectors already OAuth'd: admin's ExternalSource rows from
+// the data-collection window stay `active` in the DB, so the backend still sees drive/calendar/gmail
+// as active for admin and the latch KEEPS firing on admin turns (tools still work for admin). To fully
+// deactivate (latch never fires for anyone), delete/pause those rows (DELETE /api/integrations/{id}
+// or PATCH status=paused). To re-expose in the UI, add the types back.
+const ENABLED_CONNECTOR_TYPES = []
 
 export default function useIntegrations(token) {
   const [integOpen, setIntegOpen] = useState(false)

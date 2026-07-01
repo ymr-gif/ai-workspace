@@ -420,11 +420,17 @@ async def generate_stream(
         _rules_block.append({"role": "system", "content": (
             "## Connected services (tools not loaded this turn)\n\n"
             f"The user has connected: {_svc}. Those tools are NOT available on THIS turn (the current "
-            "message wasn't a clear request for them). Do NOT claim you lack access to them. If the "
-            "message plausibly wants their files, schedule, or email but is too vague to act on "
-            "(e.g. \"get that document\", \"any new mail\", \"what's next\"), ask ONE short clarifying "
-            "question that names the service — e.g. \"Do you mean a file in your Google Drive? Which "
-            "one?\". A clearer follow-up loads the tools next turn. Otherwise answer normally."
+            "message wasn't a clear request for them). Do NOT claim you lack access to them.\n\n"
+            "When the message is a vague fetch/lookup — a verb like get / find / open / pull up / grab "
+            "/ check / show me / look up with NO clear object AND no obvious referent already in this "
+            "conversation (e.g. \"get that document\", \"pull that up for me\", \"find it\", \"any new "
+            "mail\", \"what's next\") — it most likely wants one of the connected services but is too "
+            "vague to act on. In that case ask ONE short clarifying question that NAMES the service — "
+            "e.g. \"Do you mean a file in your Google Drive? Which one?\". A clearer follow-up loads the "
+            "tools next turn.\n\n"
+            "Escape hatch: if the message clearly refers to something already in THIS conversation, or "
+            "is a normal question/task unrelated to files/schedule/email, just answer normally — do NOT "
+            "ask about the connected services."
         )})
     if _rules_block:
         base_messages[1:1] = _rules_block

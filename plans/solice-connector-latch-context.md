@@ -5,6 +5,16 @@
 > `BUGS.md:40,55`, `QUEUE.md:65`, `backend/CLAUDE.md`). Corrected sections are tagged
 > **[UPDATED]**; superseded plan content is kept but re-labeled **[DEFERRED]** so the
 > original intent survives for the bge/connector-re-enable milestone.
+>
+> **[RESOLVED 2026-07-02]** The data-first tuning is DONE. Connectors were re-enabled 2026-06-29,
+> real traffic collected (550+150 rows), and the fork decided: **fork-B — floor 0.70 (precision-biased)
+> + clarify fallback.** The embedder (`nv-embedqa-e5-v5`) provably cannot separate terse-genuine from
+> terse-vague (A=OVERLAP), so no threshold/margin recovers recall; the clarify fallback does. Nearest-
+> example scoring replaced the mean centroid (`c3b020d`); the clarify nudge is live in `stream.py`
+> (`19139ba`, light-tuned 2026-07-02) and verified. `nv-embedqa` collection is now CLOSED and the
+> Google connectors were re-stubbed once data was sufficient. Full decision log:
+> `plans/connector-latch-data-plan.md` → "Phase 4 — DECIDED". The `[DEFERRED]` data-first plan below is
+> now HISTORICAL — it was executed; re-run only on the bge swap.
 
 ## What this system is
 Solice = self-hosted memory-augmented AI assistant. FastAPI backend.

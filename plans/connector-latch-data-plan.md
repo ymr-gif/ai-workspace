@@ -4,7 +4,9 @@
 > **execution plan**. Decision: **build the data, run one measurement, then ship floor + margin +
 > the cold/warm split as one change.** Do not tune anything until the data exists.
 >
-> Status: **Phase 0 shipped 2026-06-29** (score logging live + connectors re-enabled). Phases 1–8 pending.
+> Status: **CLOSED 2026-07-02** — Phase 0 shipped 2026-06-29 (logging + connectors re-enabled); data
+> collected (550+150 rows); Phase 4 DECIDED = fork-B (floor 0.70 + clarify fallback). See the Phase 4
+> section at the bottom. `nv-embedqa` collection is closed; re-open only on the bge swap.
 
 ---
 
@@ -183,3 +185,42 @@ A shows OVERLAP + cold-vague-real is COMMON (rare case):
 
 Start at step 1 (done). Logging was the only thing correctly doable before the data exists.
 Everything downstream waits on it.
+
+---
+
+## Phase 4 — DECIDED (2026-07-02) ✅ CLOSED
+
+The data is in. Two runs: **550 rows** (fleet, 2026-07-01) + **150 rows** targeted weak_real.
+Measurement:
+
+- **A = OVERLAP.** none_intent reaches 0.71–0.77; weak_real median 0.61 (mean) / 0.66
+  (nearest-example). Gap p10(weak) vs p90(none) = **−0.286 → −0.159** even after switching to
+  nearest-example scoring + terse anchors. The bands do **not** separate.
+- **C = over-fires mostly COLD** (actual latched 15 vs would-fire 122, overwhelmingly cold).
+- Root cause is representational: `nv-embedqa-e5-v5` cannot linearly separate terse-genuine from
+  terse-vague. **No θ_min or δ fixes this** — a margin gate can't separate bands that overlap either.
+
+**Branch taken (per Phase 4 rulebook): OVERLAP + over-fires COLD → conservative floor + clarify fallback.**
+
+Shipped as the final decision:
+- `FLOOR_THRESHOLD = 0.70` (precision-biased; over-fire 37%→15% vs the old 0.65, sheds recall on purpose).
+- Per-connector `INTENT_THRESHOLDS` (0.60/0.60/0.65) **kept** but dominated by the floor.
+- **No δ/margin gate added** (Phase 3 skipped). Single-winner + floor is the whole gate; a margin term
+  buys nothing against overlapping bands.
+- **Clarify fallback** carries the recall the floor sheds — a latch-independent nudge in
+  `stream.py` (`19139ba`, light-tuned 2026-07-02): for connectors ACTIVE but NOT latched, the model
+  asks ONE service-naming question ("Do you mean a file in your Google Drive? Which one?") instead of
+  under-firing into silence. Verified live 2026-07-02 (vague "get that thing i need" → model named
+  Drive+Gmail and asked one question).
+
+**`nv-embedqa` data collection is CLOSED.** More data has hit diminishing returns — the overlap is
+robust across both runs. Do not collect or re-tune on this embedder again.
+
+**bge cross-ref:** floor 0.70 is `nv-embedqa-e5-v5` geometry. On the home-server `bge-large-en-v1.5`
+swap, re-run `tests/{drive,calendar,gmail}_intent_eval.jsonl` + re-set the floor (may separate
+differently). The **clarify fallback is embedder-agnostic** and carries over unchanged. See
+`connector_intent.py` docstring + `backend/CLAUDE.md` → LLM_BACKEND invariant.
+
+Residual (accepted): recall traded for precision by design — genuine terse requests that don't clear
+0.70 get a clarifying question, not a tool. Full recall recovery waits on a better embedder. Tracked
+in `BUGS.md` (item: terse-genuine/terse-vague overlap, now `[~]` mitigated).
