@@ -122,3 +122,16 @@ Append newest at the bottom. Template:
   biased). **The real fix is the CLARIFY FALLBACK** (accept under-fire on vague, model asks "which X?").
   θ still provisional — re-measure with more balanced data. NIM embedder 500-stormed during the probe.
 - NEXT: verify + strengthen the clarify fallback (Task A rules); it now carries the recall the floor sheds.
+
+### 2026-07-01 — clarify fallback (fork-B) implemented (19139ba)
+- GAP found: `_{connector}_RULES` (with the "ask which file(s)" nudge) are `behavioral_rules` ON the
+  tools → injected ONLY when LATCHED. On an under-fire turn (not latched) the model has no connector
+  awareness and can't ask "which X?" — so fork-B recovery never happened.
+- FIX (`stream.py`, after latch resolution): inject a latch-INDEPENDENT one-line clarify nudge for
+  connectors that are ACTIVE but NOT latched — names the service, tells the model to ask ONE short
+  clarifying question on a vague terse request, no schemas (KV-stable).
+- Verified: control "explain a hash map" → normal answer, NO false clarify (no regression).
+- UNVERIFIED: the positive case (terse under-fire → Drive-clarify). NIM was returning only `status`
+  events / no model output (embedder 500-storm) during the check. **Re-verify in a stable window:**
+  `POST /chat/stream {"message":"get that document"}` as admin (fresh conv) → expect a short question
+  naming Google Drive. Also confirm no over-clarify on borderline turns.
