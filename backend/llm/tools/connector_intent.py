@@ -11,10 +11,17 @@ the tool-eager 70B called connector tools on greetings/chit-chat (e.g.
 NOT a keyword match — the cosine generalizes past the exact example words. The
 phrase lists are example sentences for centroid derivation only.
 
-Mechanism (resolved per turn in `llm/service/stream.py`): score the reused
-`query_emb` vs `get_centroid(connector)`; `>= max(INTENT_THRESHOLDS[connector], FLOOR_THRESHOLD)` →
-latch (Redis `{connector}_latched:{conv_id}`, latch-then-serve same turn, sticky
-1h). The gate for each connector is `ctx.{connector}_active AND ctx.{connector}_latched`.
+Mechanism (resolved per turn in `llm/service/stream.py`): score the reused `query_emb` by
+NEAREST-EXAMPLE — the MAX cosine over `get_anchors(connector)` (every phrase's embedding, not a
+single mean); `>= max(INTENT_THRESHOLDS[connector], FLOOR_THRESHOLD)` → latch (Redis
+`{connector}_latched:{conv_id}`, latch-then-serve same turn, sticky 1h). The gate for each
+connector is `ctx.{connector}_active AND ctx.{connector}_latched`.
+
+NOTE (2026-07-01): scoring changed from mean-centroid cosine to nearest-example MAX. Max runs
+HIGHER than mean, so `INTENT_THRESHOLDS`/`FLOOR_THRESHOLD` below are the OLD mean-tuned values and
+are now MISCALIBRATED — re-measure the weak_real/none_intent distributions and re-set them before
+trusting live flips. (Motivation: terse genuine requests scored ~0.61 under the mean, overlapping
+vague turns; nearest-example lets them match a terse anchor. See BUGS.md / RUNLOG.)
 
 Embedder-specific: centroids auto-regenerate at boot under any embedder, but the
 THRESHOLDS are tuned to nv-embedqa-e5-v5's score geometry and will be WRONG for
@@ -73,6 +80,12 @@ INTENT_PHRASES: dict[str, list[str]] = {
         "check my google drive for a file",
         "retrieve a file from my documents",
         "where is my document saved in drive",
+        # terse anchors — genuine short requests carry the connector noun (file/doc/spreadsheet)
+        "open my document",
+        "read that file",
+        "grab the spreadsheet",
+        "pull up my doc",
+        "which file has this",
     ],
     "calendar": [
         "what is on my calendar today",
@@ -93,6 +106,12 @@ INTENT_PHRASES: dict[str, list[str]] = {
         "list my upcoming events",
         "when am I meeting with the team",
         "block off time on my calendar",
+        # terse anchors — carry the connector noun (meeting/calendar/agenda/schedule)
+        "when is my meeting",
+        "what's my agenda",
+        "put this on my calendar",
+        "do I have anything scheduled",
+        "any meetings on my calendar",
     ],
     "gmail": [
         "check my email",
@@ -113,6 +132,12 @@ INTENT_PHRASES: dict[str, list[str]] = {
         "did anyone email me about the order",
         "search my gmail for the contract",
         "read the email from the bank",
+        # terse anchors — carry the connector noun (email/inbox/mail/message)
+        "show my inbox",
+        "did I get any email",
+        "open my messages",
+        "who emailed me",
+        "look through my mail",
     ],
 }
 
@@ -131,7 +156,7 @@ INTENT_THRESHOLDS: dict[str, float] = {
 # a humble abstention. Already-latched connectors (sticky TTL) unaffected.
 FLOOR_THRESHOLD = 0.65
 
-_centroids: dict[str, list[float] | None] = {}
+_anchors: dict[str, list[list[float]] | None] = {}
 _locks: dict[str, asyncio.Lock] = {c: asyncio.Lock() for c in INTENT_PHRASES}
 
 
@@ -152,66 +177,65 @@ async def _embed_phrase(text: str, *, retries: int = 6) -> list[float] | None:
     return None
 
 
-async def _build_centroid(connector: str) -> list[float] | None:
-    # input_type MUST match the query embed used at request time: helpers.py embeds
-    # the user message as "query". The e5 embedder is ASYMMETRIC — query- and
-    # passage-encoded text occupy different subspaces. Keep "query".
+async def _build_anchors(connector: str) -> list[list[float]] | None:
+    # NEAREST-EXAMPLE model: keep every phrase's normalized embedding, not a single mean.
+    # A single mean-centroid punishes short/terse genuine requests ("read that file") — they
+    # sit far from the average of long descriptive phrases and score low, overlapping vague
+    # connector-adjacent turns. Scoring against the MAX over individual phrases lets a terse
+    # request match a nearby example instead of the diluted average.
+    # input_type MUST match the request-time query embed: helpers.py embeds the user message
+    # as "query"; the e5 embedder is ASYMMETRIC (query/passage occupy different subspaces).
     phrases = INTENT_PHRASES[connector]
     vecs = []
     for p in phrases:
         v = await _embed_phrase(p)
         if v:
-            vecs.append(v)
+            vecs.append(_normalize(list(v)))
     if len(vecs) < len(phrases):
-        # Partial set → centroid drifts from the tuned threshold. Refuse rather than
-        # ship a mistuned latch; the lazy path retries on the next call (self-heal).
-        logger.warning("[connector_intent] %s centroid incomplete (%d/%d) — leaving unbuilt for retry",
+        # Partial set → the anchor cloud is incomplete and the tuned threshold assumes the
+        # FULL set. Refuse rather than ship a mistuned latch; the lazy path retries (self-heal).
+        logger.warning("[connector_intent] %s anchors incomplete (%d/%d) — leaving unbuilt for retry",
                        connector, len(vecs), len(phrases))
         return None
-    dim = len(vecs[0])
-    mean = [sum(v[i] for v in vecs) / len(vecs) for i in range(dim)]
-    centroid = _normalize(mean)
-    logger.info("[connector_intent] %s centroid built from %d/%d phrases (dim=%d)",
-                connector, len(vecs), len(phrases), dim)
-    return centroid
+    logger.info("[connector_intent] %s anchors built from %d phrases (dim=%d)",
+                connector, len(vecs), len(vecs[0]))
+    return vecs
 
 
-async def get_centroid(connector: str) -> list[float] | None:
-    """Boot-derived intent centroid for `connector`, built once per process (lazy + locked).
-
-    Returns None if the embedder was unreachable at build time; callers treat that
-    as "no signal" (score 0.0 → not latched). The next call retries the build, so a
-    transient embedder outage at first request self-heals.
-    """
-    if _centroids.get(connector) is None:
+async def get_anchors(connector: str) -> list[list[float]] | None:
+    """Boot-derived normalized phrase embeddings for `connector`, built once per process
+    (lazy + locked). None if the embedder was unreachable at build time → callers treat as
+    "no signal" (score 0.0). The next call retries, so a transient outage self-heals."""
+    if _anchors.get(connector) is None:
         async with _locks[connector]:
-            if _centroids.get(connector) is None:
-                _centroids[connector] = await _build_centroid(connector)
-    return _centroids.get(connector)
+            if _anchors.get(connector) is None:
+                _anchors[connector] = await _build_anchors(connector)
+    return _anchors.get(connector)
 
 
 async def warm_centroids() -> None:
-    """Optional startup warm of all connector centroids so the first connector-active
-    request doesn't pay the phrase-embedding cost. Safe to fire-and-forget from
-    lifespan; failures are swallowed (the lazy path retries)."""
+    """Optional startup warm of all connector anchor sets so the first connector-active
+    request doesn't pay the phrase-embedding cost. Safe to fire-and-forget from lifespan;
+    failures are swallowed (the lazy path retries). (Name kept for the lifespan import.)"""
     for connector in INTENT_PHRASES:
         try:
-            await get_centroid(connector)
+            await get_anchors(connector)
         except Exception:
             logger.warning("[connector_intent] warm %s failed; will build lazily", connector, exc_info=True)
 
 
 async def intent_score(connector: str, query_emb) -> float:
-    """Cosine of the query embedding against `connector`'s boot-derived intent centroid.
+    """Nearest-example intent signal: the MAX cosine of the query embedding against any of
+    `connector`'s phrase embeddings.
 
-    `query_emb` is None (no embed this turn) → 0.0, failing toward NOT latching
-    (fewer tools). Centroid unbuildable (embedder down at boot) → 0.0 likewise.
+    `query_emb` is None/empty (no embed this turn) → 0.0, failing toward NOT latching. Anchors
+    unbuildable (embedder down at boot) → 0.0 likewise.
     """
     if not query_emb:
         logger.debug("[intent_score] %s query_emb=%s → 0.0", connector, type(query_emb).__name__ if query_emb is not None else "None")
         return 0.0
-    centroid = await get_centroid(connector)
-    if not centroid:
+    anchors = await get_anchors(connector)
+    if not anchors:
         return 0.0
     q = _normalize(list(query_emb))
-    return float(sum(a * b for a, b in zip(q, centroid)))
+    return max(float(sum(a * b for a, b in zip(q, anc))) for anc in anchors)

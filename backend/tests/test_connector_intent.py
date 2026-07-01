@@ -1,8 +1,8 @@
 """Per-connector intent latch signal tests (Q3 Task B + generalization) — pure unit.
 
-Covers the cosine score math, the None/empty fail-safe (→ 0.0, fail toward NOT
-latching), the no-centroid fail-safe, that the centroid is built from
-`embed(..., input_type="query")` (must match request-time query encoding for the
+Covers the NEAREST-EXAMPLE score math (max cosine over the connector's phrase embeddings), the
+None/empty fail-safe (→ 0.0, fail toward NOT latching), the no-anchors fail-safe, that anchors are
+built from `embed(..., input_type="query")` (must match request-time query encoding for the
 asymmetric e5 embedder), and that every connector has phrases + a threshold.
 """
 import math
@@ -24,10 +24,10 @@ CONNECTORS = ["drive", "calendar", "gmail"]
 
 
 @pytest.fixture(autouse=True)
-def _reset_centroids():
-    ci._centroids.clear()
+def _reset_anchors():
+    ci._anchors.clear()
     yield
-    ci._centroids.clear()
+    ci._anchors.clear()
 
 
 def test_every_connector_has_phrases_and_threshold():
@@ -48,45 +48,53 @@ def test_normalize_zero_vector_safe():
 
 @pytest.mark.parametrize("connector", CONNECTORS)
 async def test_score_none_query_is_zero(connector):
-    ci._centroids[connector] = ci._normalize([1.0, 0.0, 0.0])
+    ci._anchors[connector] = [ci._normalize([1.0, 0.0, 0.0])]
     assert await ci.intent_score(connector, None) == 0.0
     assert await ci.intent_score(connector, []) == 0.0
 
 
-async def test_score_no_centroid_is_zero(monkeypatch):
-    async def _no_centroid(connector):
+async def test_score_no_anchors_is_zero(monkeypatch):
+    async def _no_anchors(connector):
         return None
-    monkeypatch.setattr(ci, "get_centroid", _no_centroid)
+    monkeypatch.setattr(ci, "get_anchors", _no_anchors)
     assert await ci.intent_score("drive", [0.1, 0.2, 0.3]) == 0.0
 
 
 async def test_score_cosine_aligned_and_orthogonal():
-    ci._centroids["calendar"] = ci._normalize([1.0, 0.0, 0.0])
+    ci._anchors["calendar"] = [ci._normalize([1.0, 0.0, 0.0])]
     assert math.isclose(await ci.intent_score("calendar", [5.0, 0.0, 0.0]), 1.0, rel_tol=1e-9)
     assert math.isclose(await ci.intent_score("calendar", [0.0, 7.0, 0.0]), 0.0, abs_tol=1e-9)
     assert math.isclose(await ci.intent_score("calendar", [-2.0, 0.0, 0.0]), -1.0, rel_tol=1e-9)
 
 
-async def test_centroid_built_as_query_encoded_mean(monkeypatch):
+async def test_score_is_max_over_anchors():
+    # Nearest-example: a query aligned with ONE anchor scores high even if far from the others.
+    ci._anchors["drive"] = [ci._normalize([1.0, 0.0, 0.0]), ci._normalize([0.0, 1.0, 0.0])]
+    assert math.isclose(await ci.intent_score("drive", [0.0, 3.0, 0.0]), 1.0, rel_tol=1e-9)
+    # Equidistant-ish query takes the better of the two, not the (lower) average.
+    assert await ci.intent_score("drive", [1.0, 0.2, 0.0]) > 0.9
+
+
+async def test_anchors_built_as_query_encoded(monkeypatch):
     seen_input_types = []
 
     async def _fake_embed(text, input_type="passage"):
         seen_input_types.append(input_type)
-        return [1.0, 0.0]  # all phrases map to one point → centroid == that point
+        return [1.0, 0.0]
 
     monkeypatch.setattr(ci, "embed_text", _fake_embed)
-    centroid = await ci.get_centroid("gmail")
-    assert centroid is not None
-    assert math.isclose(centroid[0], 1.0, rel_tol=1e-9)
-    assert math.isclose(centroid[1], 0.0, abs_tol=1e-9)
+    anchors = await ci.get_anchors("gmail")
+    assert anchors is not None and len(anchors) == len(ci.INTENT_PHRASES["gmail"])
+    for a in anchors:
+        assert math.isclose(a[0], 1.0, rel_tol=1e-9) and math.isclose(a[1], 0.0, abs_tol=1e-9)
     # Every phrase embedded as a QUERY (asymmetric e5 — matches request time).
     assert seen_input_types and all(t == "query" for t in seen_input_types)
 
 
-async def test_centroid_none_when_embeds_incomplete(monkeypatch):
-    # A phrase that exhausts its retries → partial set → refuse to build (mistuned
-    # centroid is worse than none; lazy path retries later).
+async def test_anchors_none_when_embeds_incomplete(monkeypatch):
+    # A phrase that exhausts its retries → partial set → refuse to build (mistuned anchors are
+    # worse than none; lazy path retries later).
     async def _fail_phrase(text, retries=6):
         return None
     monkeypatch.setattr(ci, "_embed_phrase", _fail_phrase)
-    assert await ci.get_centroid("drive") is None
+    assert await ci.get_anchors("drive") is None
