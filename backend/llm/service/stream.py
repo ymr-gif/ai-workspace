@@ -399,6 +399,33 @@ async def generate_stream(
         if t.behavioral_rules and t.behavioral_rules not in _seen_rules:
             _seen_rules.add(t.behavioral_rules)
             _rules_block.append({"role": "system", "content": t.behavioral_rules})
+
+    # Clarify fallback (fork-B). For connectors that are ACTIVE but NOT latched this turn (the
+    # under-fire case), the schemas + their behavioral_rules are withheld — so without this the
+    # model doesn't even know the connector exists and can't ask "which X?". Inject a lightweight,
+    # latch-INDEPENDENT nudge (no schemas → schemas stay withheld, KV prefix stays byte-stable) so
+    # an ambiguous terse request ("get that document") gets a clarifying question instead of a dead
+    # end. The latch is precision-biased (under-fires genuine terse requests on purpose); this is
+    # what recovers them. Deterministic connector order.
+    _CLARIFY_SVC = {"drive": "Google Drive (files/documents)",
+                    "calendar": "Google Calendar (schedule/events)",
+                    "gmail": "Gmail (email/inbox)"}
+    _unlatched = [c for c, on, lat in (
+        ("drive", _drive_active, _drive_latched),
+        ("calendar", _calendar_active, _calendar_latched),
+        ("gmail", _gmail_active, _gmail_latched),
+    ) if on and not lat]
+    if _unlatched:
+        _svc = "; ".join(_CLARIFY_SVC[c] for c in _unlatched)
+        _rules_block.append({"role": "system", "content": (
+            "## Connected services (tools not loaded this turn)\n\n"
+            f"The user has connected: {_svc}. Those tools are NOT available on THIS turn (the current "
+            "message wasn't a clear request for them). Do NOT claim you lack access to them. If the "
+            "message plausibly wants their files, schedule, or email but is too vague to act on "
+            "(e.g. \"get that document\", \"any new mail\", \"what's next\"), ask ONE short clarifying "
+            "question that names the service — e.g. \"Do you mean a file in your Google Drive? Which "
+            "one?\". A clearer follow-up loads the tools next turn. Otherwise answer normally."
+        )})
     if _rules_block:
         base_messages[1:1] = _rules_block
 
