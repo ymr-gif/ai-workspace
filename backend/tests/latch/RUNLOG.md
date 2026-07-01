@@ -135,3 +135,20 @@ Append newest at the bottom. Template:
   events / no model output (embedder 500-storm) during the check. **Re-verify in a stable window:**
   `POST /chat/stream {"message":"get that document"}` as admin (fresh conv) → expect a short question
   naming Google Drive. Also confirm no over-clarify on borderline turns.
+
+### 2026-07-02 — clarify fallback POSITIVE verified (stable NIM window)
+- Env green: `/health` nim ok / embedding ok / no `cb:open:*`. `get that document` is no longer a valid
+  under-fire probe — the terse anchors now score it drive **0.776 → latched_drive** (recall win, but it
+  exercises the latch, not the fallback). Needed a genuinely vague message that stays below floor.
+- Probes (pinned `llama` 8B — 70B streaming was throwing `stream_network_error attempt=0`; the nudge is
+  model-agnostic so this is representative):
+  - `"get that thing i need"` → latch `none` (calendar 0.616 < 0.70) → active-but-unlatched → model:
+    *"I'd like to clarify which thing you need. You have connected Google Drive (files/documents) and
+    Gmail (email/inbox). Could you please specify which one you're referring to?"* — **PASS** (names
+    the services, single question, no tool call).
+  - `"can you pull that up for me"` → latch `none` (drive 0.666 < 0.70) → model declined ("I don't have
+    access…") WITHOUT naming connectors — weaker (a soft miss, not a regression). Borderline vague turns
+    don't always trigger the clarify; the nudge is advisory, model-dependent.
+- Verdict: fork-B recovery path is LIVE and working. Residual: 70B `stream_network_error` recurs
+  intermittently (streaming half), separate from the embedder storms — worth a look but not this task.
+- NEXT (human): pick the fork from A/B/C on balanced data, then set θ_min/δ. Collection agent is done.
