@@ -4,7 +4,9 @@ Master, ordered runbook for proving the backend works end-to-end and launching i
 NIM backend (interim prod). Extends the focused service/curl runbook in
 [`VERIFICATION.md`](./VERIFICATION.md).
 
-Last full verification: **2026-06-22** against the live stack — see "Verification record" below.
+Last full verification: **2026-07-03** (rich full-feature run — all tiers + full-surface gap-filler
+`tests/latch/rich_full.py`; report: `tests/latch/rich_full_logs/rich_full_report.md`). Previous:
+2026-06-22 — see "Verification record" below.
 
 ---
 
@@ -156,8 +158,11 @@ Companion to the RAG-focused `test_files_rag.py`.
   (compose default is `false` — web search is opt-in and needs searxng; the `searxng` service is
   behind the `web-search` profile.) Verify JSON works: searxng must answer
   `GET /search?q=test&format=json` (the default image enables JSON in `docker/searxng/`).
-- **Drive/Calendar**: connected under the **admin** account; tests use admin headers and self-skip
-  if the connector isn't `active`. Gmail is not connected → `optional` test self-skips.
+- **Drive/Calendar/Gmail**: connected under the **admin** account (all three `active` since the
+  2026-06-29 latch data collection; UI re-stub does NOT deactivate them); tests use admin headers
+  and self-skip if a connector isn't `active`. `test_gmail_when_connected` passes live as of
+  2026-07-03. `test_calendar_create_confirm_sentinel` is latch-first (cold create scores < the
+  0.70 latch floor — schemas absent until a read-turn latches the session).
 
 **Run**
 ```
@@ -210,8 +215,9 @@ memory hard-reset + restore, behavior-profile + preference ARQ jobs via psql).
 
 **Open findings (logged in BUGS.md, need a decision — not auto-fixed):**
 - **BUG-V3** nonstream `POST /chat` is stateless → no cost accounting → cost cap doesn't apply.
-- **BUG-V6** scheduled in-container `run_backup` is dead (needs pg_dump/docker access); host
-  `bash docker/backup.sh` works (1.4 MB dump, 26 tables).
+- ~~**BUG-V6** scheduled in-container `run_backup` is dead~~ — **stale as of 2026-07-03**: the 2 AM
+  scheduled backups ARE producing dumps (root-owned `nimrouter_*_020000.sql.gz` on 07-01/07-02).
+  Host `bash docker/backup.sh` also works.
 - **BUG-V7** `paddlepaddle` missing from the image → OCR (#19) would fail if enabled.
 - **BUG-V2** `store_exchange` FK race (caught/logged) when a conversation is deleted before its
   async embed.

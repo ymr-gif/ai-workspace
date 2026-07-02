@@ -210,12 +210,14 @@ Drive one conversation past **80 msgs / 120k tokens / 3 days idle**; next turn e
 PG -c "SELECT left(id::text,8), is_archived, archived_at FROM conversations WHERE user_id=1 AND is_archived ORDER BY archived_at DESC;"
 ```
 
-### ⚠️ Restore — NOT a live endpoint yet
-`POST /admin/memory/restore` was **not implemented**. To roll back a reset, restore the prior
-`user_memory.content` from the latest pre-reset `user_memory_versions` row manually:
+### Restore — live endpoint (verified 2026-07-03)
+`POST /admin/memory/restore` is implemented and verified (rich-full run: reset → restore → 200,
+content swapped, audit row written). Snapshots current sheet before overwriting — reversible.
 ```bash
-PG -c "SELECT version, length(content) FROM user_memory_versions WHERE user_id=1 ORDER BY version DESC LIMIT 5;"
-# then UPDATE user_memory SET content=(that snapshot) WHERE user_id=1;  -- manual, deliberate
+curl -s http://localhost:8000/admin/memory/versions?user_id=1 -H "Authorization: Bearer $TOK"
+curl -s -X POST http://localhost:8000/admin/memory/restore \
+  -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
+  -d '{"user_id":1,"version_id":<id>,"confirm":"RESTORE 1"}'   # confirm = "RESTORE <user_id>"
 ```
 
 ---

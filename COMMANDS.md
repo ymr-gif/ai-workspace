@@ -29,6 +29,12 @@ docker compose exec api sh -c "cd /app/backend && alembic upgrade head"
 # Seed users
 docker compose exec api python create_user.py
 
-# Run tests
+# Run tests (unit tier)
 cd backend && python -m pytest tests/test.py -v
+
+# Live E2E tier (paid NIM; stack must be up)
+cd backend && RUN_LIVE_NIM=1 VERIFY_BASE_URL=http://localhost:8000 pytest tests/live/ -q -m "live_nim or optional"
+
+# Full-surface feature run (all tiers + every documented feature incl. real mutations + headed UI)
+cd backend/tests/latch && bash run_rich_full.sh          # flags: --skip-ui --skip-rotation --skip-live
 ```
