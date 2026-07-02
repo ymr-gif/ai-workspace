@@ -168,3 +168,20 @@ Append newest at the bottom. Template:
   clarify). Decision recorded in `plans/connector-latch-data-plan.md` → Phase 4 DECIDED; BUGS.md item
   → `[~]`. `nv-embedqa` collection CLOSED; connectors re-stubbed after this.
 - Aside: 70B streaming still throws `stream_network_error attempt=0` intermittently (filed in BUGS.md).
+
+## 2026-07-03 — Rich FULL-feature run (RICHFULL-09df2725)
+
+Full-surface orchestrated run (`run_rich_full.sh`): unit 183✓ · retrieval 26✓ · infra 2✓/11 host-skip ·
+live 63✓/9 throttle-fail → 7 recovered on rerun, 2 quota-blocked (web_search, list_files — mechanics
+evidenced; rerun cmd in report) · smoke ✓ · rich_exercise ✓ (calendar write+delete clean) ·
+rich_full 22/22 sections green in final form. Full report: `rich_full_logs/rich_full_report.md`.
+
+Keep in account:
+- NVIDIA 70B quota exhausts under sustained tiers → 429s → organic breaker trips (that's the breaker
+  working). Pace live tiers; probe the window before tool-loop reruns.
+- Compose env outranks .env: /admin/env PUT is live via setattr, but reload/restart re-masks keys
+  that exist in compose environment (WEB_SEARCH_ENABLED, MODEL_*). Re-arm web search before web tests.
+- Latch data point (do NOT tune): cold explicit calendar-create scored 0.531 < 0.70 floor;
+  test_calendar_create_confirm_sentinel is now latch-first to match the shipped design.
+- Cleanup done: tagged facts stripped, users 82/84 disabled, flags at defaults, graph/webhooks/redis
+  swept, admin soft reset (de-poison) + snapshot; residuals listed in the report.

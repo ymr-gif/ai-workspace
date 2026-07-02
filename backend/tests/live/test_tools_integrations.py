@@ -315,9 +315,21 @@ def test_calendar_list_events(sse_post, client, calendar_admin):
 
 @pytest.mark.optional
 def test_calendar_create_confirm_sentinel(sse_post, client, calendar_admin):
-    """Write tools must pause for confirmation — never hit Google from the loop."""
+    """Write tools must pause for confirmation — never hit Google from the loop.
+
+    Latch-first (Q3 Task B): calendar schemas are withheld until embedding-cosine intent
+    latches the session — a lone cold create-turn scores below the 0.70 floor (measured
+    0.531 on 2026-07-03) so the tool is structurally absent. Lead with a strong read to
+    latch, then create on the SAME conversation (the shipped UX; mirrors rich_exercise)."""
+    warm = _fire(sse_post, calendar_admin,
+                 "Use the calendar tool to show what's on my calendar this week.")
+    conv = next((e.get("conversation_id") for e in warm if e.get("type") == "done"), None)
+    assert conv, "no conversation_id from the latch turn"
+    _skip_if_connector_error(warm, "calendar_list_events")
     events = _fire(sse_post, calendar_admin,
-                   "Create a calendar event titled VerifyProbe tomorrow at 3pm for 30 minutes.")
+                   "Now use the calendar tool to create an event titled VerifyProbe "
+                   "tomorrow at 3pm for 30 minutes.",
+                   conversation_id=conv)
     assert "calendar_create_event" in _tool_names(events), _tool_names(events)
     assert "confirm_calendar_write" in _event_types(events), _event_types(events)
 

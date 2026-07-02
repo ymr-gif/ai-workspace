@@ -171,6 +171,35 @@ How it behaves:
 - **Pacing:** each message runs to completion (the model finishes its whole tool loop, ~30–75s in rich
   mode) before the next — no token cap. Rich is **short & thorough**, NOT a multi-hour soak.
 
+## Rich FULL-feature run (`rich_full.py` + `run_rich_full.sh`)
+
+The whole-platform sibling of `rich_exercise.py`: exercises every documented feature that no
+automated suite drives end-to-end, plus the REAL-mutation tier. One orchestrator runs everything:
+
+```bash
+bash run_rich_full.sh                       # phases B (pytest tiers+smoke) → C (rich_exercise) → D (rich_full)
+bash run_rich_full.sh --skip-ui --skip-rotation --skip-live
+python3 rich_full.py --only cache,voice     # debug a single gap-filler section
+```
+
+`rich_full.py` sections (each PASS/FAIL/SKIP/XFAIL independently; run never aborts):
+- **D1 read/verify:** invite→register→onboarding→API-key lifecycle · unified search (5 scopes) ·
+  full export ZIP · conversation lock/export/messages · graph stats/sample/delete/prune ·
+  hardware+metrics+Prometheus targets+Grafana · cache miss→hit→param-bypass · notification prefs ·
+  voice stub (+503 gate-off) · image OCR (**XFAIL while paddle absent — BUG-V7**)
+- **D2 stateful (tagged, auto-cleaned):** webhooks ×3 event types + token 404-after-delete ·
+  memory deep pass (write/conflicts/history/decay/compact/export/import) · scheduled prompt
+  create+run+history · goals CRUD+link · conversation rotation (~46 lean turns, `--skip-rotation`)
+- **D3 real mutations:** admin sweep (cost-limit, active-toggle→401, env roundtrip, audit) ·
+  cost-cap 402 · rate-limit 429 burst · isolated circuit-breaker trip via bogus `MODEL_CODER`
+  (restored + key deleted) · re-embed · **memory soft-reset + restore rehearsal finale**
+  (throwaway user restore; the admin soft reset doubles as post-run de-poison)
+- **D4 UI:** headed panel sweep via `UICapture` (screenshots → `rich_full_logs/ui/`),
+  integrations "Soon" re-stub asserted, grounding badge → reasoning-trace expand.
+
+Everything it creates is tagged `RICHFULL-<run>`; artifacts land in `rich_full_logs/`
+(`rich_full_results.jsonl`, `rich_full_summary.json`, per-step logs). Log runs in `RUNLOG.md`.
+
 ## Collection caveats (read before the run)
 - **Connector must be `active`** under the agents' user, or `decision` stays `none` (scores still log
   → score bands usable, but no real flips / warm-leak data).
