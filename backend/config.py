@@ -56,6 +56,12 @@ EMBEDDING_DIM     = int(os.getenv("EMBEDDING_DIM", "1024"))
 
 # ── Reliability ───────────────────────────────────────────────────────────────
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", 30))
+# Streaming read-timeout = max wait for the FIRST token / gap between tokens.
+# Must exceed slow-model time-to-first-token (70B + tool schemas) or the stream
+# ReadTimeouts before any token, retries hit the same wall, and the turn falls
+# through the circuit breaker to a faster model (deepseek). Separate from the 30s
+# connect/write budget so a slow first token never masquerades as 70B being down.
+STREAM_READ_TIMEOUT = int(os.getenv("STREAM_READ_TIMEOUT", 120))
 MAX_RETRIES     = int(os.getenv("MAX_RETRIES", 3))
 FALLBACK_ORDER  = ["reasoning", "coder", "llama"]
 

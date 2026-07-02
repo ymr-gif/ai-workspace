@@ -167,6 +167,10 @@ async def call_stream(
                     config.NIM_URL,
                     headers=_auth_headers(),
                     json=body,
+                    # Read = time-to-first-token / inter-token gap. Slow 70B first
+                    # token must not ReadTimeout and drop us to a faster fallback.
+                    # connect/write/pool stay at the client's REQUEST_TIMEOUT default.
+                    timeout=httpx.Timeout(config.REQUEST_TIMEOUT, read=config.STREAM_READ_TIMEOUT),
                 ) as response:
                     if response.status_code != 200:
                         logger.warning("[nim] stream_error model=%s status=%s attempt=%d",
