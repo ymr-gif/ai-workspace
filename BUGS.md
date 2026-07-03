@@ -100,6 +100,14 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 > infra-gated gaps; everything else on the documented surface verified live
 > (`backend/tests/latch/rich_full_logs/rich_full_report.md`).
 
+> ⚖ **Decision-gated pull-forwards (noted 2026-07-03):** two of the above are technically unblockable
+> **today** — held by recorded decisions, not hardware. **V-E1 OCR**: `paddlepaddle` installs in the
+> api image now (cost: ~+600 MB image, reverses the keep-it-lean decision; #19 plan lands it properly
+> on the home server). **Real ASR**: `faster-whisper base.en` int8 transcribes on CPU in ~real-time
+> (QUEUE Q2's documented "dev shortcut"; only the GPU speed-up needs the box). Either can be promoted
+> on request — root decision, then HANDOFF. The email/push/restore residuals are neither blocked nor
+> decision-gated → parked as **QUEUE Q5** (ready). Spend metering parked as **QUEUE Q4** (ready).
+
 ---
 
 ## Decisions — Home-Server Port & #19 Vision (resolved 2026-06-17)

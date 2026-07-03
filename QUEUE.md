@@ -15,6 +15,42 @@ when chosen to activate.
 > See `HANDOFF_PROTOCOL.md` → "Queue (deferred work)".
 > Decision log: `BUGS.md` → "Decisions — Home-Server Port & #19 Vision".
 
+> History note (closed entries removed once shipped — see git log of this file):
+> **Q3 Drive over-fire fix** DONE 2026-06-28 — Task A (abstention `_DRIVE_RULES`) shipped, measured
+> ineffective (T4 0/5); Task B (session-latched semantic gate) shipped + verified live, cold over-fire
+> structurally impossible. Full record: `HANDOFF.md` → "COMPLETED PHASE: Q3 Task B"; Task-A spec, file
+> map + verification runbook preserved in this file's git history (removed 2026-07-03).
+
+---
+
+## Q4 — Stateless-chat spend metering — ✅ READY (no blocker; promote to `backend/HANDOFF.md`)
+
+- **Status:** ready-to-activate. Bug: `BUGS.md` → Open → "Stateless chat endpoints: spend is unmetered".
+- **Owner-to-be:** `backend/`.
+- **Tasks:**
+  - [ ] Add `_check_cost_cap` pre-flight to `POST /v1/chat/completions` (`api/compat.py`) — mirror `49cb6ea`.
+  - [ ] Record tokens + cost on nonstream `/chat` AND `/v1/chat/completions` — mirror the calc in
+    `api/chat/background.py`; a usage-ledger write suffices (no conversation/message persistence).
+  - [ ] Tests: capped user → 402 on compat; nonstream turn accrues to the rolling window (mock NIM).
+  - [ ] Live verify: one nonstream turn → `GET /usage` delta > 0.
+- **Files:** `api/compat.py`, `api/chat/router.py`, `api/chat/helpers.py:_check_cost_cap` (reuse),
+  `api/chat/background.py` (reference calc).
+
+---
+
+## Q5 — Close the needs-infra residuals (email · push · restore rehearsal) — ✅ READY (no hardware)
+
+- **Status:** ready. From `BUGS.md` → residuals; identified fixable-now by the 2026-07-03 rich-full run.
+- **Owners:** mixed — docker (MailHog service) → backend/root (triggers + verification).
+- **Tasks:**
+  - [ ] **V-E4 pg-restore rehearsal** (root ops, ~15 min): scratch postgres container ← latest
+    `storage/backups/` dump; verify table count + spot rows; record in `VERIFICATION_LAUNCH.md`, tick V-E4.
+  - [ ] **V-B4/E3 digest email** (docker + root): MailHog service behind `profiles: [mail]`;
+    `SMTP_HOST=mailhog`, `DIGEST_ENABLED=true` → trigger digest → email visible in MailHog UI.
+  - [ ] **V-E2 web push** (backend/root): generate VAPID keypair, set env → localhost browser test
+    (secure context works on localhost, no TLS needed) → push received.
+- ⚑ Compose-env precedence applies when flipping these flags (`backend/CLAUDE.md` → LLM_BACKEND invariant).
+
 ---
 
 ## Q1 — Home-Server Port (Mixtral on llama.cpp) — ⛔ BLOCKED on hardware (2×P40 box)
@@ -25,19 +61,10 @@ when chosen to activate.
 - **Flip when the box exists:** set `LLM_BACKEND=homeserver` + `POST /admin/env/reload` (no restart).
 - **Decisions:** BUGS.md → "Decisions — Home-Server Port & #19 Vision" (Q-A*/Q-B*).
 
-### Done (no box needed) — shipped
-- [x] **Docker serving scaffold** — `llamacpp` + `llamacpp-embed` services (`profiles: [homeserver]`,
-  GPU reservation, `--jinja`, `--ctx-size 32768`, q4 KV cache), `docker-compose.homeserver.cpu.yml`
-  CPU override, `probe_tool_calls.sh`, `docker/CLAUDE.md` serving section. Validated via `compose config`.
-- [x] **tool_calls gate — ✅ PASS (CPU-side, 2026-06-18).** Verdict: llama.cpp emits OpenAI `tool_calls`,
-  gated on a tool-aware chat template, **not** the GPU. `--jinja` alone FAILs (bartowski Mistral-7B-v0.3
-  ships only the bare `[INST]` template); `--chat-template-file /models/mistral-v3-tool.jinja` flipped it
-  to PASS (`get_weather({"city":"Paris"})`). Prompt-based fallback (Q-A2) **not needed** given a tool template.
-- [x] **Backend config pre-staged behind inert `LLM_BACKEND`** (`nim`|`homeserver`, default `nim`, 2026-06-19).
-  `config.py` gated override repoints endpoints, collapses 3 roles → one Mixtral, sizes ctx 32k, swaps the
-  embedder (1024-d, no re-embed), relaxes the `NVIDIA_API_KEY` guard. Hot path (`nim`/`embeddings`/`router`/
-  `stream`/`system`) converted to call-time `config.X` so `/admin/env/reload` flips it live (no restart).
-  `tests/test_backend_mode.py` 6/6 green.
+### Done (no box needed) — shipped; operational detail banked in "Recorded" below
+- [x] Docker serving scaffold (`llamacpp` + `llamacpp-embed`, CPU override, `probe_tool_calls.sh`) — validated via `compose config`.
+- [x] tool_calls gate — PASS CPU-side 2026-06-18; needs a tool-aware `--chat-template-file` (`--jinja` alone insufficient).
+- [x] Backend pre-staged behind inert `LLM_BACKEND` — live-flippable via `/admin/env/reload`; `test_backend_mode.py` 6/6.
 
 ### Blocked — needs the P40 box (run on the box)
 - [ ] Drop Mixtral 8x7B **Q4_K_M** GGUF into `backend/storage/models/`; `docker compose --profile homeserver up -d`.
@@ -114,157 +141,3 @@ when chosen to activate.
 - _(chosen model + compute_type; webm decode path taken — ffmpeg vs pip; measured latency)_
 
 ---
-
-## Q3 — Drive over-fire fix (abstention rules → semantic latch) — ✅ DONE (Task A + Task B shipped 2026-06-28)
-
-- **Status:** **DONE.** Task A (abstention `_DRIVE_RULES`) shipped but measured ineffective (test-4 0/5).
-  **Task B (session-latched semantic Drive gate) shipped + verified live 2026-06-28 (root direct, override):**
-  Drive schema is withheld until an embedding-cosine intent latch fires, so the cold "ehllo" over-fire is
-  now **structurally impossible** (schema absent pre-latch) — confirmed live (T1 no-fire/latch-absent vs
-  Task A's 0/5). Latch-then-serve same turn; sticky Redis `drive_latched:{conv_id}`. Residual: post-latch
-  trivial-turn leak ("thanks" after a listing) stays — Task A's territory, Option C (8B pre-pass) deferred
-  record-first. Full record: `HANDOFF.md` → "COMPLETED PHASE: Q3 Task B" + History. Bug `BUGS.md` "Drive
-  fires on greetings" → cold case closed.
-- **Owner:** done (root). Task A + Task B both merged.
-
-> **Task A measurement (2026-06-28, admin Drive-active, 5 trials/test, ground-truthed vs
-> `tool_call_logs`):** T1 `ehllo` 0/5 no-fire · T2 `hello?` 0/5 · T3 real request 5/5 fires (correct) ·
-> **T4 `thanks` 0/5** (the history-priming case). The 70B calls `drive_list_files {}` on every turn
-> while the schema is present — abstention prompt text had **zero** effect. This is the before-baseline
-> Task B must beat: T1 must become *structurally* 0-fire (schema absent), not merely discouraged.
-- **Bug:** BUGS.md → Open → "Drive tools fire on greetings / trivial turns — `drive_list_files`
-  dumped on 'ehllo'". Root cause confirmed live (2026-06-27): capability-gate injects Drive schemas →
-  `tools` non-empty → llama-8B dropped → tool-eager 70B calls `drive_list_files` from the schema alone.
-  `_DRIVE_RULES` is NOT causal (isolation test: stripped → still fired). Rules are the post-schema
-  mitigation lever, nothing more.
-- **Sequencing:** Task A ships first and is measured. **Task B is conditional on Task A's Test-4
-  pass-rate** (see Done). Do not start B until A's test 4 is measured over multiple runs.
-
-### Cold-start file map (resolve the bare filenames below to THESE; line nums = 2026-06-28 snapshot, re-anchor via graphify before editing)
-| Spec says | Actual file | Role / anchor |
-|---|---|---|
-| `drive_tools.py` | `backend/llm/tools/builtin/drive_tools.py` | `_DRIVE_RULES` L20 (now abstention text, ~L20–54 after Task A) · `_drive_gate` **L56** (three `should_inject=_drive_gate` regs **L80/91/99**) |
-| `stream.py` (define / assemble) | `backend/llm/service/stream.py` | `generate_stream` def **L141** (B2 signature L165) · `injected_tools` assembly **L284** · `_resolve_connector_latches` call **L257–260** (embed_status threaded) |
-| `stream.py` (call site) | `backend/api/chat/stream.py` | `service.generate_stream(` call **L288** (passes `query_emb` + `embed_status`) |
-| `helpers.py` | `backend/api/chat/helpers.py` | `query_emb` produced **L276–285** (`embed` task fired L262 if !_is_trivial); carries `embed_status` in return dict; used by RAG L297+ |
-| `registry.py` | `backend/llm/tools/registry.py` | `select_tool_schemas`/`run_tool` only — **`generate_stream` is NOT here.** The Scope line "registry.py / wherever generate_stream is defined" is misleading: the signature edit is in `llm/service/stream.py:92`. Touch `registry.py` only if you route the latch through `select_tool_schemas`; otherwise skip it. |
-
-> ⚠ Two different `stream.py` files. `llm/service/stream.py` = the engine (define + assemble); `api/chat/stream.py` = the HTTP caller (call site). There is also `api/files/stream.py` — unrelated, do not touch. Graphify-first mandate applies (re-locate every anchor with `graphify query`/`explain` before editing; lines drift).
-
-### Verification runbook (both tasks) — how to actually run the behavioral tests
-- **Stack must be up** (`docker ps` → `docker-api-1` healthy on :8000). Code is baked into the image (no bind-mount, no `--reload`) → after any backend edit, rebuild: `cd docker && docker compose -f docker-compose.yml up -d --build api` (+ verify health 200). See `backend/tests/VERIFICATION_LAUNCH.md` + `tests/VERIFICATION.md`.
-- **Login (admin, Drive-active):** `POST /auth/token` form-encoded `username=admin&password=admin-secret` → `access_token`.
-- **Send a turn:** `POST /chat/stream` `Authorization: Bearer <tok>`, JSON `{"message":"ehllo"}` (omit `conversation_id` to start fresh; reuse the `done` event's `conversation_id` to continue a session).
-- **Check the result:** `psql -U scylla -d nimrouter` (in `docker-postgres-1`) → `SELECT tool_name,args FROM tool_call_logs WHERE conversation_id='<id>'`. Or read the SSE `tool_call` event / `model_call → requested tool(s)` status line.
-- **⚠ Cleanup after (pollution):** these run under admin and pollute history + prime the 70B. Delete each test conversation when done: `DELETE FROM conversations WHERE id='<id>'` — note `tool_call_logs.conversation_id` is `ON DELETE SET NULL`, so also clear the orphaned rows (`DELETE FROM tool_call_logs WHERE conversation_id IS NULL AND created_at > now()-interval '15 min'`).
-
----
-
-### Task A — Abstention-biased Drive rules — ✅ DONE 2026-06-28 (shipped; measured ineffective)
-
-> **Outcome:** `_DRIVE_RULES` rewritten to abstention-biased text (`backend/llm/tools/builtin/drive_tools.py`,
-> one symbol; `_POST_LISTING`/`_drive_gate`/registrations untouched), image rebuilt, `graphify update .` run.
-> **Behavioral battery (5 trials/test, ground-truthed vs `tool_call_logs`): T1 0/5, T2 0/5, T3 5/5, T4 0/5.**
-> Zero reduction in spurious fires — confirms prompt steering cannot carry this fix; schema must be withheld.
-> Test conversations cleaned up post-run. Bug stays open (BUGS.md). → Task B mandatory.
-
-#### Scope
-Touch **one file**: `drive_tools.py`. Edit **one symbol**: `_DRIVE_RULES` (line ~20). Nothing else.
-Do not touch `stream.py`, `registry.py`, `generate_stream`, routing, or gating. This task is text-only.
-
-#### Objective
-Replace the flow-describing `_DRIVE_RULES` block with abstention-biased, condition-gated instruction.
-Reduce spurious Drive-tool calls on non-Drive turns (greetings, questions, chat) without removing the
-schema or changing routing.
-
-**This is a probabilistic mitigation, not a guarantee.** It covers the post-latch window where the
-schema is present. It will reduce, not eliminate, spurious fires on the NIM 70B. Do not claim it closes
-the bug. Measure the residual leak — that measurement justifies Task B.
-
-#### The change
-**File:** `drive_tools.py`, symbol `_DRIVE_RULES` (~line 20). **Replace the entire block with:**
-
-```python
-_DRIVE_RULES = """\
-## Google Drive access
-
-You have Google Drive tools available this session. Having access does
-not mean you should use it. On most turns you should not.
-
-Call a Drive tool ONLY when the user's CURRENT message refers to their
-own files, documents, folders, or Drive contents — explicitly or by
-clear implication (asking what they have, to open or find a document,
-to look something up in their files).
-
-Do NOT call any Drive tool for:
-- greetings, small talk, or acknowledgements ("hi", "hello?", "thanks")
-- general questions you can answer directly
-- coding help, explanations, or discussion
-- any turn where the user has not pointed at their own files
-
-Base the decision on the user's CURRENT message only. A previous file
-listing in the conversation is not a reason to call again.
-
-When unsure whether a turn needs Drive, do not call it — answer
-directly. A wrong file listing is worse than a missing one; the user
-can always ask.
-
-When you DO call drive_list_files and results return, present the file
-names concisely and stop.
-"""
-```
-
-**If the original had leading/trailing structure** (markdown fences, surrounding keys, concatenation
-with other rule blocks), preserve that wrapper exactly — change only the inner text. Show the
-before/after of the full symbol including any wrapper.
-
-#### Why each clause exists (do not edit these out as "redundant")
-| Clause | Targets |
-|---|---|
-| "Having access does not mean you should use it. On most turns you should not." | The access→use false inference — the root of every spurious fire |
-| "ONLY when the user's CURRENT message refers to…" | Capability-only gating; ties the trigger to *this turn's* content |
-| "Base the decision on the user's CURRENT message only. A previous file listing is not a reason to call again." | History-priming / the turn-2 self-reinforcement loop |
-| Explicit don't-call list | The "ehllo"/"hello?" failure verbatim |
-| "When unsure, do not call. A wrong listing is worse than a missing one." | Asymmetric bias toward abstention on borderline turns |
-| "When you DO call… present concisely and stop." | Preserves intended UX, gated behind an actual call instead of priming one |
-
-#### Constraints
-- No regex, no keyword matching, no vocabulary lists in code. Gating is intent-condition language in the prompt only.
-- Do not add a default `system_prompt`. Do not change `_drive_gate`. Do not alter the fallback chain or model routing.
-- Do not modify the schema descriptions in this task.
-- Output: full before/after of `_DRIVE_RULES` including any wrapper, and confirmation no other lines in the file changed.
-
-#### Verification — run all four, record results
-Use a Drive-active session (admin). Record whether `drive_list_files` fires (check `tool_call_logs`).
-
-| # | Input | Setup | Pass condition |
-|---|---|---|---|
-| 1 | `ehllo` | Fresh session | No `drive_list_files` call |
-| 2 | `hello?` | Same session, after #1 | No `drive_list_files` call |
-| 3 | a real Drive request (e.g. "what files do I have?") | Fresh or continued | `drive_list_files` fires, names presented |
-| 4 | `thanks` | **Immediately after #3's listing** | No `drive_list_files` call |
-
-**Test 4 is the one that matters.** It's the history-priming case — the schema is present *and* a prior
-listing sits in context. If A holds here, the "CURRENT message only" language is working. If 4 re-fires,
-A lost to history-priming and Task B's pre-intent removal is mandatory, not optional.
-
-**Tests 1–2 passing is necessary but not sufficient.** They're the easy case. Do not ship on 1–2 alone.
-
-#### Expected outcome (honest)
-- 1–3 likely pass.
-- 4 is the coin-toss — this is where the NIM 70B's probabilistic abstention shows. Given the three prior
-  leaks of this mechanism (`write_memory`, `list_files`, this bug), expect 4 to be unreliable across runs.
-- **Record 4's result across ~3–5 repeated runs**, not once. A single pass on 4 isn't proof on a
-  probabilistic model. The pass *rate* on 4 is your baseline spurious-fire number and the documented
-  justification for B.
-
-#### Done =
-A merged, all four tests run, test-4 pass-rate recorded over multiple runs. That number carries into
-Task B as the before-baseline. **Do not start B until test 4's behavior is measured.**
-
----
-
-> **Task B** (session-latched semantic Drive gate) was promoted into `backend/HANDOFF.md` on
-> 2026-06-28 and is **in flight** — its full spec (B0 eval set → B1 `drive_intent.py` centroid →
-> B2 `query_emb` threading → B3 Redis latch + gate flip) lives there now, not here. The Q3 header
-> above + the shared file map / verification runbook remain as the reference it was cut from.
