@@ -3,7 +3,7 @@ import logging
 import smtplib
 from email.mime.text import MIMEText
 
-from config import SMTP_FROM, SMTP_HOST, SMTP_PASSWORD, SMTP_PORT, SMTP_USERNAME
+from config import SMTP_FROM, SMTP_HOST, SMTP_PASSWORD, SMTP_PORT, SMTP_STARTTLS, SMTP_USERNAME
 
 logger = logging.getLogger("services.email")
 
@@ -20,12 +20,11 @@ async def send_email(to: str, subject: str, body: str) -> None:
 
     def _send():
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as s:
-            if SMTP_PORT != 465:
-                s.ehlo()
-                # Negotiate TLS only when the server advertises it — real providers
-                # always do; plain dev relays (MailHog) don't and would error out.
-                if s.has_extn("starttls"):
-                    s.starttls()
+            # Fail-closed by default: an "only if advertised" check is downgradeable
+            # (a MITM can strip the STARTTLS capability from EHLO). Plain dev relays
+            # (MailHog) opt out explicitly via SMTP_STARTTLS=false.
+            if SMTP_PORT != 465 and SMTP_STARTTLS:
+                s.starttls()
             if SMTP_USERNAME:
                 s.login(SMTP_USERNAME, SMTP_PASSWORD)
             s.send_message(msg)

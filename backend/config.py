@@ -110,6 +110,9 @@ SMTP_PORT       = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USERNAME   = os.getenv("SMTP_USERNAME", "")
 SMTP_PASSWORD   = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM       = os.getenv("SMTP_FROM", "")
+# Require STARTTLS on non-465 ports (fail-closed against capability-stripping downgrade).
+# Set false ONLY for plain dev relays (MailHog) — never for a real provider.
+SMTP_STARTTLS   = os.getenv("SMTP_STARTTLS", "true").lower() == "true"
 
 # ── Web search ────────────────────────────────────────────────────────────────
 WEB_SEARCH_ENABLED = os.getenv("WEB_SEARCH_ENABLED", "false").lower() == "true"

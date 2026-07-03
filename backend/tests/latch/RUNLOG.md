@@ -204,3 +204,6 @@ Keep in account: each backend compose service builds its OWN image — rebuildin
 update scheduler/arq-worker/metrics-worker; build + force-recreate them too after backend changes.
 Cleanup: push pref off, subscription rows deleted, mailhog stopped, VAPID keys left armed (in .env),
 admin email left as admin@test.local (inert while SMTP_HOST unset).
+- 2026-07-03 security-review follow-up: STARTTLS made fail-closed behind `SMTP_STARTTLS` (default
+  required; false only for dev relays — both branches verified live) and MailHog UI bound to
+  loopback. Findings: starttls-stripping-downgrade + unauthenticated-network-exposure, both fixed.

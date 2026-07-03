@@ -239,13 +239,14 @@ services:
       - backend
 
   # Dev-only SMTP catcher — verifies the digest/notification email path without a
-  # real provider (QUEUE Q5). SMTP on mailhog:1025 (plain, no STARTTLS), UI on :8025.
+  # real provider (QUEUE Q5). SMTP on mailhog:1025 (plain — use SMTP_STARTTLS=false),
+  # UI on 127.0.0.1:8025 (loopback only: captured mail is unauthenticated).
   mailhog:
     image: mailhog/mailhog:v1.0.1
     profiles: [mail]
     restart: unless-stopped
     ports:
-      - "8025:8025"
+      - "127.0.0.1:8025:8025"
     networks:
       - backend
 
