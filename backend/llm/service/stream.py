@@ -161,6 +161,7 @@ async def generate_response(message: str, request_id: str) -> dict:
             "cache_hit":     False,
             "fallback_used": fallback_used,
             "latency_ms":    result.get("latency_ms", 0),
+            "usage":         result.get("usage"),
         }
 
         try:

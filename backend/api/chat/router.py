@@ -16,6 +16,7 @@ from rate_limiter import limit
 
 from .helpers import _check_cost_cap
 from .schemas import ChatRequest
+from .usage_ledger import record_stateless_usage
 
 router = APIRouter(tags=["chat"])
 logger = logging.getLogger("chat")
@@ -46,6 +47,12 @@ async def chat(
         model_used    = result.get("model", "unknown")
         cache_hit     = result.get("cache_hit", False)
         fallback_used = result.get("fallback_used", False)
+        if not cache_hit:   # cached replies cost nothing upstream
+            await record_stateless_usage(
+                db, current_user.id, endpoint="/chat", model=model_used,
+                prompt_text=req.message, response_text=result.get("response") or "",
+                usage=result.get("usage"),
+            )
         return {
             "success": True,
             "data":    {"model": model_used, "response": result.get("response")},

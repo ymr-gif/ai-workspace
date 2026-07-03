@@ -14,9 +14,11 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import llm.nim as nim
+from api.chat.helpers import _check_cost_cap
+from api.chat.usage_ledger import record_stateless_usage
 from auth.security import get_current_user
 from config import MODELS
-from core.db import get_db
+from core.db import AsyncSessionLocal, get_db
 from models import User
 
 router = APIRouter(tags=["compat"])
@@ -74,16 +76,20 @@ async def chat_completions(
     current_user: User         = Depends(get_current_user),
     db:           AsyncSession = Depends(get_db),
 ):
+    # Same cost-cap pre-flight as /chat (49cb6ea) — this endpoint was uncovered (QUEUE Q4).
+    await _check_cost_cap(current_user, db)
     model      = _resolve_model(body.model)
     messages   = [{"role": m.role, "content": m.content} for m in body.messages]
     params     = _build_params(body)
     request_id = str(uuid.uuid4())
     cid        = _completion_id()
     created    = int(time.time())
+    prompt_text = "\n".join(m["content"] for m in messages)
 
     if body.stream:
         return StreamingResponse(
-            _stream(model, messages, params, request_id, cid, created),
+            _stream(model, messages, params, request_id, cid, created,
+                    user_id=current_user.id, prompt_text=prompt_text),
             media_type="text/event-stream",
         )
 
@@ -92,6 +98,10 @@ async def chat_completions(
         raise HTTPException(status_code=502, detail=result.get("error", "upstream_error"))
 
     usage = result.get("usage") or {}
+    await record_stateless_usage(
+        db, current_user.id, endpoint="/v1/chat/completions", model=model,
+        prompt_text=prompt_text, response_text=result.get("content") or "", usage=usage or None,
+    )
     return {
         "id":      cid,
         "object":  "chat.completion",
@@ -117,6 +127,9 @@ async def _stream(
     request_id: str,
     cid:        str,
     created:    int,
+    *,
+    user_id:     int,
+    prompt_text: str,
 ):
     def _chunk(delta: dict, finish_reason: str | None) -> str:
         payload = {
@@ -130,13 +143,27 @@ async def _stream(
 
     yield _chunk({"role": "assistant"}, None)
 
+    usage: dict | None = None
+    parts: list[str] = []
     try:
         async for chunk in nim.call_stream(model, messages, request_id, model_params=params):
             if isinstance(chunk, str):
+                parts.append(chunk)
                 yield _chunk({"content": chunk}, None)
-            # skip __tool_calls__ and __usage__ — not surfaced in compat mode
+            elif isinstance(chunk, dict) and "__usage__" in chunk:
+                usage = chunk["__usage__"]   # recorded below; not surfaced in compat mode
+            # skip __tool_calls__ — not surfaced in compat mode
     except Exception as e:
         logger.warning("[compat] stream error model=%s err=%s", model, e)
 
     yield _chunk({}, "stop")
     yield "data: [DONE]\n\n"
+
+    # Ledger write with its own session — the request-scoped one may be torn down
+    # by the time the StreamingResponse generator finishes.
+    if parts or usage:
+        async with AsyncSessionLocal() as ledger_db:
+            await record_stateless_usage(
+                ledger_db, user_id, endpoint="/v1/chat/completions", model=model,
+                prompt_text=prompt_text, response_text="".join(parts), usage=usage,
+            )
