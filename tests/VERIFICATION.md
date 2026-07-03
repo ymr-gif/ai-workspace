@@ -229,7 +229,7 @@ docker compose -f docker/docker-compose.yml exec -T api python -m pytest \
 # pytest not in the prod image? run on host:
 cd backend && python -m pytest tests/test_drive.py tests/test_memory_hygiene.py tests/test_content_filter.py -q
 ```
-Expected: `test_drive.py` (14) · `test_memory_hygiene.py` (16) · `test_content_filter.py` (10) — all green.
+Expected (recounted 2026-07-04): `test_drive.py` (8) · `test_memory_hygiene.py` (36) · `test_content_filter.py` (10) — all green.
 
 ---
 

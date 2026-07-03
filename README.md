@@ -53,7 +53,7 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
        + pgvector   (cache,      (entity      + Grafana
        + pgBouncer   rate limit,   graph)     (24 panels,
        47 migrations  circuit                  2 alerts)
-       25 ORM models  breaker)
+       26 ORM models  breaker)
 ```
 
 ---
@@ -98,7 +98,7 @@ system prompt → graph context → graph facts → user state → active goals
 - Batch UNWIND writes (2 round-trips regardless of entity/relation count)
 
 ### AI Agent Tool Loop
-Activated when file IDs are attached to a request; forces the 70B model.
+Tools are offered on **capability alone** (connector active, env flag on, files attached, URL present) and the model decides when to call them via native function calling. Attaching file IDs forces the 70B reasoning model.
 
 | Tool | Description |
 |---|---|
@@ -112,17 +112,17 @@ Activated when file IDs are attached to a request; forces the 70B model.
 | `write_memory` | propose a memory write; requires user confirmation |
 | `web_search` | search the web for live information; offered whenever `WEB_SEARCH_ENABLED=true` (capability gate only — the model decides when to call it); backends: SearXNG (self-hosted) or Tavily |
 | `fetch_url` | fetch and read the full text of any web page mid-conversation; injected when the user's message contains a URL; ephemeral — content is returned as tool-result context, nothing stored; SSRF-hardened: scheme allowlist, DNS-pinned connection (TOCTOU-safe), port allowlist `{80, 443}`, 1 MB byte cap, Content-Type allowlist |
-| `drive_list_files` / `drive_read_file` / `drive_search` | read-only Google Drive access; offered whenever the Drive connector is active, no auto-context injection |
-| `calendar_list_events` / `calendar_get_event` / `calendar_search_events` | read Google Calendar; offered whenever the Calendar connector is active |
+| `drive_list_files` / `drive_read_file` / `drive_search` | read-only Google Drive access; offered when the connector is active **and** the session has latched on Drive intent (embedding-cosine intent latch — schemas are withheld until then, so a greeting can't fire them) |
+| `calendar_list_events` / `calendar_get_event` / `calendar_search_events` | read Google Calendar; active **and** calendar-intent-latched, same latch |
 | `calendar_create_event` / `calendar_update_event` / `calendar_delete_event` | calendar **writes** — never hit Google from the loop; return a confirm sentinel → `confirm_calendar_write` SSE → UI confirm card → `POST /api/integrations/calendar/execute` |
-| `gmail_list_messages` / `gmail_get_message` / `gmail_search_messages` | read-only Gmail access; offered whenever the Gmail connector is active |
+| `gmail_list_messages` / `gmail_get_message` / `gmail_search_messages` | read-only Gmail access; active **and** email-intent-latched, same latch |
 
-**25 tools total** — 9 file/graph, `ask_user`, `write_memory`, `web_search`, `fetch_url`, 3 Drive, 6 Calendar, 3 Gmail (connector tools are backend-registered but unreachable while connectors are UI-stubbed). `fetch_url` is the exception — injected only when the user's message contains a URL.
+**25 tools total** — 9 file/graph, `ask_user`, `write_memory`, `web_search`, `fetch_url`, 3 Drive, 6 Calendar, 3 Gmail. Connector tools need an active connection: the UI stub blocks **new** OAuth connections, but sources connected while a connector was exposed stay active and their tools keep working. `fetch_url` is the exception — injected only when the user's message contains a URL.
 
 Capability-available schemas are passed name-sorted for a byte-stable prompt prefix (so the KV prefix cache makes repeat cost near-zero). A `select_tool_schemas()` prefilter switch (`registry.py`) decides the final subset; below `TOOL_PREFILTER_THRESHOLD` (32) it is passthrough — all tools. Past the threshold it will fall back to an embedding prefilter (embed the query, cosine-match against cached tool-description vectors, pass top-k); that branch is scaffolded but not yet built, so it fails safe to passthrough today.
 
 ### OAuth Connectors
-Backend-implemented OAuth connector infrastructure. All five connectors are backend-complete but not exposed in the UI (`ENABLED_CONNECTOR_TYPES = []` in `frontend/src/hooks/useIntegrations.js`). Users see all five under "More integrations on the way." Credentials are Fernet-encrypted at rest (`INTEGRATION_SECRET`); refresh-on-expiry; a 401 marks the source `needs_reauth`.
+Backend-implemented OAuth connector infrastructure. All five connectors are backend-complete but not exposed in the UI (`ENABLED_CONNECTOR_TYPES = []` in `frontend/src/hooks/useIntegrations.js`). Users see all five under "More integrations on the way." The stub only removes the OAuth button — it does **not** deactivate sources connected while a connector was exposed; those stay active and their tools keep working. Credentials are Fernet-encrypted at rest (`INTEGRATION_SECRET`); refresh-on-expiry; a 401 marks the source `needs_reauth`.
 
 | Connector | Backend | Scope | Tools | UI Status |
 |---|---|---|---|---|
@@ -133,8 +133,8 @@ Backend-implemented OAuth connector infrastructure. All five connectors are back
 | GitHub | read | per-provider | (sync stub) | Stub — "Soon" |
 
 - Drive + Calendar + Gmail share **one** Google OAuth app (`GOOGLE_CLIENT_ID/SECRET`); shared base: `GoogleOAuthConnector`.
-- OAuth flow is implemented (`GET /api/integrations/oauth/start` → consent → callback) but unreachable from the UI while connectors are stubbed.
-- Calendar **writes never hit Google from the tool loop** — confirm sentinel flow is backend-complete; unreachable while UI-stubbed.
+- OAuth flow is implemented (`GET /integrations/oauth/start` → consent → callback); the UI exposes it only for connector types listed in `ENABLED_CONNECTOR_TYPES`.
+- Calendar **writes never hit Google from the tool loop** — confirm sentinel flow verified live (create → confirm → execute → delete) for already-connected sources.
 - A scheduler job re-syncs all active sources every 6h.
 
 ### Image OCR & Voice Input
@@ -143,7 +143,8 @@ Backend-implemented OAuth connector infrastructure. All five connectors are back
 
 ### Notifications
 - Per-user preferences (`GET/PATCH /api/notifications/preferences`) gate email + web-push delivery per channel.
-- Web push via VAPID: `GET /api/notifications/vapid-public-key`, `POST /api/notifications/push/subscribe`.
+- Web push via VAPID: `GET /api/notifications/vapid-public-key`, `POST /api/notifications/push/subscribe` — verified end-to-end through real FCM (2026-07-03).
+- Email delivery is fail-closed STARTTLS by default (`SMTP_STARTTLS=true`); a MailHog dev relay (`docker compose --profile mail up -d mailhog`, UI on `127.0.0.1:8025`) verifies delivery locally with `SMTP_STARTTLS=false`.
 
 ### Daily/Weekly Digest
 An APScheduler cron job generates a per-user markdown summary of the past 7 days — new files uploaded, memory snapshots taken, insights generated, and goals updated. Delivered as a `UserInsight` (visible in the Insights panel) and optionally emailed via SMTP.
@@ -153,7 +154,8 @@ An APScheduler cron job generates a per-user markdown summary of the past 7 days
 | `DIGEST_ENABLED` | `false` | Enable the digest job |
 | `DIGEST_SCHEDULE` | `0 8 * * 1` | Cron schedule (default: Monday 8 AM UTC) |
 | `SMTP_HOST` | — | SMTP server hostname; leave blank to skip email |
-| `SMTP_PORT` | `587` | SMTP port (`465` skips STARTTLS) |
+| `SMTP_PORT` | `587` | SMTP port (`465` = implicit TLS, no STARTTLS) |
+| `SMTP_STARTTLS` | `true` | Require STARTTLS (fail-closed); set `false` only for plain dev relays (MailHog) |
 | `SMTP_USERNAME` | — | SMTP login username |
 | `SMTP_PASSWORD` | — | SMTP login password |
 | `SMTP_FROM` | — | Sender address (falls back to `SMTP_USERNAME`) |
@@ -196,13 +198,14 @@ DELETE /auth/me/webhook-token   — revoke token
 ### Infrastructure
 - **pgBouncer** in transaction mode: 200 max clients, 20 server connections; `AUTH_TYPE=plain` required for pg16
 - **ARQ task queue**: 4 retry attempts with 5s / 30s / 120s backoff; per-job failure counter in Prometheus
-- **Automated daily backup**: `pg_dump` → gzip → `storage/backups/`; configurable retention via `KEEP_DAYS`
+- **Automated daily backup**: `pg_dump` → gzip → `storage/backups/`; configurable retention via `KEEP_DAYS`; restore rehearsed against a scratch container (2026-07-03)
+- **MailHog dev relay** (`--profile mail`): loopback-only SMTP catcher for verifying digest/notification email without a provider
 - **47 Alembic migrations**, applied automatically on container start
 
 ### Auth & Admin
 - JWT (HS256) + API key fallback; API keys stored as SHA-256 hex — plaintext never persisted
 - bcrypt passwords; invite-gated registration; `is_active` gate on every request
-- Per-user cost cap with rolling window (402 on exceed); admin audit log for all privileged actions
+- Per-user cost cap with rolling window (402 on exceed) — enforced and **metered on every chat endpoint**, including the stateless `/chat` and `/v1/chat/completions` (spend recorded to a hidden per-user usage ledger); admin audit log for all privileged actions
 - Live `.env` management via `/admin/env` — masked values, atomic write, hot reload via `importlib.reload(config)`
 
 ---
@@ -286,10 +289,11 @@ DELETE /auth/me/api-key       revoke API key
 ### Chat
 ```
 POST /chat/stream             SSE streaming (json: message, conversation_id?, model_override?, file_ids?, image_b64?)
-POST /chat                    non-streaming
+POST /chat                    non-streaming (stateless; cost-capped + spend metered)
+POST /v1/chat/completions     OpenAI-compatible, streaming + non-streaming (cost-capped + spend metered)
 ```
 
-**SSE event types:** `token` · `tool_call` · `tool_result` · `status` · `ask_user` · `confirm_write_memory` · `confirm_calendar_write` · `preamble_discard` · `error` · `done`
+**SSE event types:** `token` · `tool_call` · `tool_result` · `status` · `ask_user` · `confirm_write_memory` · `confirm_calendar_write` · `rotated` · `preamble_discard` · `error` · `done`
 
 `done` payload: `model` · `cache_hit` · `fallback_used` · `web_searched` · `url_fetched` · `total_tokens` · `prompt_tokens` · `completion_tokens` · `cost_usd` · `query_type` · `src_count` · `intent` · `grounding` · `activity[]` · `provenance[]` · `conversation_id` · `last_session?`
 
@@ -309,7 +313,7 @@ GET  /files                   list with chunk status
 GET  /files/{id}/content      raw content
 PUT  /files/{id}/content      overwrite (saves version)
 GET  /files/{id}/versions     version history
-POST /files/{id}/restore/{v}  restore version
+POST /files/{id}/versions/{version_id}/restore   restore version
 DELETE /files/{id}
 ```
 
@@ -326,14 +330,15 @@ POST /graph/prune
 ```
 
 ### Integrations & Notifications
+> Paths below are as served on `:8000`; the frontend reaches them via its `/api/*` proxy.
 ```
-GET    /api/integrations                      list connected sources
-POST   /api/integrations                      create a source
-GET/PATCH/DELETE /api/integrations/{id}       manage a source
-POST   /api/integrations/{id}/sync            trigger a sync
-GET    /api/integrations/oauth/start          begin OAuth (?connector_type=)
-GET    /api/integrations/oauth/callback       OAuth redirect target (no JWT)
-POST   /api/integrations/calendar/execute     run a confirmed calendar write
+GET    /integrations                          list connected sources
+POST   /integrations                          create a source
+GET/PATCH/DELETE /integrations/{id}           manage a source
+POST   /integrations/{id}/sync                trigger a sync
+GET    /integrations/oauth/start              begin OAuth (?connector_type=)
+GET    /integrations/oauth/callback           OAuth redirect target (no JWT)
+POST   /integrations/calendar/execute         run a confirmed calendar write
 GET/PATCH /api/notifications/preferences      per-channel notification prefs
 POST   /api/notifications/push/subscribe      register a web-push subscription
 GET    /api/notifications/vapid-public-key    VAPID public key
@@ -343,7 +348,7 @@ POST   /auth/me/onboarding-complete           mark onboarding done
 
 ### Other
 ```
-GET  /api/search?q=&scope=            unified search across all sources
+GET  /search?q=&scope=                unified search across all sources
 GET  /usage                           aggregate token + cost stats
 GET  /export/full                     ZIP: conversations + files + memory + graph
 GET  /goals                           user goals
@@ -360,13 +365,17 @@ GET  /health
 ### Admin (role: admin)
 ```
 GET    /admin/users
-PATCH  /admin/users/{id}
-POST   /admin/users/{id}/cost-limit
+PATCH  /admin/users/{id}/active         toggle is_active (disabled users 401 everywhere)
+PATCH  /admin/users/{id}/cost-limit     set / clear the rolling-window cap
+GET    /admin/users/{id}/usage
 GET    /admin/audit-log
 GET    /admin/env
-PUT    /admin/env
-POST   /admin/env/reload
+GET/PUT /admin/env/{key}                read / write one var (live setattr + .env write)
+POST   /admin/env/reload                importlib.reload(config)
 POST   /admin/re-embed
+POST   /admin/memory/reset              soft|hard, dry_run, confirm "RESET <user_id>"
+GET    /admin/memory/versions?user_id=
+POST   /admin/memory/restore            confirm "RESTORE <user_id>" — reversible rollback
 ```
 
 ---
@@ -421,7 +430,9 @@ ai-api/
 │   │   ├── notification.py   email + web-push dispatch
 │   │   └── …                 ARQ workers, file processor, scheduler, transcribe
 │   ├── observability/        Prometheus counters/histograms
-│   └── tests/                160+ tests (per-feature suites + retrieval eval; mocked DB, no NIM)
+│   └── tests/                190+ unit tests (per-feature suites + retrieval eval; mocked DB, no NIM)
+│                             + live E2E tier (tests/live/, RUN_LIVE_NIM=1) + full-surface runner
+│                             (tests/latch/run_rich_full.sh — every documented feature, real mutations)
 ├── frontend/
 │   ├── src/
 │   │   ├── components/Chat/  panel components (incl. IntegrationsPanel)

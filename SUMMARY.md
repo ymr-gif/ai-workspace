@@ -1,6 +1,6 @@
 # NIM AI Gateway — Project Summary
 
-Updated: 2026-06-22
+Updated: 2026-07-04
 
 ---
 
@@ -162,7 +162,7 @@ backend/
 │   ├── google_oauth.py      — GoogleOAuthConnector base; shared by Drive + Calendar
 │   ├── gmail.py             — GmailConnector; 3 read-only tools (list/get/search)
 │   └── (drive.py, calendar.py, notion.py, github.py)
-└── tests/                   — 160+ tests across test.py, retrieval eval, per-feature suites
+└── tests/                   — 190+ unit tests + live E2E tier (tests/live/, RUN_LIVE_NIM=1) + full-surface runner (tests/latch/run_rich_full.sh)
     ├── test.py
     ├── retrieval/test_hybrid_eval.py  (26 tests, mocked DB)
     └── test_*.py                      (per-feature suites added with each feature)
@@ -245,7 +245,7 @@ backend/
 ## AI Agent Tool Loop
 
 - **Trigger:** any message when `file_ids` non-empty → forces reasoning model (70B)
-- **Tools (25):** `list_files` · `read_file` · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `web_search` · `fetch_url` · `drive_list_files` · `drive_search` · `drive_read_file` · `calendar_list_events` · `calendar_get_event` · `calendar_search_events` · `calendar_create_event` · `calendar_update_event` · `calendar_delete_event` · `gmail_list_messages` · `gmail_get_message` · `gmail_search_messages` (connector tools keyword-gated, injected only on noun+action match)
+- **Tools (25):** `list_files` · `read_file` · `write_file` · `create_file` · `append_to_file` · `patch_file` (fuzzy) · `search_in_file` · `search_across_files` · `ask_user` · `query_graph` · `write_memory` · `web_search` · `fetch_url` · `drive_list_files` · `drive_search` · `drive_read_file` · `calendar_list_events` · `calendar_get_event` · `calendar_search_events` · `calendar_create_event` · `calendar_update_event` · `calendar_delete_event` · `gmail_list_messages` · `gmail_get_message` · `gmail_search_messages` (connector tools latch-gated: active connection + per-session embedding-cosine intent latch — schemas withheld until genuine intent, single winner across connectors)
 - **Guards:** same tool + identical args repeated → abort after `_MAX_IDENTICAL_CALLS=3` (listing + connector tools override to 1); distinct-arg bulk ops flow freely; `MAX_TOOL_ITERATIONS=60` hard cap; tool result capped 12000 chars in context
 - **`ask_user`:** yields `{type:"ask_user"}` SSE + done → pauses loop; amber card in UI
 - **`write_memory`:** offered only when reasoning model selected AND `_needs_memory_tool()` returns true; yields `{type:"confirm_write_memory", fact}` SSE; green card in UI; user confirms → `POST /api/memory/write`
@@ -377,7 +377,7 @@ frontend/src/
 
 ## Known Issues
 
-- No chat integration tests — `/chat` requires live NIM API; retrieval covered by 26 mock-DB tests
+- Chat E2E covered by the opt-in live tier (`tests/live/`, `RUN_LIVE_NIM=1`, manual/nightly — paid) + the full-surface runner (`tests/latch/run_rich_full.sh`, last green 2026-07-03); retrieval by 26 mock-DB tests
 - File RAG requires explicit attachment (Library → + button); upload alone insufficient
 - `_needs_file_tools` is keyword-based — may miss implicit file requests
 - Token counts on pre-migration 011 messages are NULL (migration 032 backfills with character heuristic; `token_estimate=true` flags estimated rows)
@@ -386,9 +386,12 @@ frontend/src/
 
 ---
 
-## Roadmap Status (as of 2026-06-21)
+## Roadmap Status (as of 2026-07-04)
 
-**P0 + P1 + P2 + P3 complete. ~99% overall.**
+**P0 + P1 + P2 + P3 complete. ~97% overall** (Dim 5 pulled back — all five OAuth connectors are
+UI-stubbed since 2026-07-02; backends stay complete and already-connected sources keep working).
+Full-surface verification 2026-07-03: every documented feature green
+(`backend/tests/latch/rich_full_logs/rich_full_report.md`).
 
 ### P0–P2 (all ✅)
 Autonomous memory writing · Preference extraction · Behavioral pattern tracker · Cross-session continuity · Memory conflict resolution UI · Fact-level salience panel · Unified search · Knowledge graph explorer UI · Memory timeline view · Full data export · Scheduled backup · User-defined scheduled agents · Goal/task tracker · Pattern detection + triggers · Web search tool · Event-driven triggers · Daily/weekly digest
@@ -410,8 +413,8 @@ Live webpage ingestion · External integrations (Drive + Calendar + Notion + Git
 | 2. Unified Interface | 100% | Cross-conv insight propagation shipped |
 | 3. Reasoning Loop | ~97% | Pipeline trace + grounding badge; model CoT ceiling (no native thinking tokens) |
 | 4. Autonomous Agency | 90% | P2 complete; goal tracker + digest + triggers |
-| 5. Real-Time Perception | 95% | Web search + live fetch + Drive + Calendar + Gmail + OCR + notifications; Outlook/CalDAV open |
-| **Overall** | **~99%** | |
+| 5. Real-Time Perception | ~80% | Web search + live fetch + OCR + notifications; connector backends complete but UI-stubbed (2026-07-02); Outlook/CalDAV open |
+| **Overall** | **~97%** | matches ROADMAP.md |
 
 ---
 

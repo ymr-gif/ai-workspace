@@ -37,4 +37,10 @@ cd backend && RUN_LIVE_NIM=1 VERIFY_BASE_URL=http://localhost:8000 pytest tests/
 
 # Full-surface feature run (all tiers + every documented feature incl. real mutations + headed UI)
 cd backend/tests/latch && bash run_rich_full.sh          # flags: --skip-ui --skip-rotation --skip-live
+
+# Dev SMTP catcher (verify digest/notification email; UI at 127.0.0.1:8025; use SMTP_STARTTLS=false)
+docker compose --profile mail up -d mailhog
+
+# Rebuild after backend changes — ALL FOUR backend images (api alone leaves workers stale)
+docker compose build api scheduler arq-worker metrics-worker && docker compose up -d --force-recreate api scheduler arq-worker metrics-worker
 ```
