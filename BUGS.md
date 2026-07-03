@@ -75,6 +75,14 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
     2. **Check for a NIM-side upstream timeout specific to the 70B** (larger model, slower TTFB) — the streaming read may be hitting `REQUEST_TIMEOUT` (30s) before first token. If so, raise the *first-token* timeout for the reasoning model or send a keep-alive.
     3. **Circuit-breaker interaction** — a transient network blip shouldn't open the breaker for 90s and starve the 70B; consider not counting `stream_network_error attempt=0` toward the trip threshold until retries are exhausted.
   - **Urgency:** low — the fallback masks it (deepseek answers), but it silently downgrades quality (70B → coder) and confused the operator. Fix after the latch close-out.
+- `[ ]` **Stateless chat endpoints: spend is unmetered (V3 residual) — and `/v1/chat/completions` has no cap check at all** (parked 2026-07-03, needs decision)
+  - **Status split:** `49cb6ea` (2026-06-22 audit) added the `_check_cost_cap` 402 pre-flight to nonstream `POST /chat` — a capped user IS blocked there. But `/chat` still records **no tokens/cost** (stateless, no `Message` rows), so its spend never accrues to the rolling window: a user under their cap can burn NIM credits via `/chat` invisibly, and the cap only tightens from their *streaming* usage. The OpenAI-compat `POST /v1/chat/completions` (`api/compat.py`) is worse: **neither cap check nor accounting** (verified 2026-07-03 — no `_check_cost_cap`/cost refs in the file).
+  - **Severity:** low today (invite-gated, trusted users; both endpoints are conveniences) — but it's a billing-enforcement hole to close before anything public.
+  - **Options:** (a) add usage recording to both (mirror `background.py` token/cost calc; no conversation persistence needed — a usage-ledger row suffices); (b) add `_check_cost_cap` to compat + accept unmetered spend documented; (c) admin-gate or remove the endpoints. Decision is the user's; (a) is the complete fix.
+  - **Files:** `backend/api/chat/router.py` (cap check present, accounting absent), `backend/api/compat.py` (both absent), `backend/api/chat/helpers.py:_check_cost_cap`, `backend/api/chat/background.py` (the cost-calc to mirror).
+- `[ ]` **Pre-prod launch gate — env hardening is deploy-time work, never covered by test runs** (parked 2026-07-03)
+  - The 2026-07-03 rich-full run verified the entire feature surface on the dev stack; what it *cannot* verify is the deploy-time checklist in `backend/tests/VERIFICATION_LAUNCH.md`: secrets off defaults (`NEO4J_PASSWORD=changeme`, Grafana `admin/admin`, Postgres default), `JWT_SECRET_KEY` ≥32, `INTEGRATION_SECRET` + prod `INTEGRATION_REDIRECT_BASE`, TLS via `nginx.prod.conf`, firewall closing 8000/3001/9090/7474, then smoke + off-peak live tier.
+  - ⚑ **New invariant to honor when doing it (found 2026-07-03):** compose `environment:` outranks `.env` — durable values for compose-set keys (`WEB_SEARCH_ENABLED`, `MODEL_*`) go in the compose env, not `/admin/env` (live PUT works but any reload/restart re-masks it). Detail: `backend/CLAUDE.md` → LLM_BACKEND invariant block.
 - `[ ]` **Reasoning trace is pipeline-level, not model chain-of-thought** — the `activity[]` trace in the `done` SSE (grounding badge → "Reasoning steps") shows the pipeline (retrieval/intent/route/budget/model/tools), not the model's internal deliberation. `meta/llama-3.3-70b-instruct` emits no native thinking tokens. Not a defect — closes the practical Dim-3 gap. Real CoT would need either a prompt-based `<thinking>` block (cheap, +tokens/latency, narrated not faithful) or a reasoning-tier model that emits traces (model/cost change). On the home server, a reasoning-capable model (e.g. a future MoE with thinking output) could close this for real. Revisit only if users ask "why did it answer that."
 
 ---
@@ -93,7 +101,14 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 - `[~]` **V-E2 Notifications dispatch** `[needs-infra]` — no SMTP/VAPID on this stack; email + web-push
   send paths can't run live (mocked in `tests/test_notifications.py`).
 - `[ ]` **V-E4 Backup → restore rehearsal** `[needs-infra]` — dump verified; restore over a **staging**
-  DB not run (restoring over live is destructive).
+  DB not run (restoring over live is destructive). (Memory-level restore — `POST /admin/memory/restore`
+  — IS verified live 2026-07-03; this item is the full pg-dump restore.)
+- `[~]` **Real ASR** `[needs-infra]` — `/api/transcribe` ships a stub transcriber (verified live
+  2026-07-03: gate + upload + stub text + 503 when off). Real Whisper parked in `QUEUE.md` Q2 (box).
+
+> Re-confirmed 2026-07-03 by the rich full-feature run: all four residuals above remain the only
+> infra-gated gaps; everything else on the documented surface verified live
+> (`backend/tests/latch/rich_full_logs/rich_full_report.md`).
 
 ---
 

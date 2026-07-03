@@ -214,7 +214,9 @@ memory hard-reset + restore, behavior-profile + preference ARQ jobs via psql).
   compaction + 6h integration sync silently no-op'd; added `init_arq_pool`.
 
 **Open findings (logged in BUGS.md, need a decision — not auto-fixed):**
-- **BUG-V3** nonstream `POST /chat` is stateless → no cost accounting → cost cap doesn't apply.
+- **BUG-V3** (updated 2026-07-03) nonstream `POST /chat`: cap check added (`49cb6ea`) so capped users
+  are blocked, but spend is still **unrecorded** (never accrues to the window); `/v1/chat/completions`
+  has **neither** check nor accounting. Parked in BUGS.md → Open, needs decision.
 - ~~**BUG-V6** scheduled in-container `run_backup` is dead~~ — **stale as of 2026-07-03**: the 2 AM
   scheduled backups ARE producing dumps (root-owned `nimrouter_*_020000.sql.gz` on 07-01/07-02).
   Host `bash docker/backup.sh` also works.
