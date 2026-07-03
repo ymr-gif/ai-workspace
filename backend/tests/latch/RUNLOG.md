@@ -185,3 +185,6 @@ Keep in account:
   test_calendar_create_confirm_sentinel is now latch-first to match the shipped design.
 - Cleanup done: tagged facts stripped, users 82/84 disabled, flags at defaults, graph/webhooks/redis
   swept, admin soft reset (de-poison) + snapshot; residuals listed in the report.
+- 2026-07-03 close-out: web_search + list_files live tests ACCEPTED as environment-blocked (NVIDIA
+  70B capacity never recovered in 24h — token-based throttling then degraded-slow; reads as an
+  account-tier cap). Mechanics evidenced; rerun cmd in the report. Everything else green.

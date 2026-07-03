@@ -6,8 +6,9 @@ Run tags: `RICHFULL-09df2725` (main) + section reruns · Logs: this directory.
 
 ## Verdict
 
-**Every documented feature verified except two live tests blocked by NVIDIA 70B quota** (mechanics
-independently evidenced). No product bugs found. Two test-suite drifts found and fixed. Several
+**Every documented feature verified except two live tests blocked by NVIDIA 70B capacity**
+(mechanics independently evidenced; **accepted-as-blocked by decision 2026-07-03** — see the
+closed section below). No product bugs found. Two test-suite drifts found and fixed. Several
 documentation nuances surfaced (below).
 
 ## Results by phase
@@ -38,14 +39,19 @@ re-stub assert; screenshots in `ui/`) · circuit_breaker (restored-on-startup + 
 request served by 8B with `fallback_used=true` while open; recovered after cooldown) ·
 memory_reset_restore (throwaway reset+restore 200 · admin dry-run inert · real soft reset + snapshot).
 
-## Environment-blocked (NOT product failures)
+## Environment-blocked (NOT product failures) — CLOSED AS ACCEPTED 2026-07-03
 
-- `test_web_search_fires_and_flags`, `test_list_files_tool` — NVIDIA quota for
-  `meta/llama-3.3-70b-instruct` exhausted by the day's volume (429 on all retries; window drips ~1
-  call before re-throttling). Mechanics evidenced: web_search **dispatched with tool_result** once
-  config was re-armed; list_files' identically-gated siblings (file_search/create_file/read_file/
-  query_graph) passed in an open window; both passed on the 2026-06-22 record. Rerun when quota
-  recovers (needs `WEB_SEARCH_ENABLED` re-armed — see nuance 2):
+- `test_web_search_fires_and_flags`, `test_list_files_tool` — NVIDIA-side capacity for
+  `meta/llama-3.3-70b-instruct` collapsed under the run's volume and did not recover within ~24h:
+  first clean 429s on all retries (token-based — 1-token probes pass while full-context calls
+  starve, so probe gates don't work), later a degraded-slow mode (turns > 150s → client
+  ReadTimeout). ~10 retry attempts over 24h incl. hourly loops. Reads as an **account-tier
+  throughput cap**, not a resetting quota — only the NVIDIA account console can fix it.
+  **Accepted by decision 2026-07-03**: mechanics fully evidenced (web_search **dispatched with
+  tool_result** once config was re-armed; list_files' identically-gated siblings
+  file_search/create_file/read_file/query_graph passed in an open window; both passed on the
+  2026-06-22 record), NIM is the interim test backend, and the homeserver port removes the
+  dependency. Rerun any time capacity recovers (re-arm `WEB_SEARCH_ENABLED` first — nuance 2):
   ```
   RUN_LIVE_NIM=1 VERIFY_BASE_URL=http://localhost:8000 pytest \
     tests/live/test_tools_integrations.py::test_web_search_fires_and_flags \
