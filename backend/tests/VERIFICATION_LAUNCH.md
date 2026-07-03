@@ -224,5 +224,8 @@ memory hard-reset + restore, behavior-profile + preference ARQ jobs via psql).
 - **BUG-V2** `store_exchange` FK race (caught/logged) when a conversation is deleted before its
   async embed.
 
-**Launch-relevant infra still to do (needs services this stack lacks):** SMTP for
-digest/email (V-B4/E2/E3), VAPID for push, restore-rehearsal on a staging DB (V-E4).
+**Launch-relevant infra — verified 2026-07-03 (QUEUE Q5):** digest/notification email proven against
+a MailHog dev relay (`docker compose --profile mail up -d mailhog`; SMTP on `mailhog:1025`, UI :8025);
+web push proven end-to-end through real FCM (VAPID keypair via `/admin/env`, system Chrome over CDP —
+Playwright's bundled Chromium cannot subscribe); pg-dump restore rehearsed into a scratch container
+(26 tables, alembic 047). For prod: swap MailHog for a real SMTP provider + keep the VAPID keys.

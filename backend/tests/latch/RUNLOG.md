@@ -188,3 +188,19 @@ Keep in account:
 - 2026-07-03 close-out: web_search + list_files live tests ACCEPTED as environment-blocked (NVIDIA
   70B capacity never recovered in 24h — token-based throttling then degraded-slow; reads as an
   account-tier cap). Mechanics evidenced; rerun cmd in the report. Everything else green.
+
+## 2026-07-03 — QUEUE Q4 + Q5 executed (root override)
+
+Q4 spend metering: cap check on /v1/chat/completions + usage-ledger recording on both stateless
+endpoints (hidden "[API usage]" conversation; the messages-rows ledger picks it up with no
+migration). Verified live: usage accrued from nonstream /chat + compat non-stream + compat stream
+(real NIM token counts), 402 on both under a tiny cap, unit tier 188 green (5 new tests).
+Q5 residuals: pg-restore rehearsal into scratch pgvector (26 tables, alembic 047, counts consistent);
+digest email verified via MailHog (`profiles: [mail]`; STARTTLS-only-when-advertised fix in
+services/email.py); web push verified END-TO-END through real FCM — Chrome (system, over CDP;
+Playwright's bundled Chromium can't subscribe) → subscribe stored → notify() → pywebpush →
+notification displayed + asserted via getNotifications().
+Keep in account: each backend compose service builds its OWN image — rebuilding `api` does NOT
+update scheduler/arq-worker/metrics-worker; build + force-recreate them too after backend changes.
+Cleanup: push pref off, subscription rows deleted, mailhog stopped, VAPID keys left armed (in .env),
+admin email left as admin@test.local (inert while SMTP_HOST unset).

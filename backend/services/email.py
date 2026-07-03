@@ -21,7 +21,11 @@ async def send_email(to: str, subject: str, body: str) -> None:
     def _send():
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as s:
             if SMTP_PORT != 465:
-                s.starttls()
+                s.ehlo()
+                # Negotiate TLS only when the server advertises it — real providers
+                # always do; plain dev relays (MailHog) don't and would error out.
+                if s.has_extn("starttls"):
+                    s.starttls()
             if SMTP_USERNAME:
                 s.login(SMTP_USERNAME, SMTP_PASSWORD)
             s.send_message(msg)

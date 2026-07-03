@@ -238,6 +238,17 @@ services:
     networks:
       - backend
 
+  # Dev-only SMTP catcher — verifies the digest/notification email path without a
+  # real provider (QUEUE Q5). SMTP on mailhog:1025 (plain, no STARTTLS), UI on :8025.
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    profiles: [mail]
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+    networks:
+      - backend
+
   # ── APIRouter workers (queue-pulling, scale freely) ───────────────────────
   # ARQ workers pull jobs from Redis. Multiple workers = more throughput.
   # Safe to scale with `--scale arq-worker=N`. No singleton concerns — ARQ

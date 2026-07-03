@@ -84,21 +84,20 @@ Legend: `[x]` = fixed · `[~]` = partially fixed · `[ ]` = open
 > + tools/integrations verified live; 7 bugs found + fixed (BUG-V1–V7 → history note above).
 > Runbook: `backend/tests/VERIFICATION_LAUNCH.md`. Only the infra-gated residuals stay open:
 
-- `[~]` **V-B4 / V-E3 Digest email** `[needs-infra]` — `DIGEST_ENABLED=False`, `SMTP_HOST=''`;
-  graceful no-op live. Full send path needs SMTP (MailHog).
 - `[~]` **V-E1 Real OCR** `[needs-infra]` — `IMAGE_OCR_ENABLED=False`; `paddlepaddle` is a commented
   opt-in (kept out to keep the image lean). Enabling needs the paddle backend installed. Blocks #19.
-- `[~]` **V-E2 Notifications dispatch** `[needs-infra]` — no SMTP/VAPID on this stack; email + web-push
-  send paths can't run live (mocked in `tests/test_notifications.py`).
-- `[ ]` **V-E4 Backup → restore rehearsal** `[needs-infra]` — dump verified; restore over a **staging**
-  DB not run (restoring over live is destructive). (Memory-level restore — `POST /admin/memory/restore`
-  — IS verified live 2026-07-03; this item is the full pg-dump restore.)
 - `[~]` **Real ASR** `[needs-infra]` — `/api/transcribe` ships a stub transcriber (verified live
   2026-07-03: gate + upload + stub text + 503 when off). Real Whisper parked in `QUEUE.md` Q2 (box).
 
-> Re-confirmed 2026-07-03 by the rich full-feature run: all four residuals above remain the only
-> infra-gated gaps; everything else on the documented surface verified live
-> (`backend/tests/latch/rich_full_logs/rich_full_report.md`).
+> **Closed 2026-07-03 (QUEUE Q5 root-override run):** **V-B4/E3 digest email** — verified against a
+> MailHog dev relay (`profiles: [mail]` service; `run_digest` sent a real digest to the inbox; the
+> STARTTLS-only-when-advertised fix in `services/email.py` makes plain dev relays work).
+> **V-E2 notifications dispatch** — BOTH legs live: email via MailHog + **web push end-to-end through
+> real FCM** (Chrome subscription → `POST /push/subscribe` → `notify()` → pywebpush → notification
+> displayed in the browser, asserted via `getNotifications()`; note Playwright's bundled Chromium
+> cannot do push — use system Chrome over CDP). **V-E4 restore rehearsal** — latest scheduled dump
+> restored into a scratch pgvector container: 26 tables, alembic 047, row counts consistent with live.
+> Remaining residuals: only the two decision-gated items above (OCR paddle, real ASR).
 
 > ⚖ **Decision-gated pull-forwards (noted 2026-07-03):** two of the above are technically unblockable
 > **today** — held by recorded decisions, not hardware. **V-E1 OCR**: `paddlepaddle` installs in the

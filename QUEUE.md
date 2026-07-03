@@ -20,36 +20,11 @@ when chosen to activate.
 > ineffective (T4 0/5); Task B (session-latched semantic gate) shipped + verified live, cold over-fire
 > structurally impossible. Full record: `HANDOFF.md` → "COMPLETED PHASE: Q3 Task B"; Task-A spec, file
 > map + verification runbook preserved in this file's git history (removed 2026-07-03).
-
----
-
-## Q4 — Stateless-chat spend metering — ✅ READY (no blocker; promote to `backend/HANDOFF.md`)
-
-- **Status:** ready-to-activate. Bug: `BUGS.md` → Open → "Stateless chat endpoints: spend is unmetered".
-- **Owner-to-be:** `backend/`.
-- **Tasks:**
-  - [ ] Add `_check_cost_cap` pre-flight to `POST /v1/chat/completions` (`api/compat.py`) — mirror `49cb6ea`.
-  - [ ] Record tokens + cost on nonstream `/chat` AND `/v1/chat/completions` — mirror the calc in
-    `api/chat/background.py`; a usage-ledger write suffices (no conversation/message persistence).
-  - [ ] Tests: capped user → 402 on compat; nonstream turn accrues to the rolling window (mock NIM).
-  - [ ] Live verify: one nonstream turn → `GET /usage` delta > 0.
-- **Files:** `api/compat.py`, `api/chat/router.py`, `api/chat/helpers.py:_check_cost_cap` (reuse),
-  `api/chat/background.py` (reference calc).
-
----
-
-## Q5 — Close the needs-infra residuals (email · push · restore rehearsal) — ✅ READY (no hardware)
-
-- **Status:** ready. From `BUGS.md` → residuals; identified fixable-now by the 2026-07-03 rich-full run.
-- **Owners:** mixed — docker (MailHog service) → backend/root (triggers + verification).
-- **Tasks:**
-  - [ ] **V-E4 pg-restore rehearsal** (root ops, ~15 min): scratch postgres container ← latest
-    `storage/backups/` dump; verify table count + spot rows; record in `VERIFICATION_LAUNCH.md`, tick V-E4.
-  - [ ] **V-B4/E3 digest email** (docker + root): MailHog service behind `profiles: [mail]`;
-    `SMTP_HOST=mailhog`, `DIGEST_ENABLED=true` → trigger digest → email visible in MailHog UI.
-  - [ ] **V-E2 web push** (backend/root): generate VAPID keypair, set env → localhost browser test
-    (secure context works on localhost, no TLS needed) → push received.
-- ⚑ Compose-env precedence applies when flipping these flags (`backend/CLAUDE.md` → LLM_BACKEND invariant).
+> **Q4 stateless-chat spend metering** DONE 2026-07-03 (root override) — cap check on compat +
+> usage-ledger recording on both endpoints via a hidden "[API usage]" conversation; verified live
+> (402 on both under cap; usage accrues from all three paths). `a26ef1c`.
+> **Q5 needs-infra residual close-out** DONE 2026-07-03 (root override) — pg-restore rehearsal ✓,
+> digest email via MailHog ✓, web push end-to-end via real FCM ✓. See BUGS.md residuals close note.
 
 ---
 
