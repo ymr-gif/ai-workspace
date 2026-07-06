@@ -1,0 +1,39 @@
+# T2/T3: live tier (paid) — nightly or manual, against a deployed stack.
+# Split out of ci.yml (2026-07-06) so quota/deploy failures never touch the CI badge.
+name: Nightly Live
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    env:
+      VERIFY_BASE_URL: ${{ secrets.VERIFY_BASE_URL }}
+      RUN_LIVE_NIM: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: |
+          python -m pip install -U pip
+          pip install -r requirements-dev.txt
+      # `exit 0` in a guard step does NOT skip later steps — gate each paid step
+      # on the secret instead, so the run stays green when no stack is deployed.
+      - name: Live + optional tiers
+        if: env.VERIFY_BASE_URL != ''
+        run: pytest -m "live_nim or optional" -q
+      - name: Post-deploy smoke
+        if: env.VERIFY_BASE_URL != ''
+        run: bash scripts/smoke.sh "$VERIFY_BASE_URL"
+      - name: Skipped notice
+        if: env.VERIFY_BASE_URL == ''
+        run: echo "VERIFY_BASE_URL secret not set — live tier skipped."

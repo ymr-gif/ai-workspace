@@ -1,5 +1,10 @@
 # NIM AI Gateway
 
+[![CI](https://github.com/ymr-gif/ai-workspace/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ymr-gif/ai-workspace/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ymr-gif/ai-workspace)](https://github.com/ymr-gif/ai-workspace/releases)
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routing, hybrid RAG, persistent graph memory, an AI agent tool loop, and five OAuth connectors (Drive, Calendar, Gmail, Notion, GitHub — UI-gated pending public deploy) — all in a single Docker Compose stack.
 
 **Backend:** Python / FastAPI · **Frontend:** React / Vite · **Infra:** PostgreSQL + pgvector, Redis, Neo4j, Prometheus, Grafana
@@ -8,52 +13,37 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
 > server (llama.cpp/GGUF; Mixtral → eventual MoE) via one OpenAI-compatible endpoint — porting is
 > a config repoint, not a rewrite.
 
+![Demo — login, streamed reply, agent tool call with grounding badge](docs/assets/demo.gif)
+
+*Keyword-routed streaming reply (fast 8B → 120B reasoning), then the agent tool loop reading an attached file — with per-reply model, token/cost meter, and retrieval-grounding badges.*
+
 ---
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Browser  (React / Vite)                                    │
-│  panels · 17 hooks · SSE streaming                          │
-└────────────────────────┬────────────────────────────────────┘
-                         │  REST + SSE
-                    nginx proxy
-                         │
-┌────────────────────────▼────────────────────────────────────┐
-│  FastAPI  (uvicorn, async)                                  │
-│                                                             │
-│  Keyword Router ──► NIM API                                 │
-│    llama 8B / DeepSeek coder / gpt-oss 120B                 │
-│    fallback chain · circuit breaker · retry/jitter          │
-│                                                             │
-│  RAG Pipeline                                               │
-│    pgvector cosine + BM25 → RRF / weighted fusion           │
-│    adaptive policy: factual · relational · temporal · broad │
-│                                                             │
-│  Memory Engine                                              │
-│    compressed history · project summary · salience facts    │
-│    conflict detection · preference extraction · compaction  │
-│                                                             │
-│  Graph Memory  ──► Neo4j                                    │
-│    entity + relation extraction · 500 entity cap            │
-│                                                             │
-│  Agent Tool Loop (25 tools, max 60 iterations)              │
-│    file I/O · fuzzy patch · graph query · memory write      │
-│    web search · fetch URL · ask_user · identical-sig abort  │
-│                                                             │
-│  OAuth Connectors  (UI-gated pending public deploy)         │
-│    Drive · Calendar · Gmail · Notion · GitHub               │
-│                                                             │
-│  Background (ARQ workers + APScheduler)                     │
-│    embed · compact · insights · behavior profile · backup   │
-└───────────┬───────────┬────────────┬────────────┬──────────┘
-            │           │            │            │
-       PostgreSQL     Redis        Neo4j     Prometheus
-       + pgvector   (cache,      (entity      + Grafana
-       + pgBouncer   rate limit,   graph)     (24 panels,
-       47 migrations  circuit                  2 alerts)
-       26 ORM models  breaker)
+```mermaid
+flowchart TB
+    Browser["Browser — React / Vite<br/>panels · 17 hooks · SSE streaming"]
+    Browser -->|"REST + SSE (nginx proxy)"| Router
+
+    subgraph API["FastAPI (uvicorn, async)"]
+        direction TB
+        Router["Keyword router<br/>llama 8B · DeepSeek coder · gpt-oss 120B<br/>fallback chain · circuit breaker · retry/jitter"]
+        RAG["RAG pipeline<br/>pgvector cosine + BM25 → RRF / weighted fusion<br/>adaptive policy: factual · relational · temporal · broad"]
+        Memory["Memory engine<br/>compressed history · salience facts<br/>conflict detection · preference extraction · compaction"]
+        GraphMem["Graph memory<br/>entity + relation extraction · 500-entity cap"]
+        Tools["Agent tool loop — 25 tools, max 60 iterations<br/>file I/O · fuzzy patch · graph query · memory write<br/>web search · fetch URL · ask_user"]
+        Connectors["OAuth connectors<br/>Drive · Calendar · Gmail · Notion · GitHub"]
+        Background["Background workers — ARQ + APScheduler<br/>embed · compact · insights · behavior profile · backup"]
+        Router ~~~ RAG ~~~ Memory ~~~ GraphMem ~~~ Tools ~~~ Connectors ~~~ Background
+    end
+
+    Router -->|"chat / tool calls"| NIM["NVIDIA NIM API"]
+    RAG --> PG[("PostgreSQL + pgvector<br/>pgBouncer · 47 migrations · 26 ORM models")]
+    Memory --> PG
+    GraphMem --> Neo[("Neo4j<br/>entity graph")]
+    Background --> Redis[("Redis<br/>cache · rate limit · circuit breaker")]
+    API -.->|"metrics"| Prom["Prometheus + Grafana<br/>24 panels · 2 alerts"]
 ```
 
 ---
@@ -192,6 +182,8 @@ DELETE /auth/me/webhook-token   — revoke token
 ### Observability
 - **Activity trace**: every pipeline step (`cache → route → budget → model_call → fallback → tool`) timed, tagged with `level: error | info`, and persisted as JSONB on the assistant message
 - **Prometheus + Grafana**: 24-panel dashboard, 2 automated alert rules (circuit breaker trip, success rate < 99%); TSDB persists across restarts via named volume
+
+![Grafana dashboard — request rate, latency percentiles, per-model usage, cache hits, breaker trips](docs/assets/grafana-dashboard.png)
 - **Prometheus multiprocess mode**: uvicorn workers share a tmpfs metric dir; `/metrics` endpoint aggregates via `MultiProcessCollector`
 - **Structured logging** throughout; request ID (`X-Request-ID`) on every response
 
