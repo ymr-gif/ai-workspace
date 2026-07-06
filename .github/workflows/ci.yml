@@ -66,11 +66,13 @@ jobs:
       neo4j:
         image: neo4j:5
         env:
-          NEO4J_AUTH: neo4j/testpassword
+          NEO4J_AUTH: neo4j/testpassword  # CI-only, non-production
+
         ports: ["7687:7687", "7474:7474"]
         options: >-
           --health-cmd "wget -qO- http://localhost:7474 || exit 1"
           --health-interval 10s --health-timeout 5s --health-retries 20
+    # CI-only literal secrets — ephemeral job containers, never used in production
     env:
       DATABASE_URL: postgresql+asyncpg://scylla:scylla@localhost:5432/nimrouter
       REDIS_URL: redis://localhost:6379/0

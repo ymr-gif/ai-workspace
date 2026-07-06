@@ -60,12 +60,12 @@ Last updated: 2026-07-04 (full-surface verification green 2026-07-03 — every d
 | File storage — SHA256 dedup, versioning, chunk quality states | ✅ |
 | File formats — PDF, DOCX, XLSX, text/code/markdown | ✅ |
 | Full data export (`GET /api/export/full` ZIP stream) | ✅ |
-| AI agent tool loop (22 tools: file ops, graph, memory, web, drive, calendar; canvas removed) | ✅ |
+| AI agent tool loop (25 tools: file ops, graph, memory, web, drive, calendar, gmail; canvas removed) | ✅ |
 | Web search tool (SearXNG/Tavily, heuristic-gated, `WEB_SEARCH_ENABLED` env var) | ✅ |
 | Event-driven webhook triggers (`POST /webhooks/{user_token}`; `file.uploaded` / `reminder` / `external.data`; ARQ → UserInsight; `WebhookEvent` model; migration 040) | ✅ |
 | Daily/weekly digest (APScheduler cron; per-user markdown summary of files/memory/insights/goals; delivered as `UserInsight` + optional SMTP email; `DIGEST_ENABLED` + `DIGEST_SCHEDULE` env vars; migration 041 adds `email` to users) | ✅ |
 | Pattern detection + proactive triggers (`detect_recurring_patterns()`; 7-day dedup; ARQ enqueue with hint) | ✅ |
-| Global autonomous agent canvas — Neo4j-backed node system (11 node types, typed ports, WIRED_TO relationships, agent scratchpad, boot diagnostics, per-session chat drawer) | ✅ |
+| ~~Global autonomous agent canvas — Neo4j-backed node system (11 node types, typed ports, WIRED_TO relationships, agent scratchpad, boot diagnostics, per-session chat drawer)~~ | removed 2026-06-09 |
 | Autonomous memory writing (write_memory tool, user-confirm green card) | ✅ |
 | User preference extraction (ARQ job every 50 msgs; `[PREFERENCES]` in UserMemory) | ✅ |
 | Behavioral pattern tracker (`UserBehaviorProfile` JSONB; ARQ job every reply; feeds insight generation) | ✅ |

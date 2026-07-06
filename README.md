@@ -1,12 +1,12 @@
 # NIM AI Gateway
 
-A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routing, hybrid RAG, persistent graph memory, an AI agent tool loop, and OAuth connector infrastructure (Drive, Calendar, Gmail, Notion, GitHub — backend complete, UI-stubbed) — all in a single Docker Compose stack.
+A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routing, hybrid RAG, persistent graph memory, an AI agent tool loop, and five OAuth connectors (Drive, Calendar, Gmail, Notion, GitHub — UI-gated pending public deploy) — all in a single Docker Compose stack.
 
 **Backend:** Python / FastAPI · **Frontend:** React / Vite · **Infra:** PostgreSQL + pgvector, Redis, Neo4j, Prometheus, Grafana
 
 > **Deployment direction:** NVIDIA NIM is a test backend. The app targets a self-hosted home
 > server (llama.cpp/GGUF; Mixtral → eventual MoE) via one OpenAI-compatible endpoint — porting is
-> a config repoint, not a rewrite. See `BUGS.md` → "Decisions — Home-Server Port & #19 Vision".
+> a config repoint, not a rewrite.
 
 ---
 
@@ -15,7 +15,7 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Browser  (React / Vite)                                    │
-│  panels · 17 hooks · SSE streaming                         │
+│  panels · 17 hooks · SSE streaming                          │
 └────────────────────────┬────────────────────────────────────┘
                          │  REST + SSE
                     nginx proxy
@@ -24,29 +24,29 @@ A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routi
 │  FastAPI  (uvicorn, async)                                  │
 │                                                             │
 │  Keyword Router ──► NIM API                                 │
-│    llama 8B / DeepSeek coder / llama 70B                   │
-│    fallback chain · circuit breaker · retry/jitter         │
+│    llama 8B / DeepSeek coder / gpt-oss 120B                 │
+│    fallback chain · circuit breaker · retry/jitter          │
 │                                                             │
 │  RAG Pipeline                                               │
-│    pgvector cosine + BM25 → RRF / weighted fusion          │
+│    pgvector cosine + BM25 → RRF / weighted fusion           │
 │    adaptive policy: factual · relational · temporal · broad │
 │                                                             │
 │  Memory Engine                                              │
-│    compressed history · project summary · salience facts   │
+│    compressed history · project summary · salience facts    │
 │    conflict detection · preference extraction · compaction  │
 │                                                             │
 │  Graph Memory  ──► Neo4j                                    │
-│    entity + relation extraction (70B) · 500 entity cap     │
+│    entity + relation extraction · 500 entity cap            │
 │                                                             │
-│  Agent Tool Loop (25 tools, max 60 iterations)             │
-│    file I/O · fuzzy patch · graph query · memory write     │
-│    web search · fetch URL · ask_user · identical-sig abort │
+│  Agent Tool Loop (25 tools, max 60 iterations)              │
+│    file I/O · fuzzy patch · graph query · memory write      │
+│    web search · fetch URL · ask_user · identical-sig abort  │
 │                                                             │
-│  OAuth Connector Infrastructure (backend complete,          │
-│    UI-stubbed — Drive · Calendar · Gmail · Notion · GitHub)│
+│  OAuth Connectors  (UI-gated pending public deploy)         │
+│    Drive · Calendar · Gmail · Notion · GitHub               │
 │                                                             │
 │  Background (ARQ workers + APScheduler)                     │
-│    embed · compact · insights · behavior profile · backup  │
+│    embed · compact · insights · behavior profile · backup   │
 └───────────┬───────────┬────────────┬────────────┬──────────┘
             │           │            │            │
        PostgreSQL     Redis        Neo4j     Prometheus
@@ -117,20 +117,20 @@ Tools are offered on **capability alone** (connector active, env flag on, files 
 | `calendar_create_event` / `calendar_update_event` / `calendar_delete_event` | calendar **writes** — never hit Google from the loop; return a confirm sentinel → `confirm_calendar_write` SSE → UI confirm card → `POST /api/integrations/calendar/execute` |
 | `gmail_list_messages` / `gmail_get_message` / `gmail_search_messages` | read-only Gmail access; active **and** email-intent-latched, same latch |
 
-**25 tools total** — 9 file/graph, `ask_user`, `write_memory`, `web_search`, `fetch_url`, 3 Drive, 6 Calendar, 3 Gmail. Connector tools need an active connection: the UI stub blocks **new** OAuth connections, but sources connected while a connector was exposed stay active and their tools keep working. `fetch_url` is the exception — injected only when the user's message contains a URL.
+**25 tools total** — 9 file/graph, `ask_user`, `write_memory`, `web_search`, `fetch_url`, 3 Drive, 6 Calendar, 3 Gmail. Connector tools are injected per-user whenever that connector has an active connection. `fetch_url` is the exception — injected only when the user's message contains a URL.
 
-Capability-available schemas are passed name-sorted for a byte-stable prompt prefix (so the KV prefix cache makes repeat cost near-zero). A `select_tool_schemas()` prefilter switch (`registry.py`) decides the final subset; below `TOOL_PREFILTER_THRESHOLD` (32) it is passthrough — all tools. Past the threshold it will fall back to an embedding prefilter (embed the query, cosine-match against cached tool-description vectors, pass top-k); that branch is scaffolded but not yet built, so it fails safe to passthrough today.
+Capability-available schemas are passed name-sorted for a byte-stable prompt prefix (so the KV prefix cache makes repeat cost near-zero). A `select_tool_schemas()` prefilter switch (`registry.py`) decides the final subset; below `TOOL_PREFILTER_THRESHOLD` (32) it is passthrough — all tools. An embedding prefilter path (embed the query, cosine-match against cached tool-description vectors, pass top-k) is reserved for future tool growth; at the current 25 tools every schema is passed through.
 
 ### OAuth Connectors
-Backend-implemented OAuth connector infrastructure. All five connectors are backend-complete but not exposed in the UI (`ENABLED_CONNECTOR_TYPES = []` in `frontend/src/hooks/useIntegrations.js`). Users see all five under "More integrations on the way." The stub only removes the OAuth button — it does **not** deactivate sources connected while a connector was exposed; those stay active and their tools keep working. Credentials are Fernet-encrypted at rest (`INTEGRATION_SECRET`); refresh-on-expiry; a 401 marks the source `needs_reauth`.
+Five OAuth connectors implemented end-to-end — OAuth flow, token refresh, per-user tool injection. UI connect buttons are gated pending public deploy (`ENABLED_CONNECTOR_TYPES` in `frontend/src/hooks/useIntegrations.js`); connected sources stay active and their tools keep working regardless of the gate. Credentials are Fernet-encrypted at rest (`INTEGRATION_SECRET`); refresh-on-expiry; a 401 marks the source `needs_reauth`.
 
 | Connector | Backend | Scope | Tools | UI Status |
 |---|---|---|---|---|
-| Google Drive | read-only | `drive.readonly` | `drive_list_files`, `drive_search`, `drive_read_file` | Stub — "Soon" |
-| Google Calendar | read-write | `calendar.events` | list / get / search / create / update / delete | Stub — "Soon" |
-| Gmail | read-only | `gmail.readonly` | `gmail_list_messages`, `gmail_get_message`, `gmail_search_messages` | Stub — "Soon" |
-| Notion | read | per-provider | (sync stub) | Stub — "Soon" |
-| GitHub | read | per-provider | (sync stub) | Stub — "Soon" |
+| Google Drive | read-only | `drive.readonly` | `drive_list_files`, `drive_search`, `drive_read_file` | UI-gated |
+| Google Calendar | read-write | `calendar.events` | list / get / search / create / update / delete | UI-gated |
+| Gmail | read-only | `gmail.readonly` | `gmail_list_messages`, `gmail_get_message`, `gmail_search_messages` | UI-gated |
+| Notion | read | per-provider | (sync pending) | UI-gated |
+| GitHub | read | per-provider | (sync pending) | UI-gated |
 
 - Drive + Calendar + Gmail share **one** Google OAuth app (`GOOGLE_CLIENT_ID/SECRET`); shared base: `GoogleOAuthConnector`.
 - OAuth flow is implemented (`GET /integrations/oauth/start` → consent → callback); the UI exposes it only for connector types listed in `ENABLED_CONNECTOR_TYPES`.
@@ -139,7 +139,7 @@ Backend-implemented OAuth connector infrastructure. All five connectors are back
 
 ### Image OCR & Voice Input
 - **Image OCR** (`IMAGE_OCR_ENABLED`, default off): CPU PaddleOCR extracts text from uploaded/pasted images and scanned PDFs (pypdfium2 render fallback, ≤20 pages); text is embedded and injected as context — no vision model required.
-- **Voice input** (`VOICE_ENABLED`, default off): `POST /api/transcribe` accepts an audio upload, transcribes via `ASR_BACKEND` (stub by default), and injects the text as a chat message.
+- **Voice input** (`VOICE_ENABLED`, default off): `POST /api/transcribe` accepts an audio upload, transcribes via the pluggable `ASR_BACKEND`, and injects the text as a chat message.
 
 ### Notifications
 - Per-user preferences (`GET/PATCH /api/notifications/preferences`) gate email + web-push delivery per channel.
@@ -247,8 +247,8 @@ Model selection priority: `per-request override > conversation lock > keyword ro
 **Prerequisites:** Docker + Docker Compose, [NVIDIA NIM API key](https://build.nvidia.com/)
 
 ```bash
-git clone https://github.com/ymr-gif/ai-workspace.git
-cd ai-workspace
+git clone https://github.com/ymr-gif/ai-workspace.git ai-api
+cd ai-api
 cp .env.example .env
 ```
 
@@ -270,7 +270,9 @@ cd docker && docker compose up -d
 | Grafana | `http://localhost:3001` |
 | Neo4j browser | `http://localhost:7474` |
 
-Default seeded accounts: `admin / admin-secret` · `user / user-secret` — change these before any public exposure.
+Default seeded accounts: `admin / admin-secret` · `user / user-secret`
+
+> ⚠️ **Dev-only seed credentials. Change or delete these accounts before any public exposure.**
 
 ---
 
@@ -437,7 +439,7 @@ ai-api/
 │   ├── src/
 │   │   ├── components/Chat/  panel components (incl. IntegrationsPanel)
 │   │   └── hooks/            17 domain hooks
-│   └── public/canvas/        JARVIS ReactFlow workspace (static bundle)
+│   └── public/               static assets (service worker, effects)
 └── docker/
     ├── docker-compose.yml
     ├── docker-compose.prod.yml
