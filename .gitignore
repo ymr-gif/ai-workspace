@@ -56,4 +56,18 @@ HANDOFF_ARCHIVE.md
 HANDOFF_PROTOCOL.md
 SKILL.md
 **/SKILL.md
-# HANDOFF.md + QUEUE.md are tracked (force-tracked 2026-06-28 for cold-session portability)
+
+# Internal dev notes / scaffolding — repo is public, these never ship
+# (untracked 2026-07-06; supersedes the 2026-06-28 force-track of HANDOFF.md + QUEUE.md)
+BUGS.md
+QUEUE.md
+HANDOFF.md
+SUMMARY.md
+COMMANDS.md
+plans/
+tests/VERIFICATION.md
+backend/tests/VERIFICATION_LAUNCH.md
+backend/tests/latch/RUNLOG.md
+backend/tests/latch/rich_full_logs/
+backend/tests/latch/*.jsonl
+backend/tests/latch/scores*.txt
