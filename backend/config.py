@@ -153,20 +153,24 @@ ROUTER_SYSTEM_PROMPT = (
 
 # ── Context window sizes per model ───────────────────────────────────────────
 CONTEXT_WINDOWS: dict[str, int] = {
-    "meta/llama-3.1-8b-instruct":            131072,
-    "deepseek-ai/deepseek-v4-flash":           32768,
-    "meta/llama-3.3-70b-instruct":            131072,
-    "meta/llama-3.2-90b-vision-instruct":     131072,
+    "meta/llama-3.1-8b-instruct":               131072,
+    "deepseek-ai/deepseek-v4-flash":              32768,
+    "meta/llama-3.3-70b-instruct":               131072,
+    "meta/llama-3.2-90b-vision-instruct":        131072,
+    "nvidia/llama-3.3-nemotron-super-49b-v1":    131072,
+    "openai/gpt-oss-120b":                       131072,
 }
 DEFAULT_CONTEXT_WINDOW = 131072
 
 # ── Model pricing — verify at build.nvidia.com/explore/llm ───────────────────
 # $/1M tokens: input and output rates
 MODEL_PRICING: dict[str, dict[str, float]] = {
-    "meta/llama-3.1-8b-instruct":             {"input": 0.10, "output": 0.10},
-    "deepseek-ai/deepseek-v4-flash":           {"input": 0.20, "output": 0.60},
-    "meta/llama-3.3-70b-instruct":             {"input": 0.77, "output": 0.77},
-    "meta/llama-3.2-90b-vision-instruct":      {"input": 0.16, "output": 0.16},
+    "meta/llama-3.1-8b-instruct":               {"input": 0.10, "output": 0.10},
+    "deepseek-ai/deepseek-v4-flash":             {"input": 0.20, "output": 0.60},
+    "meta/llama-3.3-70b-instruct":               {"input": 0.77, "output": 0.77},
+    "meta/llama-3.2-90b-vision-instruct":        {"input": 0.16, "output": 0.16},
+    "nvidia/llama-3.3-nemotron-super-49b-v1":    {"input": 0.10, "output": 0.40},
+    "openai/gpt-oss-120b":                       {"input": 0.05, "output": 0.15},
 }
 
 # ── Notifications / Web Push (Phase 3c) ──────────────────────────────────────
