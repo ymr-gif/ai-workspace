@@ -18,7 +18,7 @@ export default function ModelToolbar({
       <div style={s.toolbarWrap}>
         <div style={s.toolbar}>
           <div style={s.modelPills}>
-            {[['auto', 'Auto'], ['llama', 'LLaMA 8B'], ['coder', 'DeepSeek'], ['reasoning', '70B']].map(([key, label]) => (
+            {[['auto', 'Auto'], ['llama', 'LLaMA 8B'], ['coder', 'DeepSeek'], ['reasoning', '120B']].map(([key, label]) => (
               <button key={key} onClick={() => setSelectedModel(key)}
                 style={{ ...s.pill, ...(selectedModel === key ? s.pillActive : {}) }}>
                 {label}

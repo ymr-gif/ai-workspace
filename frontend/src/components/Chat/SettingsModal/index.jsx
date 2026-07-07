@@ -26,7 +26,7 @@ export default function SettingsModal() {
           rows={5} style={s.editArea} placeholder="You are a helpful assistant specializing in…" />
         <div style={{ ...s.editLabel, marginTop:'1rem' }}>Model Lock</div>
         <div style={{ ...s.modelPills, marginTop:'0.4rem', flexWrap:'wrap' }}>
-          {[['', 'Auto (route)'], ['llama', 'LLaMA 8B'], ['coder', 'DeepSeek'], ['reasoning', '70B Reasoning']].map(([key, label]) => (
+          {[['', 'Auto (route)'], ['llama', 'LLaMA 8B'], ['coder', 'DeepSeek'], ['reasoning', '120B Reasoning']].map(([key, label]) => (
             <button key={key} onClick={() => setEditLockModel(key)}
               style={{ ...s.pill, ...(editLockModel === key ? s.pillActive : {}) }}>
               {label}
