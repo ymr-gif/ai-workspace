@@ -2,6 +2,12 @@ from abc import ABC, abstractmethod
 from typing import AsyncIterator, TypedDict
 
 
+class ReauthRequired(Exception):
+    """Token refresh definitively rejected by the provider (e.g. Google
+    invalid_grant: refresh token expired or revoked) — retrying cannot help,
+    the user must reconnect the integration."""
+
+
 class OAuthTokens(TypedDict, total=False):
     access_token: str
     refresh_token: str | None

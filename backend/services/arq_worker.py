@@ -261,6 +261,7 @@ async def send_scheduled_completion_job(ctx, user_id: int, *, subject: str, body
 async def sync_external_source_job(ctx, *, source_id: str) -> None:
     from datetime import datetime
     from core.encryption import decrypt_token, encrypt_token
+    from services.integrations.base import ReauthRequired
     from services.integrations.registry import get_connector
 
     attempt = ctx.get("job_try", 1)
@@ -317,7 +318,7 @@ async def sync_external_source_job(ctx, *, source_id: str) -> None:
                 return
 
             status_code = getattr(e, "status_code", None) or getattr(e, "response", None) and getattr(e.response, "status_code", None)
-            if status_code in (401, 403):
+            if status_code in (401, 403) or isinstance(e, ReauthRequired):
                 src.status = "needs_reauth"
                 src.error = str(e)[:2000]
                 await db.commit()

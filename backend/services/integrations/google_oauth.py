@@ -5,7 +5,13 @@ import httpx
 from config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, INTEGRATION_REDIRECT_BASE
 from typing import AsyncIterator
 
-from services.integrations.base import AbstractConnector, ConnectorCredentials, OAuthTokens, SyncedChunk
+from services.integrations.base import (
+    AbstractConnector,
+    ConnectorCredentials,
+    OAuthTokens,
+    ReauthRequired,
+    SyncedChunk,
+)
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -64,6 +70,13 @@ class GoogleOAuthConnector(AbstractConnector):
                     "grant_type": "refresh_token",
                 },
             )
+            # Google signals a dead refresh token as 400 invalid_grant (e.g. the
+            # 7-day expiry on Testing-mode OAuth apps, or user revocation) —
+            # unrecoverable without a new consent, so don't surface a raw 400.
+            if resp.status_code == 400 and "invalid_grant" in resp.text:
+                raise ReauthRequired(
+                    "Google refresh token expired or revoked — reconnect this integration"
+                )
             resp.raise_for_status()
             data = resp.json()
             return ConnectorCredentials(

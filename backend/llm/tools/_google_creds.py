@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.encryption import decrypt_token, encrypt_token
 from models import ExternalSource
-from services.integrations.base import AbstractConnector
+from services.integrations.base import AbstractConnector, ReauthRequired
 
 logger = logging.getLogger("tools.google_creds")
 
@@ -38,7 +38,14 @@ async def load_google_credentials(
             src.status = "needs_reauth"
             await db.commit()
             return src, None
-        creds = await connector_cls.refresh_tokens(creds)
+        try:
+            creds = await connector_cls.refresh_tokens(creds)
+        except ReauthRequired as e:
+            logger.warning("[google_creds] reauth required user=%s type=%s: %s", user_id, connector_type, e)
+            src.status = "needs_reauth"
+            src.error = str(e)
+            await db.commit()
+            return src, None
         src.credentials = {
             "access_token": encrypt_token(creds["access_token"]),
             "expires_at": creds.get("expires_at"),
