@@ -10,8 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import MODELS
 from llm import retriever
+from llm.closing_intent import closing_score, CLOSING_THRESHOLD, _TIER2_MIN_TOKENS, _TIER2_MAX_TOKENS
 from llm.embeddings import embed as embed_text
-from llm.router import classify_intent_hybrid, classify_query
+from llm.router import classify_intent_hybrid, classify_query, _looks_like_request
 from llm.retriever.policy import get_policy
 from llm.service.context import _needs_file_tools
 from llm.summarizer.salience import bump_fact_saliences, compute_salience, score_facts
@@ -298,6 +299,21 @@ async def _build_stream_context(
         _act("embed", "Skipped (closing turn)")
     else:
         _act("embed", "Skipped (trivial message)")
+
+    # Tier-2 (semantic) of the closing cascade — catches medium/paraphrased acks the pre-embed
+    # lexicon (`_is_ack`) missed. Rides the embedding RAG already computed (no new embed call).
+    # Precision-gated: the shared `_looks_like_request` veto + the token band must pass BEFORE the
+    # nearest-example cosine is trusted, and CLOSING_THRESHOLD is zero-FP on the eval set. On a hit,
+    # reclassify to closing so the RAG + graph blocks below skip (their `if _closing` guards) and
+    # `generate_stream` drops tools + routes to llama-8B. Cannot run on tier-1 acks or ≤2-word
+    # trivials — those skipped the embed, so query_emb is None here.
+    if not _closing and query_emb and not _looks_like_request(req.message):
+        _ntok = len(req.message.split())
+        if _TIER2_MIN_TOKENS <= _ntok <= _TIER2_MAX_TOKENS:
+            _cs = await closing_score(query_emb)
+            if _cs >= CLOSING_THRESHOLD:
+                intent, _closing = "closing", True
+                _act("intent", f"Intent: closing — semantic reclassify (score={_cs:.2f})")
 
     history: list[dict] = []
     history_msg_ids: list = []   # ids sent verbatim this turn → excluded from RAG (C3 echo dedup)

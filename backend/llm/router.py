@@ -46,6 +46,34 @@ def _is_ack(message: str) -> bool:
         return False
     return all(t in _ACK_TOKENS for t in tokens)
 
+
+# Contrast/continuation markers that flip a "thanks…" opener into a real follow-up request
+# ("thanks, BUT the formula is wrong", "though i have ANOTHER question"). Whole-token match.
+# Deliberately NARROW + high-precision: only markers that ~never appear in a pure ack. Excludes
+# now / more / one / next / and / also / though — those live in real closings ("all set now",
+# "no more questions", "thanks though"), so vetoing on them would kill genuine acks (measured
+# against tests/closing_intent_eval.jsonl). Ambiguous follow-ups are caught by the task-verb /
+# '?' / digit checks instead, or simply score below CLOSING_THRESHOLD.
+_REQUEST_MARKERS = {
+    "but", "however", "actually", "wait", "instead", "except", "another",
+}
+
+
+def _looks_like_request(message: str) -> bool:
+    """Shared closing veto — spans the cascade tiers, protects the semantic (cosine) tier from
+    latching `closing` on a message that carries a real request. Returns True (→ NEVER closing)
+    when the message has a '?', a digit, a URL, a contrast/continuation marker, or a task
+    imperative verb (`_INTENT_TASK`). Precision backstop: fail toward NOT-closing."""
+    msg = message.strip().lower()
+    if not msg:
+        return False
+    if "?" in msg or any(ch.isdigit() for ch in msg) or "http" in msg:
+        return True
+    if any(kw in msg for kw in _INTENT_TASK):
+        return True
+    tokens = {t.strip(".,!:;") for t in msg.split()}
+    return bool(tokens & _REQUEST_MARKERS)
+
 _CODER_KEYWORDS = {
     "code", "error", "bug", "fix", "debug", "function", "class", "implement",
     "write a", "script", "program", "algorithm", "syntax", "compile", "refactor",
