@@ -16,6 +16,15 @@ Rules:
 - Format each line as: key: value
 - Remove anything contradicted by newer info
 - Be specific — "Python 3.11 + FastAPI async" not "Python backend"
+- Style/pacing feedback is a CORRECTION, not a trait. When the user gives an
+  imperative about HOW you reply ("stop doing X", "keep it short", "don't give
+  unsolicited full walkthroughs", "i said it's okay / that's all"), record it under
+  [CORRECTIONS] AND update or DELETE any [PATTERNS]/[USER]/current-state line it
+  contradicts (e.g. remove "working style: step-by-step" if they told you to stop).
+- Never promote a one-time request ("explain this step by step just now") into a
+  permanent trait — a single ask is not a working style.
+- On conflict between an existing trait and newer user feedback, RECENCY WINS:
+  keep the newer signal, drop the stale one.
 - If nothing new to add: reply exactly NO_UPDATE\
 """
 

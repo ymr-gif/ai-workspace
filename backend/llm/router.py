@@ -21,6 +21,31 @@ _INTENT_EXPLORE = {
     "give me some", "list all", "what are my", "summarize everything",
 }
 
+# Ack / closing lexicon (C2). A message qualifies as a pure closing turn only if
+# EVERY token is in this set (plus: no '?', no digits, ≤6 tokens). It is a
+# work-skipping optimization ONLY — a message that misses it falls through to the
+# classifier, which owns the real decision, so incompleteness stays harmless.
+# "thanks, but the formula is wrong" must NOT qualify (has out-of-set tokens).
+_ACK_TOKENS = {
+    "ok", "okay", "thanks", "thankyou", "thank", "you", "thats", "that's",
+    "all", "got", "it", "cool", "nice", "bye", "goodbye", "great", "perfect",
+    "sure", "yep", "man", "good", "day",
+}
+
+
+def _is_ack(message: str) -> bool:
+    """Pure closing/acknowledgment turn — short-circuit, no LLM call. Qualifies
+    only when every token is in _ACK_TOKENS, there is no '?', no digit, ≤6 tokens.
+    Anything it misses falls through to the classifier (must stay harmless)."""
+    msg = message.strip().lower()
+    if not msg or "?" in msg or any(ch.isdigit() for ch in msg):
+        return False
+    tokens = [t.strip(".,!") for t in msg.split()]
+    tokens = [t for t in tokens if t]
+    if not tokens or len(tokens) > 6:
+        return False
+    return all(t in _ACK_TOKENS for t in tokens)
+
 _CODER_KEYWORDS = {
     "code", "error", "bug", "fix", "debug", "function", "class", "implement",
     "write a", "script", "program", "algorithm", "syntax", "compile", "refactor",
@@ -77,7 +102,13 @@ def classify_query(message: str) -> str:
 
 
 def classify_intent(message: str) -> str:
-    """Keyword fast-path → task | exploration | question. Zero cost."""
+    """Keyword fast-path → closing | task | exploration | question. Zero cost.
+
+    `closing` (pure thanks/goodbye/ack) is checked FIRST via the ack lexicon so a
+    goodbye never gets forced onto the task-intent branch (which pulls in the
+    reasoning model + RAG and re-answers the prior question, unsolicited)."""
+    if _is_ack(message):
+        return "closing"
     msg = message.lower()
     task    = any(kw in msg for kw in _INTENT_TASK)
     explore = any(kw in msg for kw in _INTENT_EXPLORE)
@@ -92,9 +123,13 @@ def classify_intent(message: str) -> str:
 
 async def classify_intent_hybrid(message: str, request_id: str = "") -> str:
     """Keyword first; only fall back to one cheap 8B call when keywords are
-    silent or conflicting. Any failure → 'question'. Never raises."""
+    silent or conflicting. Any failure → 'question'. Never raises.
+
+    Returns closing | task | exploration | question. The ack lexicon short-circuits
+    pure closing turns without the LLM call; anything it misses still reaches the 8B
+    prompt (which also carries the `closing` label + few-shots)."""
     kw = classify_intent(message)
-    if kw in ("task", "exploration"):
+    if kw in ("closing", "task", "exploration"):
         return kw
 
     # Ambiguous or no keyword signal → single constrained 8B classification.
@@ -102,10 +137,17 @@ async def classify_intent_hybrid(message: str, request_id: str = "") -> str:
         from llm import nim
         prompt = (
             "Classify the user's intent as exactly one word: task, exploration, "
-            "or question.\n"
+            "question, or closing.\n"
             "- task: wants you to perform/produce an action or artifact.\n"
             "- exploration: wants a broad survey of a topic or open-ended ideas.\n"
             "- question: wants a specific answer.\n"
+            "- closing: only thanks / goodbye / acknowledgment, no new request.\n"
+            "Examples:\n"
+            "Message: okay thankyou, thats all\nIntent: closing\n"
+            "Message: thanks, that's perfect\nIntent: closing\n"
+            "Message: got it, cheers\nIntent: closing\n"
+            "Message: thanks, but the formula is wrong\nIntent: task\n"
+            "Message: ok how about arrays?\nIntent: question\n"
             f"Message: {message}\nIntent:"
         )
         result = await nim.call(
@@ -116,7 +158,7 @@ async def classify_intent_hybrid(message: str, request_id: str = "") -> str:
         )
         if result.get("ok") and result.get("content"):
             word = result["content"].strip().lower()
-            for cand in ("task", "exploration", "question"):
+            for cand in ("task", "exploration", "closing", "question"):
                 if cand in word:
                     return cand
     except Exception:

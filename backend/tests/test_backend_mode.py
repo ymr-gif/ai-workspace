@@ -43,7 +43,11 @@ def test_default_is_nim_and_inert():
     assert cfg.NIM_URL == "https://integrate.api.nvidia.com/v1/chat/completions"
     assert cfg.NIM_EMBEDDING_URL == "https://integrate.api.nvidia.com/v1/embeddings"
     assert cfg.MODELS["llama"] == "meta/llama-3.1-8b-instruct"
-    assert cfg.MODELS["reasoning"] == "meta/llama-3.3-70b-instruct"
+    # reasoning id is env-configurable (MODEL_REASONING in .env — root swaps it,
+    # e.g. openai/gpt-oss-120b); assert only that nim mode stays inert: three
+    # distinct NIM ids, NOT collapsed to the homeserver "mixtral" alias.
+    assert cfg.MODELS["reasoning"] not in ("", "mixtral")
+    assert len(set(cfg.MODELS.values())) == 3
     assert cfg.MODEL_EMBEDDING == "nvidia/nv-embedqa-e5-v5"
     assert cfg.DEFAULT_CONTEXT_WINDOW == 131072
 

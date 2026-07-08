@@ -10,7 +10,7 @@ os.environ.setdefault("REDIS_URL",      "redis://localhost:6379/0")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 
 from api.chat.stream import _compute_grounding
-from llm.router import classify_intent
+from llm.router import classify_intent, _is_ack
 
 
 def _prov(dense, retrieval_type="weighted", source_id="s"):
@@ -81,3 +81,43 @@ class TestIntentKeyword:
     def test_conflicting_is_ambiguous(self):
         # both a task verb and an exploration phrase present
         assert classify_intent("brainstorm and create a plan") == "ambiguous"
+
+
+class TestAckDetector:
+    """C2 — ack fast-path (short-circuit only). Positives must qualify without an
+    LLM call; anything with an out-of-set token / '?' / digit / >6 tokens must NOT
+    (it falls through to the classifier, which owns the real decision)."""
+
+    POSITIVES = [
+        "ok", "okay", "thanks", "thank you", "thankyou",
+        "okay thankyou, thats all", "that's all thanks", "got it",
+        "cool, thanks", "perfect thank you", "goodbye", "bye",
+        "great, that's all", "nice, thanks man", "good day",
+        "yep", "sure",
+    ]
+    NEGATIVES = [
+        "thanks, but the formula is wrong",   # style/content pushback → task
+        "ok how about arrays?",               # question (has '?')
+        "thanks for the 3 examples",          # has a digit
+        "okay so explain the next part",      # out-of-set tokens
+        "thank you for building the parser",  # substantive, out-of-set tokens
+        "is that all?",                       # question
+        "ok ok ok ok ok ok ok",               # >6 tokens
+        "",                                   # empty
+    ]
+
+    def test_positives_qualify(self):
+        for m in self.POSITIVES:
+            assert _is_ack(m) is True, m
+
+    def test_negatives_do_not_qualify(self):
+        for m in self.NEGATIVES:
+            assert _is_ack(m) is False, m
+
+    def test_positives_classify_closing(self):
+        for m in self.POSITIVES:
+            assert classify_intent(m) == "closing", m
+
+    def test_thanks_but_wrong_is_not_closing(self):
+        # explicit correction turn must NOT be treated as a goodbye
+        assert classify_intent("thanks, but the formula is wrong") != "closing"

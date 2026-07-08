@@ -344,6 +344,15 @@ async def generate_stream(
     injected_tools = [t for t in injected_tools if t.name in _kept]
     tools = schemas or None
 
+    # Closing turn (pure thanks/goodbye/ack, classified upstream): keep it a plain
+    # chat turn. No tools and no connector clarify nudge → llama stays in the chain
+    # (see the llama-drop guard below) so a goodbye gets a one-line ack from the
+    # cheap keyword-routed model instead of the tool-eager reasoning model.
+    _closing = intent == "closing"
+    if _closing:
+        injected_tools = []
+        tools = None
+
     # Tool-required turns (file ops) must not degrade to 8B — it emits tool
     # calls as plain text instead of using the tool-calling API. Drop llama from the
     # fallback chain when tools are active, but never leave the chain empty.
@@ -416,7 +425,7 @@ async def generate_stream(
         ("calendar", _calendar_active, _calendar_latched),
         ("gmail", _gmail_active, _gmail_latched),
     ) if on and not lat]
-    if _unlatched:
+    if _unlatched and not _closing:
         _svc = "; ".join(_CLARIFY_SVC[c] for c in _unlatched)
         _rules_block.append({"role": "system", "content": (
             "## Connected services (tools not loaded this turn)\n\n"

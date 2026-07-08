@@ -246,18 +246,24 @@ async def _build_stream_context(
 
     # User-intent (Dim 3): tunes retrieval breadth here; tool eagerness downstream.
     intent = await classify_intent_hybrid(req.message, rid)
+    _closing = intent == "closing"
     if intent == "exploration":
         policy["top_k"]   = policy["top_k"] + 4
         policy["k_dense"] = max(policy["k_dense"], 20)
     elif intent == "question":
         policy["top_k"]   = max(2, policy["top_k"] - 1)
-    # task → leave retrieval as-is
+    # task → leave retrieval as-is; closing → embed/retrieval/graph all skipped below
     _act("intent", f"Intent: {intent}")
 
-    if _is_trivial(req.message):
+    # Closing turn (pure thanks/goodbye/ack): no new information need. Skip the
+    # embed, RAG retrieval, and graph stages entirely — this prevents the previous
+    # Q&A from being retrieved at ~1.00 and re-answered unsolicited. Memory + short
+    # history still load (DB-only, no NIM) so the ack reply stays coherent.
+    if _closing or _is_trivial(req.message):
         embed_task = None
         embed_status = "skipped"
-        logger.info("[embed] rid=%s trivial message — embedding skipped", rid)
+        logger.info("[embed] rid=%s %s — embedding skipped", rid,
+                    "closing turn" if _closing else "trivial message")
     else:
         embed_task = asyncio.create_task(embed_text(req.message, input_type="query"))
         embed_status = "pending"
@@ -288,10 +294,13 @@ async def _build_stream_context(
         _act("embed", f"Computed embedding ({len(query_emb)} dim)")
     elif embed_status == "failed":
         _act("embed", "Embedding call failed — RAG and connector latches disabled", level="error")
+    elif _closing:
+        _act("embed", "Skipped (closing turn)")
     else:
         _act("embed", "Skipped (trivial message)")
 
     history: list[dict] = []
+    history_msg_ids: list = []   # ids sent verbatim this turn → excluded from RAG (C3 echo dedup)
     if candidates:
         relevance_map: dict = {}
         if query_emb:
@@ -307,10 +316,13 @@ async def _build_stream_context(
         top_msgs = [m for _, _, m in scored[:10]]
         top_msgs.sort(key=lambda m: m.created_at)
         history = [{"role": m.role, "content": m.content} for m in top_msgs]
+        history_msg_ids = [m.id for m in top_msgs]
 
     top_k     = max(policy["top_k"], 8 if is_ref else 0)
     retrieved: list[str] = []
-    if query_emb:
+    if _closing:
+        _act("retrieval", "Skipped — closing turn (no retrieval on thanks/goodbye)")
+    elif query_emb:
         _t_rag = time.monotonic()
         try:
             retrieved = await retriever.retrieve(
@@ -318,6 +330,7 @@ async def _build_stream_context(
                 top_k=top_k, query_text=req.message,
                 fusion_mode=policy["fusion_mode"], k_dense=policy["k_dense"],
                 k_sparse=policy["k_sparse"], alpha=policy["alpha"],
+                exclude_message_ids=history_msg_ids,
             )
             if is_ref and not retrieved:
                 retrieved = await retriever.retrieve_global(
@@ -471,26 +484,29 @@ async def _build_stream_context(
 
     graph_context = ""
     graph_facts   = ""
-    _t_graph = time.monotonic()
-    _graph_err = None
-    try:
-        from llm.graph_memory import query_context as graph_query
-        graph_context = await graph_query(current_user.id, req.message, limit=50)
-    except Exception as e:
-        logger.exception("[graph] query_context failed")
-        _graph_err = e
-    try:
-        from llm.graph_memory import query_by_keywords
-        graph_facts = await query_by_keywords(current_user.id, req.message)
-    except Exception as e:
-        logger.exception("[graph] query_by_keywords failed")
-        _graph_err = e
-    _graph_ms = int((time.monotonic() - _t_graph) * 1000)
-    if _graph_err is not None:
-        _act("graph", f"Graph memory: failed — {_graph_err}", level="error", ms=_graph_ms)
+    if _closing:
+        _act("graph", "Skipped — closing turn")
     else:
-        _gf = len([ln for ln in graph_facts.splitlines() if ln.strip()])
-        _act("graph", f"Graph memory: {_gf} fact{'s' if _gf != 1 else ''}", ms=_graph_ms)
+        _t_graph = time.monotonic()
+        _graph_err = None
+        try:
+            from llm.graph_memory import query_context as graph_query
+            graph_context = await graph_query(current_user.id, req.message, limit=50)
+        except Exception as e:
+            logger.exception("[graph] query_context failed")
+            _graph_err = e
+        try:
+            from llm.graph_memory import query_by_keywords
+            graph_facts = await query_by_keywords(current_user.id, req.message)
+        except Exception as e:
+            logger.exception("[graph] query_by_keywords failed")
+            _graph_err = e
+        _graph_ms = int((time.monotonic() - _t_graph) * 1000)
+        if _graph_err is not None:
+            _act("graph", f"Graph memory: failed — {_graph_err}", level="error", ms=_graph_ms)
+        else:
+            _gf = len([ln for ln in graph_facts.splitlines() if ln.strip()])
+            _act("graph", f"Graph memory: {_gf} fact{'s' if _gf != 1 else ''}", ms=_graph_ms)
 
     active_goals = ""
     try:

@@ -52,7 +52,16 @@ async def retrieve(
     k_sparse:        int   = 20,
     alpha:           float = 0.5,
     debug:           bool  = False,
+    exclude_message_ids: list | None = None,
 ) -> list[dict] | tuple[list[dict], list[dict]]:
+    # C3 echo dedup: drop message-embeddings for messages already in the raw
+    # history window sent verbatim this turn (structural — the previous exchange
+    # would otherwise re-surface at ~1.00 sim and get re-answered). Empty/None →
+    # no-op. Cross-conversation retrieval (retrieve_global) is untouched.
+    _where = [MessageEmbedding.conversation_id == conversation_id]
+    if exclude_message_ids:
+        _where.append(MessageEmbedding.message_id.notin_(exclude_message_ids))
+
     _fusion = fusion_mode
     try:
         vec_result = await db.execute(
@@ -60,7 +69,7 @@ async def retrieve(
                 MessageEmbedding.id, MessageEmbedding.conversation_id, MessageEmbedding.content_snippet,
                 (1.0 - MessageEmbedding.embedding.cosine_distance(query_embedding)).label("sim")
             )
-            .where(MessageEmbedding.conversation_id == conversation_id)
+            .where(*_where)
             .order_by(MessageEmbedding.embedding.cosine_distance(query_embedding))
             .limit(k_dense)
         )
@@ -71,7 +80,7 @@ async def retrieve(
             try:
                 bm25_rows = await _bm25_message_embeddings(
                     db,
-                    [MessageEmbedding.conversation_id == conversation_id],
+                    list(_where),
                     query_text,
                     k_sparse,
                 )
