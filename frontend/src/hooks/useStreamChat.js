@@ -1,6 +1,6 @@
 import { MODEL_KEYS } from '../lib/chatConstants.js'
 
-export default function useStreamChat({ token, conv, modelParams, mem, insights, onLogout, onCalendarWrite }) {
+export default function useStreamChat({ token, conv, modelParams, mem, insights, onLogout, onCalendarWrite, onTtft, onLinkState }) {
   const authHeaders = { 'Authorization': `Bearer ${token}` }
 
   function buildBody(text) {
@@ -32,6 +32,8 @@ export default function useStreamChat({ token, conv, modelParams, mem, insights,
       ])
     }
 
+    const t0 = performance.now()
+    let ttftReported = false
     try {
       const res = await fetch('/api/chat/stream', {
         method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
@@ -40,6 +42,7 @@ export default function useStreamChat({ token, conv, modelParams, mem, insights,
       if (res.status === 401) { onLogout(); return }
       if (!res.ok) {
         conv.setMessages(prev => prev.map(m => m.id === aiId ? { ...m, role: 'err', text: 'Request failed', streaming: false } : m))
+        if (onLinkState) onLinkState(true)
         return
       }
 
@@ -53,6 +56,11 @@ export default function useStreamChat({ token, conv, modelParams, mem, insights,
           const raw = line.slice(6).trim(); if (!raw) continue
           try {
             const event = JSON.parse(raw)
+            if (event.type === 'token' && !ttftReported) {
+              ttftReported = true
+              if (onTtft) onTtft(performance.now() - t0)
+              if (onLinkState) onLinkState(false)
+            }
             if (event.type === 'token') {
               if (isCompare) {
                 const model = event.model
@@ -118,6 +126,7 @@ export default function useStreamChat({ token, conv, modelParams, mem, insights,
       }
     } catch (err) {
       conv.setMessages(prev => prev.map(m => m.id === aiId ? { ...m, role: 'err', text: `Network error: ${err.message}`, streaming: false } : m))
+      if (onLinkState) onLinkState(true)
     } finally { conv.setLoading(false) }
   }
 

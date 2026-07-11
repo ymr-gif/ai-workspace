@@ -91,6 +91,7 @@ async def get_messages(
             "grounding":         (m.render_meta or {}).get("grounding"),
             "query_type":        (m.render_meta or {}).get("query_type", ""),
             "src_count":         (m.render_meta or {}).get("src_count", 0),
+            "provenance":        (m.render_meta or {}).get("provenance", []),
         }
         for m in msgs
     ]

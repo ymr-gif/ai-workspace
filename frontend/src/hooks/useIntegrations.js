@@ -96,10 +96,10 @@ export default function useIntegrations(token) {
 
   function statusLabel(status) {
     switch (status) {
-      case 'active':    return { text: 'Connected', color: '#3dff6e' }
-      case 'syncing':   return { text: 'Syncing…',  color: '#ffb000' }
-      case 'error':     return { text: 'Error',     color: '#ff2222' }
-      default:          return { text: status,      color: '#5a5a5a' }
+      case 'active':    return { text: 'Connected', color: '#55d67c' }
+      case 'syncing':   return { text: 'Syncing…',  color: '#f2a33c' }
+      case 'error':     return { text: 'Error',     color: '#e5534b' }
+      default:          return { text: status,      color: '#8ba3bd' }
     }
   }
 

@@ -23,7 +23,7 @@ export default function MemoryPanel() {
   const [graphLimit, setGraphLimit] = useState(50)
   const [graphEntityType, setGraphEntityType] = useState('')
   return (
-    <div style={{ ...s.memPanel, transform: panelSlide }}>
+    <div style={s.memPanel}>
       <div style={s.memHeader}>
         <div style={s.memTitleRow}>
           <div style={s.memTitle}>
@@ -32,7 +32,6 @@ export default function MemoryPanel() {
           </div>
           <div style={s.memHdrBtns}>
             <button onClick={() => pollMemory(true)} style={s.refreshBtn} disabled={memLoading}>{memLoading ? '…' : '↻'}</button>
-            <button onClick={() => setMemOpen(false)} style={s.closeBtn}>✕</button>
           </div>
         </div>
         <div style={s.memMeta}>
@@ -286,7 +285,7 @@ export default function MemoryPanel() {
             {conflictsLoading && <p style={s.emptyMem}>Loading…</p>}
             {!conflictsLoading && conflicts.length === 0 && <p style={s.emptyMem}>No conflicts.</p>}
             {!conflictsLoading && conflicts.map(c => {
-              const badgeColor = CONFLICT_BADGE[c.conflict_type] || '#64748b'
+              const badgeColor = CONFLICT_BADGE[c.conflict_type] || '#8ba3bd'
               return (
                 <div key={c.id} style={{ background:INSET, border:`1px solid ${LINE}`, padding:'0.75rem', marginBottom:'0.6rem' }}>
                   <span style={{ fontSize:'14px', fontWeight:700, color: badgeColor, background: badgeColor + '18', padding:'0.1em 0.45em', letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:'0.5rem', display:'inline-block' }}>{c.conflict_type}</span>

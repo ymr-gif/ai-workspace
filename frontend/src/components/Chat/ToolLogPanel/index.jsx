@@ -7,14 +7,13 @@ export default function ToolLogPanel() {
   const { toolLogOpen, setToolLogOpen, toolLogs, toolLogsLoading, loadToolLogs } = p.toolLog
   const { activeConvId } = p.conv
   return (
-    <div style={{ ...s.toolLogPanel, transform: toolLogOpen ? 'translateX(0)' : 'translateX(100%)' }}>
+    <div style={s.toolLogPanel}>
       <div style={s.toolLogHdr}>
         <span style={s.toolLogTitle}>🔧 AI Tool Call History</span>
         <div style={{ display:'flex', gap:'0.4rem', alignItems:'center' }}>
           <button onClick={() => loadToolLogs(activeConvId)} style={s.refreshBtn} disabled={toolLogsLoading}>
             {toolLogsLoading ? '…' : '↻'}
           </button>
-          <button onClick={() => setToolLogOpen(false)} style={s.closeBtn}>✕</button>
         </div>
       </div>
       <div style={{ padding:'0.5rem 1.25rem', borderBottom:`1px solid ${LINE}`, flexShrink:0, display:'flex', gap:'0.4rem' }}>

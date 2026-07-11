@@ -3,58 +3,57 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NIM // SYSTEM TERMINAL</title>
+    <title>NIM · Flight Ops</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=VT323&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet" />
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       body {
-        font-family: 'VT323', monospace;
-        background: #000;
-        color: #fff;
-        font-size: 18px;
-        line-height: 1.35;
-        -webkit-font-smoothing: none;
-        font-smooth: never;
+        font-family: 'IBM Plex Sans', -apple-system, 'Segoe UI', system-ui, sans-serif;
+        background: #0a0f16;
+        color: #e9f1f9;
+        font-size: 15px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
       }
-      ::-webkit-scrollbar { width: 6px; height: 6px; }
-      ::-webkit-scrollbar-track { background: #000; }
-      ::-webkit-scrollbar-thumb { background: #4a4a4a; }
-      ::-webkit-scrollbar-thumb:hover { background: #ff2222; }
-      ::selection { background: #ff2222; color: #000; }
-      input:focus { border-color: #ff2222 !important; outline: none; }
-      input[type=range] { height: 4px; }
-      .cpu-bg {
-        position: fixed; inset: 0; z-index: 0;
-        background: url('/cpu-schematic.svg') center/cover no-repeat;
-        opacity: 0.04; pointer-events: none;
-      }
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: #0a0f16; }
+      ::-webkit-scrollbar-thumb { background: #1d2a3a; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #2a4160; }
+      ::selection { background: rgba(242,163,60,0.35); color: #e9f1f9; }
+      input:focus, textarea:focus { border-color: #f2a33c !important; outline: none; box-shadow: 0 0 0 1px rgba(242,163,60,0.35); }
+      button:focus-visible { outline: 1px solid #f2a33c; outline-offset: 1px; }
+      input[type=range] { height: 4px; accent-color: #f2a33c; }
+      input[type=checkbox] { accent-color: #f2a33c; }
       @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
       @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-      @keyframes memFlash { 0%{background:rgba(255,34,34,0.08)} 100%{background:transparent} }
-      .md-body { font-size:inherit; line-height:1.6; color:inherit; word-break:break-word }
+      @keyframes memFlash { 0%{background:rgba(85,214,124,0.10)} 100%{background:transparent} }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+      }
+      .md-body { font-size:inherit; line-height:1.55; color:inherit; word-break:break-word }
       .md-body p { margin:0 0 0.6em }
       .md-body p:last-child { margin-bottom:0 }
-      .md-body h1,.md-body h2,.md-body h3,.md-body h4 { margin:0.8em 0 0.35em; font-weight:700; line-height:1.3 }
+      .md-body h1,.md-body h2,.md-body h3,.md-body h4 { margin:0.8em 0 0.35em; font-weight:600; line-height:1.3; color:#e9f1f9 }
       .md-body h1 { font-size:1.2em } .md-body h2 { font-size:1.1em } .md-body h3 { font-size:1em }
       .md-body ul,.md-body ol { margin:0.4em 0 0.6em 1.4em; padding:0 }
       .md-body li { margin-bottom:0.2em }
-      .md-body code { background:#050505; border:1px solid #262626; padding:0.1em 0.35em; font-family:'VT323',monospace; font-size:0.85em; color:#27d8ff }
-      .md-body pre { background:#050505; border:1px solid #262626; padding:0.75em 1em; overflow-x:auto; margin:0.5em 0 }
-      .md-body pre code { background:none; border:none; padding:0; font-size:0.82em; color:#8f8f8f }
-      .md-body blockquote { border-left:3px solid #4a4a4a; margin:0.5em 0; padding:0.2em 0.75em; color:#8f8f8f }
+      .md-body li::marker { color:#f2a33c }
+      .md-body code { background:#0d131d; border:1px solid #1d2a3a; border-radius:3px; padding:0.1em 0.35em; font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:0.85em; color:#8ec9e8 }
+      .md-body pre { background:#0d131d; border:1px solid #1d2a3a; border-radius:4px; padding:0.75em 1em; overflow-x:auto; margin:0.5em 0 }
+      .md-body pre code { background:none; border:none; padding:0; font-size:0.82em; color:#a7bdd4 }
+      .md-body blockquote { border-left:3px solid #2a4160; margin:0.5em 0; padding:0.2em 0.75em; color:#8ba3bd }
       .md-body table { border-collapse:collapse; width:100%; margin:0.5em 0; font-size:0.85em }
-      .md-body th,.md-body td { border:1px solid #262626; padding:0.3em 0.6em; text-align:left }
-      .md-body th { background:#0a0a0a; color:#c8c8c8; font-weight:600 }
-      .md-body a { color:#27d8ff; text-decoration:underline }
-      .md-body strong { color:#c8c8c8; font-weight:700 }
-      .md-body em { color:#c8c8c8 }
-      .md-body hr { border:none; border-top:1px solid #262626; margin:0.75em 0 }
+      .md-body th,.md-body td { border:1px solid #1d2a3a; padding:0.3em 0.6em; text-align:left; font-variant-numeric:tabular-nums }
+      .md-body th { background:#0d131d; color:#d7e1ec; font-weight:600; font-family:'IBM Plex Mono',ui-monospace,monospace; font-size:0.8em; text-transform:uppercase; letter-spacing:0.06em }
+      .md-body a { color:#4f9cf0; text-decoration:underline }
+      .md-body strong { color:#e9f1f9; font-weight:600 }
+      .md-body em { color:#d7e1ec }
+      .md-body hr { border:none; border-top:1px solid #1d2a3a; margin:0.75em 0 }
     </style>
   </head>
   <body>
-    <div class="cpu-bg"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

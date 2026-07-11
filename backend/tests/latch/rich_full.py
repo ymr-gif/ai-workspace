@@ -664,10 +664,15 @@ def sec_memory_reset_restore(ctx):
 # ═════════════════════════════ D4 — UI panel sweep ═══════════════════════════════
 # Exact accessible button names (panels stay mounted in the DOM, so loose text
 # locators match hidden panel internals — use role=button + exact name only).
-PANELS = [
-    ("files", "📎 Files"), ("search", "🔍"), ("insights", "💡"), ("usage", "$ Usage"),
-    ("toollog", "🔧 Log"), ("automations", "⏱ Auto"), ("goals", "🎯 Goals"),
-    ("integrations", "Integrations"), ("invite", "⚡ Invites"), ("memory", "Memory"),
+# Flight Ops shell (2026-07-11): header buttons are gone — panels live in the
+# right dock (group tab → sub-tab). Group tab DOM text is lowercase ("mind");
+# CSS uppercases it visually. Search moved into the Ctrl+K command palette.
+DOCK_PANELS = [
+    ("mind",  [("memory", "Memory"), ("goals", "Goals"), ("insights", "Insights")]),
+    ("files", []),                                    # single pane, no sub-tabs
+    ("ops",   [("usage", "Usage"), ("toollog", "Tool log"),
+               ("automations", "Automations"), ("integrations", "Integrations")]),
+    ("admin", []),                                    # invites pane (admin only)
 ]
 
 
@@ -687,48 +692,55 @@ def sec_ui_panels(ctx):
     os.makedirs(shot_dir, exist_ok=True)
     opened, failed = [], []
     try:
-        def toggle(label):
-            # slide-in panels overlay the header row → a normal click times out on the
-            # actionability check even though the button works; dispatch bypasses that.
-            page.get_by_role("button", name=label, exact=True).first.dispatch_event("click")
+        def click_btn(name_pat):
+            # dock tab labels are lowercase in the DOM (CSS uppercases); badge
+            # counts may append digits → prefix-match, case-insensitive.
+            pat = name_pat if hasattr(name_pat, "match") else re.compile(rf"^{re.escape(name_pat)}", re.I)
+            page.get_by_role("button", name=pat).first.dispatch_event("click")
             page.wait_for_timeout(900)
 
-        for name, label in PANELS:
+        for group, subs in DOCK_PANELS:
             try:
-                toggle(label)
+                click_btn(group)
                 ok = True
             except Exception:
                 ok = False
-            page.screenshot(path=f"{shot_dir}/{name}.png", full_page=True)
-            (opened if ok else failed).append(name)
-            if name == "integrations" and ok:
-                body = page.content()
-                assert ("Soon" in body or "More integrations" in body), \
-                    "integrations panel missing re-stub 'Soon' state"
-            if name == "memory" and ok:
-                for tab in ("History", "Graph", "Conflicts", "View"):
-                    try:
-                        page.get_by_role("button", name=tab, exact=True).first.dispatch_event("click")
-                        page.wait_for_timeout(700)
-                        page.screenshot(path=f"{shot_dir}/memory_{tab.lower()}.png")
-                    except Exception:
-                        failed.append(f"memory:{tab}")
-            if ok:
+            page.screenshot(path=f"{shot_dir}/{group}.png", full_page=True)
+            (opened if ok else failed).append(group)
+            if not ok:
+                continue
+            for sub_id, sub_label in subs:
                 try:
-                    toggle(label)   # close before the next panel so overlays don't stack
+                    click_btn(sub_label)
+                    page.screenshot(path=f"{shot_dir}/{sub_id}.png", full_page=True)
+                    opened.append(sub_id)
                 except Exception:
-                    pass
-        # one watched streamed turn + grounding badge → trace expand
+                    failed.append(sub_id)
+                    continue
+                if sub_id == "integrations":
+                    body = page.content()
+                    assert ("Soon" in body or "More integrations" in body), \
+                        "integrations pane missing re-stub 'Soon' state"
+                if sub_id == "memory":
+                    for tab in ("History", "Graph", "Conflicts", "View"):
+                        try:
+                            click_btn(tab)
+                            page.wait_for_timeout(400)
+                            page.screenshot(path=f"{shot_dir}/memory_{tab.lower()}.png")
+                        except Exception:
+                            failed.append(f"memory:{tab}")
+            click_btn(group)   # second click on the active group tab closes the dock
+        # one watched streamed turn + grounding gauge → trace expand
         ui.new_conversation()
         ui.send(f"In one short sentence, what is a test harness? ({RUN_TAG})", band="positive")
         page.wait_for_timeout(1500)
-        badge = page.get_by_text(re.compile(r"(High|Medium|Low) · \d+%"))
-        trace = "badge absent (grounding=none)"
+        badge = page.get_by_text(re.compile(r"GROUNDING"))
+        trace = "gauge absent (grounding=none)"
         if badge.count() > 0:
             badge.first.click()
             page.wait_for_timeout(600)
             trace = ("trace expanded" if "Reasoning steps" in page.content()
-                     else "badge clicked, trace text not found")
+                     else "gauge clicked, trace text not found")
         page.screenshot(path=f"{shot_dir}/chat_turn.png", full_page=True)
     finally:
         ui.close()

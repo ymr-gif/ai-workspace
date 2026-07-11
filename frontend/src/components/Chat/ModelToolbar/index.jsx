@@ -1,4 +1,4 @@
-import s, { RED } from '../../../lib/chatStyles.js'
+import s, { NOMINAL } from '../../../lib/chatStyles.js'
 import ParamSlider from '../../ParamSlider.jsx'
 
 export default function ModelToolbar({
@@ -75,8 +75,8 @@ export default function ModelToolbar({
           </button>
         )}
         <input value={input} onChange={e => setInput(e.target.value)} placeholder={compareMode ? 'Compare prompt across all models…' : 'Ask anything…'} disabled={loading} style={s.input} />
-        <button type="submit" disabled={loading || !input.trim()} style={{ ...s.send, ...(compareMode ? { background:'rgba(61,255,110,0.10)', color:RED, border:`1px solid ${RED}`, textShadow:`0 0 6px rgba(61,255,110,0.5)` } : {}) }}>
-          {loading ? '…' : compareMode ? '⊞' : 'Send'}
+        <button type="submit" disabled={loading || !input.trim()} style={{ ...s.send, ...(compareMode ? { background:'rgba(85,214,124,0.10)', color:NOMINAL, border:`1px solid ${NOMINAL}` } : {}) }}>
+          {loading ? '…' : compareMode ? '⊞' : 'Transmit'}
         </button>
       </form>
     </div>

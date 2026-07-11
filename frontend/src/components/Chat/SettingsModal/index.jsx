@@ -1,4 +1,4 @@
-import s, { FG4, GRN, RED } from '../../../lib/chatStyles.js'
+import s, { FG4, AMBER, ALERT, MONO } from '../../../lib/chatStyles.js'
 import { MODEL_KEYS, MODEL_LABELS } from '../../../lib/chatConstants.js'
 import { usePanelProps } from '../PanelPropsContext.js'
 
@@ -51,12 +51,12 @@ export default function SettingsModal() {
                     onClick={() => togglePref(key)}
                     disabled={disabled}
                     style={{
-                      padding:'0.2rem 0.55rem', border:'1px solid',
-                      borderColor: val ? RED : (disabled ? '#2a2a2a' : '#4a4a4a'),
-                      background: val ? 'rgba(255,34,34,0.10)' : 'none',
-                      color: val ? RED : (disabled ? '#2a2a2a' : '#8f8f8f'),
+                      padding:'0.2rem 0.55rem', border:'1px solid', borderRadius:'3px',
+                      borderColor: val ? AMBER : (disabled ? '#1d2a3a' : '#2a4160'),
+                      background: val ? 'rgba(242,163,60,0.10)' : 'none',
+                      color: val ? AMBER : (disabled ? '#33465e' : '#8ba3bd'),
                       cursor: disabled ? 'default' : 'pointer',
-                      fontFamily:"'Silkscreen',monospace", fontSize:'9px',
+                      fontFamily:MONO, fontSize:'9px',
                       letterSpacing:'0.08em', textTransform:'uppercase',
                     }}>
                     {val ? 'ON' : 'OFF'}
@@ -65,7 +65,7 @@ export default function SettingsModal() {
               )
             })
           ) : (
-            <div style={{ fontFamily:'inherit', fontSize:'15px', color:RED }}>Failed to load preferences</div>
+            <div style={{ fontFamily:'inherit', fontSize:'13px', color:ALERT }}>Failed to load preferences</div>
           )}
         </div>
       </div>

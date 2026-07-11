@@ -74,7 +74,7 @@ export default function OnboardingModal() {
                         display:'flex', alignItems:'center', gap:'0.6rem',
                         padding:'0.55rem 0.7rem',
                         border:`1px solid ${connected ? GRN : LINE2}`,
-                        background: connected ? 'rgba(61,255,110,0.06)' : INSET,
+                        background: connected ? 'rgba(85,214,124,0.06)' : INSET,
                         color: connected ? GRN : FG3,
                         cursor: connected ? 'default' : 'pointer',
                         fontFamily:TERM, fontSize:'17px', textAlign:'left',

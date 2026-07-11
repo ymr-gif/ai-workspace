@@ -41,6 +41,10 @@ export default function useFiles(token, activeConvId) {
     loadLibFiles(); loadAttachedFiles()
   }, [filesOpen])
 
+  // load the library once on mount — the provenance trace resolves file
+  // source_ids to filenames and must not wait for the Files pane to open
+  useEffect(() => { loadLibFiles() }, [])
+
   useEffect(() => { if (activeConvId) loadAttachedFiles() }, [activeConvId])
 
   async function uploadFile(e) {
@@ -192,10 +196,10 @@ export default function useFiles(token, activeConvId) {
   const attachedIds = useMemo(() => new Set(attachedFiles.map(f => f.id)), [attachedFiles])
 
   function statusColor(s) {
-    if (s === 'ready')      return { bg:'rgba(52,211,153,0.15)', color:'#34d399' }
-    if (s === 'processing') return { bg:'rgba(251,191,36,0.15)',  color:'#fbbf24' }
-    if (s === 'error')      return { bg:'rgba(248,113,113,0.15)', color:'#f87171' }
-    return { bg:'rgba(100,116,139,0.15)', color:'#64748b' }
+    if (s === 'ready')      return { bg:'rgba(85,214,124,0.15)', color:'#55d67c' }
+    if (s === 'processing') return { bg:'rgba(242,163,60,0.15)',  color:'#f2a33c' }
+    if (s === 'error')      return { bg:'rgba(229,83,75,0.15)', color:'#e5534b' }
+    return { bg:'rgba(139,163,189,0.15)', color:'#8ba3bd' }
   }
 
   return {

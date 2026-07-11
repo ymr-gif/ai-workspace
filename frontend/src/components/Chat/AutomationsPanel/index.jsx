@@ -27,18 +27,17 @@ export default function AutomationsPanel() {
   const inputStyle = { ...s.sideSearchInput, width: '100%', padding: '0.4rem 0.6rem', fontSize: '0.82rem', boxSizing: 'border-box' }
 
   return (
-    <div style={{ ...s.toolLogPanel, transform: autoOpen ? 'translateX(0)' : 'translateX(100%)' }}>
+    <div style={s.toolLogPanel}>
       <div style={s.toolLogHdr}>
         <span style={s.toolLogTitle}>⏱ Automations</span>
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-          <button onClick={openCreate} style={{ ...s.actionBtn, color: CYN, borderColor: `rgba(39,216,255,0.40)`, padding: '0.2rem 0.6rem' }}>+ New</button>
+          <button onClick={openCreate} style={{ ...s.actionBtn, color: CYN, borderColor: `rgba(79,156,240,0.40)`, padding: '0.2rem 0.6rem' }}>+ New</button>
           <button onClick={loadSchedules} style={s.refreshBtn} disabled={schedulesLoading}>{schedulesLoading ? '…' : '↻'}</button>
-          <button onClick={() => setAutoOpen(false)} style={s.closeBtn}>✕</button>
         </div>
       </div>
 
       {formOpen && (
-        <div style={{ position: 'absolute', inset: 0, background: '#070707', zIndex: 2, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ position: 'absolute', inset: 0, background: '#0d131d', zIndex: 2, display: 'flex', flexDirection: 'column' }}>
           <div style={s.toolLogHdr}>
             <span style={s.toolLogTitle}>{editTarget ? 'Edit Schedule' : 'New Schedule'}</span>
             <button onClick={() => setFormOpen(false)} style={s.closeBtn}>✕</button>
@@ -93,7 +92,7 @@ export default function AutomationsPanel() {
           <div key={sc.id} style={{ ...s.toolLogRow, marginBottom: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span style={{ flex: 1, fontSize: '17px', color: '#ffffff', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sc.name}</span>
-              <span style={{ fontSize: '13px', fontFamily: TERM, color: CYN, background: 'rgba(39,216,255,0.10)', border: `1px solid rgba(39,216,255,0.40)`, padding: '1px 5px', flexShrink: 0 }}>{sc.schedule}</span>
+              <span style={{ fontSize: '13px', fontFamily: TERM, color: CYN, background: 'rgba(79,156,240,0.10)', border: `1px solid rgba(79,156,240,0.40)`, padding: '1px 5px', flexShrink: 0 }}>{sc.schedule}</span>
             </div>
             <div style={{ fontSize: '14px', color: FG4, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {sc.prompt?.slice(0, 80)}{sc.prompt?.length > 80 ? '…' : ''}
@@ -103,7 +102,7 @@ export default function AutomationsPanel() {
                 {sc.is_active ? '● Active' : '○ Paused'}
               </button>
               <button onClick={() => triggerRun(sc.id)} disabled={triggeringId === sc.id}
-                style={{ ...s.attachBtn, fontSize: '0.68rem', color: GRN, borderColor: 'rgba(61,255,110,0.40)' }}>
+                style={{ ...s.attachBtn, fontSize: '0.68rem', color: GRN, borderColor: 'rgba(85,214,124,0.40)' }}>
                 {triggeringId === sc.id ? '…' : '▶ Run'}
               </button>
               <button onClick={() => toggleExpanded(sc.id)} style={{ ...s.attachBtn, fontSize: '0.68rem' }}>

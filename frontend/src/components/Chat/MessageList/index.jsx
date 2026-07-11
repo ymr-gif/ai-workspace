@@ -1,8 +1,21 @@
 import { Fragment } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import s, { GRN, AMB, FG4, FG5, RED, LINE } from '../../../lib/chatStyles.js'
+import s, { NOMINAL, AMBER, ALERT, INFOBLUE, FG4, FG5, LINE, MONO, VOID } from '../../../lib/chatStyles.js'
 import { MODEL_LABELS, MODEL_SUBLABELS, COMPARE_MODELS } from '../../../lib/chatConstants.js'
+import ProvenanceTrace from '../ProvenanceTrace'
+
+const confirmBtn = (color) => ({
+  padding:'0.35rem 0.9rem', background:color, color:VOID, border:'none', borderRadius:'3px',
+  cursor:'pointer', fontFamily:MONO, fontSize:'9px', letterSpacing:'0.08em', textTransform:'uppercase', fontWeight:700,
+})
+const dismissBtn = {
+  padding:'0.35rem 0.7rem', background:'none', color:'#8ba3bd', border:'1px solid #2a4160', borderRadius:'3px',
+  cursor:'pointer', fontFamily:MONO, fontSize:'9px', letterSpacing:'0.08em', textTransform:'uppercase',
+}
+const cardLabel = (color) => ({
+  fontFamily:MONO, fontSize:'8.5px', color, marginBottom:'0.25rem', letterSpacing:'0.1em', textTransform:'uppercase',
+})
 
 export default function MessageList({
   messages, activeConvId, bottomRef,
@@ -12,6 +25,7 @@ export default function MessageList({
   lastSession,
   pendingCalendarWrite, onAcceptCalendarWrite, onDismissCalendarWrite,
   toastMsg,
+  onOpenMemory,
 }) {
   const firstAiIdx = messages.findIndex(m => m.role === 'ai')
   return (
@@ -22,7 +36,7 @@ export default function MessageList({
         if (m.role === 'compare') {
           return (
             <Fragment key={m.id}>
-              {isFirstAi && <div style={{ fontSize:'14px', color:FG4, marginBottom:'0.4rem' }}>✦ {lastSession}</div>}
+              {isFirstAi && <div style={{ fontSize:'12px', color:FG4, marginBottom:'0.4rem' }}>✦ {lastSession}</div>}
               <div style={s.compareRow}>
                 {COMPARE_MODELS.map(model => {
                   const resp = m.responses[model] || { text: '', streaming: false }
@@ -43,7 +57,7 @@ export default function MessageList({
         }
         return (
           <Fragment key={m.id}>
-            {isFirstAi && <div style={{ fontSize:'14px', color:FG4, marginBottom:'0.4rem' }}>✦ {lastSession}</div>}
+            {isFirstAi && <div style={{ fontSize:'12px', color:FG4, marginBottom:'0.4rem' }}>✦ {lastSession}</div>}
             <div style={{ ...s.bubble, ...(m.role === 'user' ? s.userBubble : m.role === 'err' ? s.errBubble : s.aiBubble) }}>
             {m.toolCalls && m.toolCalls.map((tc, i) => (
               <div key={i}>
@@ -69,41 +83,37 @@ export default function MessageList({
               </div>
             )}
             {m.model && !m.streaming && <span style={s.tag}>{MODEL_LABELS[m.model] || m.model} · {MODEL_SUBLABELS[m.model] || ''}</span>}
-            {m.totalTokens && !m.streaming && <span style={s.tokMeta}>{m.totalTokens.toLocaleString()} tok · ${(m.costUsd || 0).toFixed(5)}</span>}
-            {!m.streaming && m.role === 'ai' && m.queryType && (
-              <span style={{ fontSize:'14px', color:FG4, marginLeft:'0.15rem' }}>[{m.queryType}]</span>
-            )}
-            {!m.streaming && m.role === 'ai' && m.srcCount > 0 && (
-              <span style={{ fontSize:'14px', marginLeft:'0.25rem', color: m.srcCount >= 3 ? GRN : AMB }}>· {m.srcCount} src</span>
-            )}
-            {m.webSearched && (
-              <span style={{ background:'#0e7490', color:'white', fontSize:'0.65rem', padding:'1px 5px', borderRadius:'3px', marginLeft:'4px' }}>web</span>
-            )}
-            {m.urlFetched && (
-              <span style={{ background:'#0369a1', color:'white', fontSize:'0.65rem', padding:'1px 5px', borderRadius:'3px', marginLeft:'4px' }}>url</span>
-            )}
+            {m.totalTokens && !m.streaming && <span style={s.tokMeta}>{m.totalTokens.toLocaleString()} tok · ${(m.costUsd || 0).toFixed(5)}
+              {m.queryType && m.role === 'ai' ? ` · ${m.queryType}` : ''}
+              {m.role === 'ai' && m.srcCount > 0 ? <span style={{ color: m.srcCount >= 3 ? NOMINAL : AMBER }}> · {m.srcCount} src</span> : null}
+              {m.webSearched ? <span style={{ color: INFOBLUE }}> · web</span> : null}
+              {m.urlFetched ? <span style={{ color: INFOBLUE }}> · url</span> : null}
+            </span>}
             {!m.streaming && m.role === 'ai' && m.grounding && m.grounding.level !== 'none' && (() => {
               const lvl = m.grounding.level
-              const c = lvl === 'high' ? GRN : lvl === 'medium' ? AMB : RED
-              const label = lvl.charAt(0).toUpperCase() + lvl.slice(1)
+              const c = lvl === 'high' ? NOMINAL : lvl === 'medium' ? AMBER : ALERT
               const hasTrace = (m.activity && m.activity.length > 0)
               return (
                 <>
-                  <span
+                  <div
                     onClick={hasTrace ? () => setMessages(prev => prev.map(msg => msg.id === m.id ? { ...msg, traceExpanded: !msg.traceExpanded } : msg)) : undefined}
-                    style={{ fontSize:'14px', marginLeft:'0.35rem', color:c, cursor: hasTrace ? 'pointer' : 'default', userSelect:'none' }}
+                    style={{ ...s.gaugeRow, cursor: hasTrace ? 'pointer' : 'default' }}
                     title="Grounding confidence — how well retrieval supports this answer"
                   >
-                    <span style={{ display:'inline-block', width:'7px', height:'7px', borderRadius:'50%', background:c, marginRight:'0.35rem', verticalAlign:'middle' }} />
-                    {label} · {m.grounding.score}%{hasTrace ? (m.traceExpanded ? ' ▴' : ' ▾') : ''}
-                  </span>
+                    GROUNDING
+                    <span style={s.gaugeBar}>
+                      <i style={{ ...s.gaugeFill, width:`${m.grounding.score ?? 0}%`, background:c }} />
+                    </span>
+                    <span style={{ color:c }}>{m.grounding.score}%</span>
+                    {hasTrace ? (m.traceExpanded ? '▴' : '▾') : ''}
+                  </div>
                   {m.traceExpanded && hasTrace && (
                     <div style={{ marginTop:'0.4rem', borderLeft:`2px solid ${LINE}`, paddingLeft:'0.6rem' }}>
-                      <div style={{ fontSize:'10px', color:FG5, letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:'0.25rem' }}>Reasoning steps</div>
+                      <div style={{ fontSize:'9px', fontFamily:MONO, color:FG5, letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:'0.25rem' }}>Reasoning steps</div>
                       {(() => {
-                        const stagePrefix = (s) => s === 'tool' ? '→ ' : s === 'tool_result' ? '← ' : ''
+                        const stagePrefix = (st) => st === 'tool' ? '→ ' : st === 'tool_result' ? '← ' : ''
                         return m.activity.map((a, i) => (
-                          <div key={i} style={{ fontSize:'13px', color: a.level === 'error' ? RED : a.level === 'warn' ? AMB : FG4, lineHeight:1.5, ...((a.stage === 'tool' || a.stage === 'tool_result') ? { paddingLeft:'12px' } : {}) }}>
+                          <div key={i} style={{ fontSize:'11.5px', fontFamily:MONO, color: a.level === 'error' ? ALERT : a.level === 'warn' ? AMBER : FG4, lineHeight:1.5, ...((a.stage === 'tool' || a.stage === 'tool_result') ? { paddingLeft:'12px' } : {}) }}>
                             <span>{stagePrefix(a.stage)}{a.detail}</span>{typeof a.ms === 'number' ? <span style={{ color:FG5 }}> · {a.ms}ms</span> : null}
                           </div>
                         ))
@@ -113,45 +123,48 @@ export default function MessageList({
                 </>
               )
             })()}
+            {!m.streaming && m.role === 'ai' && (
+              <ProvenanceTrace provenance={m.provenance} grounding={m.grounding} onOpenMemory={onOpenMemory} />
+            )}
           </div>
         </Fragment>
         )
       })}
       <div ref={bottomRef} />
       {pendingWriteFact && (
-        <div style={{ display:'flex', gap:'0.6rem', alignItems:'flex-start', background:'rgba(61,255,110,0.08)', border:`1px solid rgba(61,255,110,0.40)`, padding:'0.65rem 0.85rem', margin:'0 1.25rem 0.5rem' }}>
-          <span style={{ fontSize:'1rem', flexShrink:0, marginTop:'1px', color:GRN }}>✓</span>
+        <div style={{ display:'flex', gap:'0.6rem', alignItems:'flex-start', background:'rgba(85,214,124,0.08)', border:`1px solid rgba(85,214,124,0.40)`, borderRadius:'4px', padding:'0.65rem 0.85rem', margin:'0 1.1rem 0.5rem' }}>
+          <span style={{ fontSize:'0.95rem', flexShrink:0, marginTop:'1px', color:NOMINAL }}>✓</span>
           <div style={{ flex:1 }}>
-            <div style={{ fontFamily:"'Silkscreen',monospace", fontSize:'9px', color:GRN, marginBottom:'0.25rem', letterSpacing:'0.1em', textTransform:'uppercase' }}>MEMORY SUGGESTION</div>
-            <div style={{ fontSize:'17px', color:'#8f8f8f', lineHeight:1.35 }}>{pendingWriteFact}</div>
+            <div style={cardLabel(NOMINAL)}>MEMORY SUGGESTION</div>
+            <div style={{ fontSize:'13.5px', color:'#8ba3bd', lineHeight:1.4 }}>{pendingWriteFact}</div>
             <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.5rem' }}>
-              <button onClick={() => onAcceptWrite(pendingWriteFact)} style={{ padding:'0.4rem 1rem', background:RED, color:'#000', border:'none', cursor:'pointer', fontFamily:"'Silkscreen',monospace", fontSize:'10px', letterSpacing:'0.08em', textTransform:'uppercase', fontWeight:700 }}>Accept</button>
-              <button onClick={onDismissWrite} style={{ padding:'0.4rem 0.75rem', background:'none', color:'#8f8f8f', border:'1px solid #4a4a4a', cursor:'pointer', fontFamily:"'Silkscreen',monospace", fontSize:'10px', letterSpacing:'0.08em', textTransform:'uppercase' }}>Dismiss</button>
+              <button onClick={() => onAcceptWrite(pendingWriteFact)} style={confirmBtn(NOMINAL)}>Accept</button>
+              <button onClick={onDismissWrite} style={dismissBtn}>Dismiss</button>
             </div>
           </div>
         </div>
       )}
       {pendingCalendarWrite && (
-        <div style={{ display:'flex', gap:'0.6rem', alignItems:'flex-start', background:'rgba(14,116,144,0.08)', border:'1px solid rgba(14,116,144,0.40)', padding:'0.65rem 0.85rem', margin:'0 1.25rem 0.5rem' }}>
-          <span style={{ fontSize:'1rem', flexShrink:0, marginTop:'1px', color:'#0e7490' }}>📅</span>
+        <div style={{ display:'flex', gap:'0.6rem', alignItems:'flex-start', background:'rgba(79,156,240,0.08)', border:'1px solid rgba(79,156,240,0.40)', borderRadius:'4px', padding:'0.65rem 0.85rem', margin:'0 1.1rem 0.5rem' }}>
+          <span style={{ fontSize:'0.95rem', flexShrink:0, marginTop:'1px', color:INFOBLUE }}>📅</span>
           <div style={{ flex:1 }}>
-            <div style={{ fontFamily:"'Silkscreen',monospace", fontSize:'9px', color:'#0e7490', marginBottom:'0.25rem', letterSpacing:'0.1em', textTransform:'uppercase' }}>CALENDAR SUGGESTION</div>
-            <div style={{ fontSize:'17px', color:'#8f8f8f', lineHeight:1.35 }}>{pendingCalendarWrite.summary}</div>
+            <div style={cardLabel(INFOBLUE)}>CALENDAR SUGGESTION</div>
+            <div style={{ fontSize:'13.5px', color:'#8ba3bd', lineHeight:1.4 }}>{pendingCalendarWrite.summary}</div>
             <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.5rem' }}>
-              <button onClick={() => onAcceptCalendarWrite(pendingCalendarWrite)} style={{ padding:'0.4rem 1rem', background:'#0e7490', color:'#000', border:'none', cursor:'pointer', fontFamily:"'Silkscreen',monospace", fontSize:'10px', letterSpacing:'0.08em', textTransform:'uppercase', fontWeight:700 }}>Accept</button>
-              <button onClick={onDismissCalendarWrite} style={{ padding:'0.4rem 0.75rem', background:'none', color:'#8f8f8f', border:'1px solid #4a4a4a', cursor:'pointer', fontFamily:"'Silkscreen',monospace", fontSize:'10px', letterSpacing:'0.08em', textTransform:'uppercase' }}>Dismiss</button>
+              <button onClick={() => onAcceptCalendarWrite(pendingCalendarWrite)} style={confirmBtn(INFOBLUE)}>Accept</button>
+              <button onClick={onDismissCalendarWrite} style={dismissBtn}>Dismiss</button>
             </div>
           </div>
         </div>
       )}
       {toastMsg && (
-        <div style={{ fontSize:'14px', color:'#0e7490', textAlign:'center', margin:'0.25rem 1.25rem', fontFamily:"'Silkscreen',monospace" }}>
+        <div style={{ fontSize:'11px', color:INFOBLUE, textAlign:'center', margin:'0.25rem 1.1rem', fontFamily:MONO, letterSpacing:'0.04em' }}>
           {toastMsg}
         </div>
       )}
       {proactive && (
         <div style={s.proactiveCard}>
-          <span style={{ fontSize:'1rem', flexShrink:0, marginTop:'1px' }}>💡</span>
+          <span style={{ fontSize:'0.95rem', flexShrink:0, marginTop:'1px' }}>💡</span>
           <div style={{ flex:1 }}>
             <div style={s.proactiveLabel}>SUGGESTION</div>
             <div style={s.proactiveTxt}>{proactive}</div>

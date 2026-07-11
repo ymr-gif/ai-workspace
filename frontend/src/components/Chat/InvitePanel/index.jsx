@@ -6,12 +6,11 @@ export default function InvitePanel() {
   const p = usePanelProps()
   const { inviteOpen, setInviteOpen, inviteList, inviteLoading, newToken, tokenGenerating, loadInvites, generateInvite, reEmbedding, reEmbedMsg, triggerReEmbed } = p.admin
   return (
-    <div style={{ ...s.invitePanel, transform: inviteOpen ? 'translateX(0)' : 'translateX(100%)' }}>
+    <div style={s.invitePanel}>
       <div style={s.inviteHdr}>
         <span style={s.inviteTitle}>⚡ Invite Tokens</span>
         <div style={{ display:'flex', gap:'0.4rem', alignItems:'center' }}>
           <button onClick={loadInvites} style={s.refreshBtn} disabled={inviteLoading}>{inviteLoading ? '…' : '↻'}</button>
-          <button onClick={() => setInviteOpen(false)} style={s.closeBtn}>✕</button>
         </div>
       </div>
       <div style={s.inviteBody}>
@@ -34,7 +33,7 @@ export default function InvitePanel() {
           <div key={inv.id} style={s.inviteRow}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
               <span style={{ fontFamily:TERM, color:CYN, fontSize:'15px' }}>{inv.token_prefix}</span>
-              <span style={{ ...s.statusBadge, ...(inv.used ? { background:'rgba(61,255,110,0.15)', color:GRN } : { background:'rgba(90,90,90,0.15)', color:FG4 }) }}>
+              <span style={{ ...s.statusBadge, ...(inv.used ? { background:'rgba(85,214,124,0.15)', color:GRN } : { background:'rgba(77,100,126,0.15)', color:FG4 }) }}>
                 {inv.used ? 'used' : 'pending'}
               </span>
             </div>
@@ -47,7 +46,7 @@ export default function InvitePanel() {
         <div style={{ borderTop:`1px solid ${LINE}`, marginTop:'1rem', paddingTop:'1rem' }}>
           <div style={{ fontSize:'16px', color:FG3, marginBottom:'0.5rem', fontFamily:DISP, letterSpacing:'0.08em', textTransform:'uppercase' }}>⚙ Embeddings</div>
           <button onClick={triggerReEmbed} disabled={reEmbedding}
-            style={{ ...s.actionBtn, width:'100%', background: reEmbedding ? `rgba(39,216,255,0.08)` : undefined }}>
+            style={{ ...s.actionBtn, width:'100%', background: reEmbedding ? `rgba(79,156,240,0.08)` : undefined }}>
             {reEmbedding ? 'Queuing…' : '↺ Re-embed All'}
           </button>
           {reEmbedMsg && <div style={{ fontSize:'14px', color: reEmbedMsg.startsWith('Error') ? RED : GRN, marginTop:'0.4rem' }}>{reEmbedMsg}</div>}

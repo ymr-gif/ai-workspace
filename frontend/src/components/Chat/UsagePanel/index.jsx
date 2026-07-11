@@ -22,12 +22,11 @@ export default function UsagePanel() {
   }
 
   return (
-    <div style={{ ...s.usagePanel, transform: usageOpen ? 'translateX(0)' : 'translateX(100%)' }}>
+    <div style={s.usagePanel}>
       <div style={s.usageHdr}>
         <span style={s.usageTitle}>$ Token Usage</span>
         <div style={{ display:'flex', gap:'0.4rem', alignItems:'center' }}>
           <button onClick={loadUsage} style={s.refreshBtn} disabled={usageLoading}>{usageLoading ? '…' : '↻'}</button>
-          <button onClick={() => setUsageOpen(false)} style={s.closeBtn}>✕</button>
         </div>
       </div>
       <div style={s.usageBody}>

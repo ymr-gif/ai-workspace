@@ -9,12 +9,7 @@ export default function IntegrationsPanel() {
 
   const upcoming = CONNECTOR_TYPES.filter(t => !ENABLED_CONNECTOR_TYPES.includes(t))
 
-  const panelStyle = {
-    ...s.toolLogPanel,
-    transform: integOpen ? 'translateX(0)' : 'translateX(100%)',
-    width: '400px',
-    maxWidth: '92vw',
-  }
+  const panelStyle = s.toolLogPanel
 
   const sectionLabel = {
     fontFamily: DISP,
@@ -40,19 +35,18 @@ export default function IntegrationsPanel() {
         <span style={s.toolLogTitle}>Integrations</span>
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
           <button onClick={loadSources} style={s.refreshBtn} disabled={loading}>{loading ? '…' : '↻'}</button>
-          <button onClick={() => setIntegOpen(false)} style={s.closeBtn}>✕</button>
         </div>
       </div>
 
       <div style={s.toolLogBody}>
         {errorMsg && (
-          <div style={{ color: RED, fontSize: '14px', fontFamily: TERM, marginBottom: '0.75rem', padding: '0.4rem 0.5rem', border: `1px solid ${RED}`, background: 'rgba(255,34,34,0.08)' }}>
+          <div style={{ color: RED, fontSize: '14px', fontFamily: TERM, marginBottom: '0.75rem', padding: '0.4rem 0.5rem', border: `1px solid ${RED}`, background: 'rgba(229,83,75,0.08)' }}>
             {errorMsg}
           </div>
         )}
 
         {popupBlocked && (
-          <div style={{ color: AMB, fontSize: '14px', fontFamily: TERM, marginBottom: '0.75rem', padding: '0.4rem 0.5rem', border: `1px solid ${AMB}`, background: 'rgba(255,176,0,0.08)' }}>
+          <div style={{ color: AMB, fontSize: '14px', fontFamily: TERM, marginBottom: '0.75rem', padding: '0.4rem 0.5rem', border: `1px solid ${AMB}`, background: 'rgba(242,163,60,0.08)' }}>
             Popup blocked. Please allow popups for this site and try again.
           </div>
         )}
@@ -96,7 +90,7 @@ export default function IntegrationsPanel() {
                   )}
                   <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.4rem', alignItems: 'center' }}>
                     <button onClick={() => syncSource(src.id)} disabled={syncing.has(src.id)}
-                      style={{ ...s.attachBtn, fontSize: '0.68rem', color: GRN, borderColor: 'rgba(61,255,110,0.40)' }}>
+                      style={{ ...s.attachBtn, fontSize: '0.68rem', color: GRN, borderColor: 'rgba(85,214,124,0.40)' }}>
                       {syncing.has(src.id) ? '…' : '⟳ Sync'}
                     </button>
                     <div style={{ flex: 1 }} />
@@ -128,7 +122,7 @@ export default function IntegrationsPanel() {
                   <span style={{ ...s.statusBadge, color: GRN, borderColor: GRN }}>Connected ✓</span>
                 ) : (
                   <button onClick={() => startOAuth(type)}
-                    style={{ ...s.attachBtn, fontSize: '0.68rem', color: CYN, borderColor: `rgba(39,216,255,0.40)` }}>
+                    style={{ ...s.attachBtn, fontSize: '0.68rem', color: CYN, borderColor: `rgba(79,156,240,0.40)` }}>
                     + Connect
                   </button>
                 )}

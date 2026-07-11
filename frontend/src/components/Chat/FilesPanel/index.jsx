@@ -6,11 +6,10 @@ export default function FilesPanel() {
   const { filesOpen, setFilesOpen, filesTab, setFilesTab, libFiles, attachedFiles, fileUploading, urlIngest, setUrlIngest, urlIngesting, renameId, setRenameId, renameVal, setRenameVal, fileInputRef, attachedIds, uploadFile, ingestUrl, attachFile, detachFile, viewFile, downloadFile, deleteFile, commitRename, statusColor } = p.files
   const { activeConvId } = p.conv
   return (
-    <div style={{ ...s.filePanel, transform: filesOpen ? 'translateX(0)' : 'translateX(100%)' }}>
+    <div style={s.filePanel}>
       <div style={s.filePanelHdr}>
         <div style={s.fileTitleRow}>
           <span style={s.fileTitle}>📎 Files & Knowledge</span>
-          <button onClick={() => setFilesOpen(false)} style={s.closeBtn}>✕</button>
         </div>
       </div>
 
@@ -25,7 +24,7 @@ export default function FilesPanel() {
 
       <div style={s.fileUploadRow}>
         <button onClick={() => fileInputRef.current?.click()} disabled={fileUploading}
-          style={{ ...s.ingestBtn, background:'rgba(39,216,255,0.08)', color:'#27d8ff', borderColor:'rgba(39,216,255,0.40)' }}>
+          style={{ ...s.ingestBtn, background:'rgba(79,156,240,0.08)', color:'#4f9cf0', borderColor:'rgba(79,156,240,0.40)' }}>
           {fileUploading ? 'Uploading…' : '⬆ Upload'}
         </button>
         <input ref={fileInputRef} type="file" style={{ display:'none' }} onChange={uploadFile} />

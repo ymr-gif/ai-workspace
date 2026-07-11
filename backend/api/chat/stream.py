@@ -94,6 +94,9 @@ def _build_render_meta(ctx: dict, provenance: list[dict]) -> dict:
         "grounding":  _compute_grounding(provenance, ctx.get("retrieval_top_k", 5)),
         "query_type": ctx.get("policy_used", ""),
         "src_count":  len(provenance),
+        # persisted so the frontend provenance trace survives refetch/reload,
+        # same rationale as the grounding badge (render_meta JSONB, migration 044)
+        "provenance": provenance,
     }
 
 

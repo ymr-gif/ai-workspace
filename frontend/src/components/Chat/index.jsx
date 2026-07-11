@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import s, { LAYERS, RED, GRN, CYN, AMB, FG4, LINE2, DISP, TERM } from '../../lib/chatStyles.js'
-import { MODEL_LABELS, MODEL_SUBLABELS } from '../../lib/chatConstants.js'
+import s, { LAYERS } from '../../lib/chatStyles.js'
 import { fmtDate, parseMemory, computeDiff } from '../../lib/chatUtils.js'
 
 import useConversations from '../../hooks/useConversations.js'
@@ -26,18 +25,11 @@ import Sidebar from './Sidebar'
 import MessageList from './MessageList'
 import ModelToolbar from './ModelToolbar'
 import SettingsModal from './SettingsModal'
-import FilesPanel from './FilesPanel'
 import FileViewer from './FileViewer'
-import ToolLogPanel from './ToolLogPanel'
-import UsagePanel from './UsagePanel'
-import InsightsPanel from './InsightsPanel'
-import InvitePanel from './InvitePanel'
-import MemoryPanel from './MemoryPanel'
-import SearchPanel from './SearchPanel'
-import AutomationsPanel from './AutomationsPanel'
-import GoalsPanel from './GoalsPanel'
-import IntegrationsPanel from './IntegrationsPanel'
 import OnboardingModal from './OnboardingModal'
+import TelemetryStrip from './TelemetryStrip'
+import Dock, { DOCK_GROUPS } from './Dock'
+import CommandPalette from './CommandPalette'
 
 export default function Chat({ token, onLogout }) {
   const conv = useConversations(token)
@@ -61,26 +53,32 @@ export default function Chat({ token, onLogout }) {
   const [pendingCalendarWrite, setPendingCalendarWrite] = useState(null)
   const [toastMsg, setToastMsg] = useState(null)
 
-  const importRef = useRef(null)
+  // new-shell state: dock, palette, telemetry, narrow-screen drawers
+  const [dockTab, setDockTab] = useState(null)
+  const [dockSub, setDockSub] = useState(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [lastTtft, setLastTtft] = useState(null)
+  const [linkFault, setLinkFault] = useState(false)
+  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 900px)').matches)
+  const [railOpen, setRailOpen] = useState(false)
 
+  const importRef = useRef(null)
   const authHeaders = { 'Authorization': `Bearer ${token}` }
 
-  const { send } = useStreamChat({ token, conv, modelParams, mem, insights, onLogout, onCalendarWrite: setPendingCalendarWrite })
+  const { send } = useStreamChat({
+    token, conv, modelParams, mem, insights, onLogout,
+    onCalendarWrite: setPendingCalendarWrite,
+    onTtft: setLastTtft, onLinkState: setLinkFault,
+  })
 
-  function closeAllExcept(...keep) {
-    const map = [
-      ['mem', mem], ['files', files], ['toolLog', toolLog],
-      ['usage', usage], ['insights', insights], ['admin', admin],
-      ['search', search], ['auto', auto], ['goals', goals], ['integ', integ],
-    ]
-    for (const [key, h] of map) {
-      const s = key === 'mem' ? 'setMemOpen' : key === 'files' ? 'setFilesOpen'
-        : key === 'toolLog' ? 'setToolLogOpen' : key === 'usage' ? 'setUsageOpen'
-        : key === 'insights' ? 'setInsightsOpen' : key === 'admin' ? 'setInviteOpen'
-        : key === 'search' ? 'setSearchOpen' : key === 'auto' ? 'setAutoOpen'
-        : key === 'goals' ? 'setGoalsOpen' : 'setIntegOpen'
-      if (!keep.includes(key)) h[s](false)
-    }
+  function openDock(tab, sub) {
+    setDockTab(tab)
+    setDockSub(sub || DOCK_GROUPS[tab]?.[0]?.[0] || null)
+  }
+
+  function setDockTabAndDefault(tab) {
+    if (tab === null) { setDockTab(null); return }
+    openDock(tab)
   }
 
   // cross-hook: selectConv → settings
@@ -90,6 +88,7 @@ export default function Chat({ token, onLogout }) {
       settings.setEditSysPrompt(c.system_prompt || '')
       settings.setEditLockModel(c.locked_model || '')
     }
+    if (narrow) setRailOpen(false)
   }
 
   async function handleAcceptWrite(fact) {
@@ -131,16 +130,12 @@ export default function Chat({ token, onLogout }) {
   const sections        = useMemo(() => parseMemory(mem.memData?.content), [mem.memData?.content])
   const projectSections = useMemo(() => parseMemory(mem.memData?.project_summary), [mem.memData?.project_summary])
   const hasMemory       = useMemo(() => mem.memData?.content?.trim() || mem.memData?.project_summary?.trim(), [mem.memData])
-  const panelSlide      = mem.memOpen ? 'translateX(0)' : 'translateX(100%)'
+  const panelSlide      = 'translateX(0)' // legacy; panels render inside the dock now
   const wordCount       = useMemo(() => hasMemory ? ((mem.memData.content||'')+' '+(mem.memData.project_summary||'')).split(/\s+/).filter(Boolean).length : 0, [hasMemory, mem.memData])
   const diffTarget      = useMemo(() => mem.diffIdx !== null ? mem.memHistory[mem.diffIdx] : null, [mem.diffIdx, mem.memHistory])
   const diffLines       = useMemo(() => diffTarget ? computeDiff((diffTarget.content||'')+'\n'+(diffTarget.project_summary||''), (mem.memData?.content||'')+'\n'+(mem.memData?.project_summary||'')) : [], [diffTarget, mem.memData])
 
   const ctx = { token, conv, mem, settings, files, toolLog, usage, admin, insights, modelParams, search, auto, goals, integ, onboarding, notificationPrefs, voice, hasMemory, sections, projectSections, wordCount, panelSlide, diffTarget, diffLines, importRef, selectConv, handleAcceptWrite, handleDismissWrite, fmtDate }
-
-  const lockedModelLabel = conv.convLockModel
-    ? (MODEL_LABELS[conv.convLockModel] || conv.convLockModel)
-    : null
 
   // fetch user role on mount
   useEffect(() => {
@@ -156,157 +151,131 @@ export default function Chat({ token, onLogout }) {
     return () => clearTimeout(tid)
   }, [conv.lastSession])
 
-  const anyOpen = mem.memOpen || files.filesOpen || settings.settingsOpen || toolLog.toolLogOpen || usage.usageOpen || admin.inviteOpen || insights.insightsOpen || search.searchOpen || auto.autoOpen || goals.goalsOpen || integ.integOpen
+  // Ctrl+K / ⌘K opens the command palette
+  useEffect(() => {
+    function onKey(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen(o => !o)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // narrow-screen tracking (rail/dock collapse to drawers)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 900px)')
+    const onChange = e => setNarrow(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  const railStyle = narrow
+    ? { position:'absolute', top:0, bottom:0, left:0, zIndex:LAYERS.panel, transform: railOpen ? 'translateX(0)' : 'translateX(-100%)', transition:'transform 0.15s ease-out' }
+    : {}
+  const dockStyle = narrow
+    ? { position:'absolute', top:'34px', bottom:0, right:0, zIndex:LAYERS.panel, maxWidth:'85vw' }
+    : {}
 
   return (
-    <div style={s.root}>
-      {/* CSS is now in index.html <style> block */}
+    <PanelPropsCtx.Provider value={ctx}>
+      <div style={s.root}>
+        <div style={{ display:'flex', flexDirection:'column', flex:1, minWidth:0 }}>
+          <TelemetryStrip
+            lastTtft={lastTtft} linkFault={linkFault}
+            dockTab={dockTab} setDockTab={setDockTabAndDefault}
+            onOpenPalette={() => setPaletteOpen(true)}
+            onLogout={onLogout} userRole={userRole}
+            narrow={narrow} onToggleRail={() => setRailOpen(o => !o)}
+          />
+          <div style={s.shellBody}>
+            <div style={railStyle}>
+              {(!narrow || railOpen) && (
+                <Sidebar
+                  conversations={conv.conversations}
+                  activeConvId={conv.activeConvId}
+                  selectConv={selectConv}
+                  convSearch={conv.convSearch}
+                  setConvSearch={conv.setConvSearch}
+                  searchResults={conv.searchResults}
+                  searchLoading={conv.searchLoading}
+                  newChat={conv.newChat}
+                  deleteConv={conv.deleteConv}
+                  exportConv={conv.exportConv}
+                />
+              )}
+            </div>
 
-      <Sidebar
-        conversations={conv.conversations}
-        activeConvId={conv.activeConvId}
-        selectConv={selectConv}
-        convSearch={conv.convSearch}
-        setConvSearch={conv.setConvSearch}
-        searchResults={conv.searchResults}
-        searchLoading={conv.searchLoading}
-        newChat={conv.newChat}
-        deleteConv={conv.deleteConv}
-        exportConv={conv.exportConv}
-      />
+            <div style={s.chat}>
+              <MessageList
+                messages={conv.messages}
+                activeConvId={conv.activeConvId}
+                bottomRef={conv.bottomRef}
+                proactive={conv.proactive}
+                setProactive={conv.setProactive}
+                setMessages={conv.setMessages}
+                pendingWriteFact={conv.pendingWriteFact}
+                onAcceptWrite={handleAcceptWrite}
+                onDismissWrite={handleDismissWrite}
+                lastSession={conv.lastSession}
+                pendingCalendarWrite={pendingCalendarWrite}
+                onAcceptCalendarWrite={handleAcceptCalendarWrite}
+                onDismissCalendarWrite={handleDismissCalendarWrite}
+                toastMsg={toastMsg}
+                onOpenMemory={() => openDock('mind', 'memory')}
+              />
 
-      <div style={s.chat}>
-        <header style={s.header}>
-          <span style={s.title}>
-            NIM // GATEWAY
-            {lockedModelLabel && <span style={{ fontSize:'14px', color:RED, marginLeft:'0.5rem', fontFamily:DISP }}>🔒 {lockedModelLabel}</span>}
-          </span>
-          <div style={s.headerRight}>
-            {conv.activeConvId && (
-              <button onClick={() => settings.setSettingsOpen(true)} style={s.hdrBtn} title="Conversation settings">⚙</button>
-            )}
-            <button onClick={() => { closeAllExcept(); usage.setUsageOpen(o => !o) }}
-              style={{ ...s.hdrBtn, ...(usage.usageOpen ? { color:GRN, borderColor:GRN } : {}) }}
-              title="Token usage & cost">
-              $ Usage
-            </button>
-            <button onClick={() => { closeAllExcept(); toolLog.setToolLogOpen(o => !o) }}
-              style={{ ...s.hdrBtn, ...(toolLog.toolLogOpen ? { color:CYN, borderColor:CYN } : {}) }}
-              title="AI tool call history">
-              🔧 Log
-            </button>
-            <button onClick={() => { closeAllExcept(); files.setFilesOpen(true) }} style={{ ...s.hdrBtn, ...(files.attachedFiles.length > 0 ? { color:AMB, borderColor:AMB } : {}) }}>
-              {files.attachedFiles.length > 0 ? `📎 ${files.attachedFiles.length}` : '📎'} Files
-            </button>
-            <button onClick={() => { closeAllExcept(); search.setSearchOpen(o => !o) }}
-              style={{ ...s.hdrBtn, ...(search.searchOpen ? { color:CYN, borderColor:CYN } : {}) }}
-              title="Unified search">
-              🔍
-            </button>
-            <button onClick={() => { closeAllExcept(); auto.setAutoOpen(o => !o) }}
-              style={{ ...s.hdrBtn, ...(auto.autoOpen ? { color:CYN, borderColor:CYN } : {}) }}
-              title="Scheduled automations">
-              ⏱ Auto
-            </button>
-            <button onClick={() => { closeAllExcept(); goals.setGoalsOpen(o => !o) }}
-              style={{ ...s.hdrBtn, ...(goals.goalsOpen ? { color:GRN, borderColor:GRN } : {}) }}
-              title="Goals & tasks">
-              🎯 Goals
-            </button>
-            <button onClick={() => { closeAllExcept(); integ.setIntegOpen(o => !o) }}
-              style={{ ...s.hdrBtn, ...(integ.integOpen ? { color:CYN, borderColor:CYN } : {}) }}
-              title="External integrations">
-              Integrations
-            </button>
-            <button onClick={() => { closeAllExcept('mem'); mem.setMemOpen(true) }} style={s.hdrBtn}>
-              {mem.memPending ? <span style={s.updatingDot} /> : hasMemory && <span style={s.memDot} />}
-              Memory
-            </button>
-            <button onClick={() => { closeAllExcept(); insights.setInsightsOpen(o => !o) }}
-              style={{ ...s.hdrBtn, ...(insights.insightsOpen ? { color:CYN, borderColor:CYN } : {}) }}
-              title="AI insights about you">
-              💡{insights.unreadCount > 0 && <span style={s.unreadBadge}>{insights.unreadCount}</span>}
-            </button>
-            {userRole === 'admin' && (
-              <button onClick={() => { closeAllExcept(); admin.setInviteOpen(o => !o) }}
-                style={{ ...s.hdrBtn, ...(admin.inviteOpen ? { color:CYN, borderColor:CYN } : {}) }}
-                title="Manage invite tokens">
-                ⚡ Invites
-              </button>
-            )}
-            <button onClick={onLogout} style={s.logout}>Logout</button>
+              <ModelToolbar
+                selectedModel={modelParams.selectedModel}
+                setSelectedModel={modelParams.setSelectedModel}
+                compareMode={modelParams.compareMode}
+                setCompareMode={modelParams.setCompareMode}
+                paramsOpen={modelParams.paramsOpen}
+                setParamsOpen={modelParams.setParamsOpen}
+                tempEnabled={modelParams.tempEnabled}
+                setTempEnabled={modelParams.setTempEnabled}
+                temperature={modelParams.temperature}
+                setTemperature={modelParams.setTemperature}
+                tokensEnabled={modelParams.tokensEnabled}
+                setTokensEnabled={modelParams.setTokensEnabled}
+                maxTokens={modelParams.maxTokens}
+                setMaxTokens={modelParams.setMaxTokens}
+                topPEnabled={modelParams.topPEnabled}
+                setTopPEnabled={modelParams.setTopPEnabled}
+                topP={modelParams.topP}
+                setTopP={modelParams.setTopP}
+                attachedFiles={files.attachedFiles}
+                detachFile={files.detachFile}
+                input={conv.input}
+                setInput={conv.setInput}
+                loading={conv.loading}
+                send={send}
+                voice={voice}
+              />
+            </div>
+
+            <div style={dockStyle}>
+              <Dock tab={dockTab} sub={dockSub} setTab={setDockTabAndDefault} setSub={setDockSub} userRole={userRole} />
+            </div>
           </div>
-        </header>
+        </div>
 
-        <MessageList
-          messages={conv.messages}
-          activeConvId={conv.activeConvId}
-          bottomRef={conv.bottomRef}
-          proactive={conv.proactive}
-          setProactive={conv.setProactive}
-          setMessages={conv.setMessages}
-          pendingWriteFact={conv.pendingWriteFact}
-          onAcceptWrite={handleAcceptWrite}
-          onDismissWrite={handleDismissWrite}
-          lastSession={conv.lastSession}
-          pendingCalendarWrite={pendingCalendarWrite}
-          onAcceptCalendarWrite={handleAcceptCalendarWrite}
-          onDismissCalendarWrite={handleDismissCalendarWrite}
-          toastMsg={toastMsg}
-        />
+        {settings.settingsOpen && (
+          <div style={{ position:'absolute', inset:0, background:'rgba(4,8,14,0.6)', zIndex:LAYERS.settingsModal - 1 }}
+            onClick={() => settings.setSettingsOpen(false)} />
+        )}
 
-        <ModelToolbar
-          selectedModel={modelParams.selectedModel}
-          setSelectedModel={modelParams.setSelectedModel}
-          compareMode={modelParams.compareMode}
-          setCompareMode={modelParams.setCompareMode}
-          paramsOpen={modelParams.paramsOpen}
-          setParamsOpen={modelParams.setParamsOpen}
-          tempEnabled={modelParams.tempEnabled}
-          setTempEnabled={modelParams.setTempEnabled}
-          temperature={modelParams.temperature}
-          setTemperature={modelParams.setTemperature}
-          tokensEnabled={modelParams.tokensEnabled}
-          setTokensEnabled={modelParams.setTokensEnabled}
-          maxTokens={modelParams.maxTokens}
-          setMaxTokens={modelParams.setMaxTokens}
-          topPEnabled={modelParams.topPEnabled}
-          setTopPEnabled={modelParams.setTopPEnabled}
-          topP={modelParams.topP}
-          setTopP={modelParams.setTopP}
-          attachedFiles={files.attachedFiles}
-          detachFile={files.detachFile}
-          input={conv.input}
-          setInput={conv.setInput}
-          loading={conv.loading}
-          send={send}
-          voice={voice}
+        <SettingsModal />
+        <FileViewer />
+        <OnboardingModal />
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          openDock={openDock}
+          onLogout={onLogout}
         />
       </div>
-
-      {anyOpen && (
-        <div style={{ ...s.overlay, zIndex: settings.settingsOpen ? LAYERS.settingsModal - 1 : LAYERS.overlay }}
-          onClick={() => {
-            if (settings.settingsOpen) settings.setSettingsOpen(false)
-            else closeAllExcept()
-          }} />
-      )}
-
-      <PanelPropsCtx.Provider value={ctx}>
-        <SettingsModal />
-        <FilesPanel />
-        <FileViewer />
-        <ToolLogPanel />
-        <UsagePanel />
-        <InsightsPanel />
-        <InvitePanel />
-        <SearchPanel />
-        <GoalsPanel />
-        <IntegrationsPanel />
-        <AutomationsPanel />
-        <MemoryPanel />
-        <OnboardingModal />
-      </PanelPropsCtx.Provider>
-    </div>
+    </PanelPropsCtx.Provider>
   )
 }

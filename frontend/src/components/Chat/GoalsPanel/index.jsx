@@ -4,15 +4,15 @@ import { usePanelProps } from '../PanelPropsContext.js'
 const STATUS_FILTERS = ['all', 'active', 'paused', 'completed']
 
 const STATUS_STYLE = {
-  active:    { color: GRN, bg: 'rgba(61,255,110,0.12)',  border: 'rgba(61,255,110,0.40)'  },
-  paused:    { color: AMB, bg: 'rgba(255,176,0,0.12)',  border: 'rgba(255,176,0,0.40)'  },
-  completed: { color: CYN, bg: 'rgba(39,216,255,0.12)', border: 'rgba(39,216,255,0.40)' },
+  active:    { color: GRN, bg: 'rgba(85,214,124,0.12)',  border: 'rgba(85,214,124,0.40)'  },
+  paused:    { color: AMB, bg: 'rgba(242,163,60,0.12)',  border: 'rgba(242,163,60,0.40)'  },
+  completed: { color: CYN, bg: 'rgba(79,156,240,0.12)', border: 'rgba(79,156,240,0.40)' },
 }
 
 function StatusBadge({ status }) {
   const st = STATUS_STYLE[status] || STATUS_STYLE.active
   return (
-    <span style={{ fontSize: '12px', fontFamily:"'Silkscreen',monospace", fontWeight: 700, padding: '1px 6px', background: st.bg, color: st.color, border: `1px solid ${st.border}`, textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>
+    <span style={{ fontSize: '12px', fontFamily:"'IBM Plex Mono',ui-monospace,monospace", fontWeight: 700, padding: '1px 6px', background: st.bg, color: st.color, border: `1px solid ${st.border}`, textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>
       {status}
     </span>
   )
@@ -25,13 +25,12 @@ export default function GoalsPanel() {
   const inputStyle = { ...s.sideSearchInput, width: '100%', padding: '0.4rem 0.6rem', fontSize: '0.82rem', boxSizing: 'border-box' }
 
   return (
-    <div style={{ ...s.toolLogPanel, transform: goalsOpen ? 'translateX(0)' : 'translateX(100%)' }}>
+    <div style={s.toolLogPanel}>
       <div style={s.toolLogHdr}>
         <span style={s.toolLogTitle}>🎯 Goals</span>
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-          <button onClick={openCreate} style={{ ...s.actionBtn, color: GRN, borderColor: 'rgba(61,255,110,0.40)', padding: '0.2rem 0.6rem' }}>+ New</button>
+          <button onClick={openCreate} style={{ ...s.actionBtn, color: GRN, borderColor: 'rgba(85,214,124,0.40)', padding: '0.2rem 0.6rem' }}>+ New</button>
           <button onClick={() => loadGoals(statusFilter)} style={s.refreshBtn} disabled={goalsLoading}>{goalsLoading ? '…' : '↻'}</button>
-          <button onClick={() => setGoalsOpen(false)} style={s.closeBtn}>✕</button>
         </div>
       </div>
 
@@ -45,7 +44,7 @@ export default function GoalsPanel() {
       </div>
 
       {formOpen && (
-        <div style={{ position: 'absolute', inset: 0, background: '#070707', zIndex: 2, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ position: 'absolute', inset: 0, background: '#0d131d', zIndex: 2, display: 'flex', flexDirection: 'column' }}>
           <div style={s.toolLogHdr}>
             <span style={s.toolLogTitle}>{editTarget ? 'Edit Goal' : 'New Goal'}</span>
             <button onClick={() => setFormOpen(false)} style={s.closeBtn}>✕</button>
@@ -113,7 +112,7 @@ export default function GoalsPanel() {
                 {activeConvId && goal.status === 'active' && (
                   <button onClick={() => !alreadyLinked && linkConversation(goal.id, activeConvId)}
                     disabled={alreadyLinked}
-                    style={{ ...s.attachBtn, fontSize: '0.68rem', color: alreadyLinked ? FG4 : CYN, borderColor: alreadyLinked ? LINE2 : `rgba(39,216,255,0.40)`, cursor: alreadyLinked ? 'default' : 'pointer' }}>
+                    style={{ ...s.attachBtn, fontSize: '0.68rem', color: alreadyLinked ? FG4 : CYN, borderColor: alreadyLinked ? LINE2 : `rgba(79,156,240,0.40)`, cursor: alreadyLinked ? 'default' : 'pointer' }}>
                     {alreadyLinked ? '✓ Linked' : '🔗 Link conv'}
                   </button>
                 )}
