@@ -138,6 +138,18 @@ async def health():
     }
 
 
+@router.get("/breakers")
+async def breakers():
+    """Per-model circuit-breaker state for the frontend telemetry strip.
+
+    In-process view (the enforced one) — the Redis keys are only startup
+    persistence, so this endpoint reflects what routing actually does.
+    """
+    from llm import circuit_breaker
+    state = {role: circuit_breaker.is_open(model_id) for role, model_id in config.MODELS.items()}
+    return {"models": state, "any_open": any(state.values())}
+
+
 @router.get("/metrics")
 def metrics_endpoint():
     try:
