@@ -30,7 +30,9 @@ const nums = { fontVariantNumeric: 'tabular-nums' }
 
 // Dock panes replace the old absolutely-positioned slide-in panels: panels render
 // inside the Dock body and fill it. One pane visible at a time (Dock decides).
-const dockPane = { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: 'transparent' }
+// position:relative anchors the Goals/Automations form overlays (absolute inset:0),
+// which used to anchor on the absolutely-positioned panelBase.
+const dockPane = { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: 'transparent', position: 'relative' }
 
 const s = {
   root:        { display:'flex', height:'100vh', background:VOID, color:FG1, fontFamily:SANS, fontSize:'15px', position:'relative', overflow:'hidden' },

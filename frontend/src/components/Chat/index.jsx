@@ -171,12 +171,14 @@ export default function Chat({ token, onLogout }) {
     return () => mq.removeEventListener('change', onChange)
   }, [])
 
+  // wrappers must be flex so the sidebar/dock stretch to full column height —
+  // a block wrapper collapses them to content height (no conv-list/pane scroll)
   const railStyle = narrow
-    ? { position:'absolute', top:0, bottom:0, left:0, zIndex:LAYERS.panel, transform: railOpen ? 'translateX(0)' : 'translateX(-100%)', transition:'transform 0.15s ease-out' }
-    : {}
+    ? { display:'flex', position:'absolute', top:0, bottom:0, left:0, zIndex:LAYERS.panel, transform: railOpen ? 'translateX(0)' : 'translateX(-100%)', transition:'transform 0.15s ease-out' }
+    : { display:'flex', minHeight:0 }
   const dockStyle = narrow
-    ? { position:'absolute', top:'34px', bottom:0, right:0, zIndex:LAYERS.panel, maxWidth:'85vw' }
-    : {}
+    ? { display:'flex', position:'absolute', top:'34px', bottom:0, right:0, zIndex:LAYERS.panel, maxWidth:'85vw' }
+    : { display:'flex', minHeight:0 }
 
   return (
     <PanelPropsCtx.Provider value={ctx}>
