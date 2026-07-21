@@ -1,6 +1,6 @@
 import hashlib
 
-CACHE_VERSION = "v2"
+CACHE_VERSION = "v3"
 
 
 def normalize(text: str) -> str:

@@ -46,6 +46,55 @@ def _needs_memory_tool(message: str) -> bool:
     return bool(tokens & _MEMORY_WRITE_VERBS) and bool(tokens & _MEMORY_WRITE_TARGETS)
 
 
+STYLE_BLOCK = (
+    "Response style — defaults for every reply:\n"
+    "- Lead with the answer. State the conclusion first; supporting detail comes after, and only what is needed.\n"
+    "- Be brief. For casual or simple messages, a few sentences of plain prose is the right length. Never pad.\n"
+    "- Explain at a high level first. Give a summary, not an exhaustive treatment; go deep only when the user asks for depth.\n"
+    "- Write plain prose by default. Use lists, headings, or tables only when the user asks or the content truly requires them. Use the minimum formatting needed for clarity.\n"
+    "- Keep caveats and disclaimers to one short line at most; spend the response on the answer itself.\n"
+    "- Ask at most one question per response.\n"
+    "- If you deliberately left out significant depth, end with one short offer to expand (e.g. \"Want the full details?\"). If nothing significant was omitted, do not add an offer.\n"
+    "\n"
+    "Precedence: these are defaults, not rules. If [USER STATE] preferences or corrections say otherwise (e.g. verbosity: detailed, response_style: step-by-step), or the user asks in this chat for more detail, a full explanation, or a specific format, follow the user instead. The user's most recent explicit request always wins."
+)
+
+ANTI_FABRICATION = (
+    "If information is not present in your current context (not in memory, not in conversation history): "
+    "say so directly and concisely. Never fabricate answers, invent logs, or guess at content that should come from files or prior sessions. "
+    "NEVER say 'Memory updated', 'Saved to memory', or any variant. "
+    "Memory is only saved when the system displays a green confirmation card with Accept/Dismiss buttons — that is the only real memory save path. "
+    "Without that card, nothing is persisted. Do not simulate or pretend to save memory."
+)
+
+CUSTOM_PROMPT_BRIDGE = (
+    "Conversation-specific instructions (these override the defaults above wherever they conflict):"
+)
+
+# Per-turn depth directive keyed on the intent classifier output. Appended as the
+# LAST system message (directly before the user turn) — the trailing region varies
+# every turn anyway, so this costs no KV-prefix stability, and recency maximizes
+# compliance on the 8B.
+DEPTH_HINTS = {
+    "question": (
+        "This turn is a direct question. Give the answer immediately, in 1-4 sentences of prose, "
+        "then stop. Add brief support only if the answer needs it. Do not expand into a tutorial."
+    ),
+    "task": (
+        "This turn is a task. Do it, then report the outcome first in one or two sentences. "
+        "Show only the result the user needs - no extended commentary."
+    ),
+    "exploration": (
+        "The user is exploring a topic. Start with a short high-level overview, then the two or "
+        "three most important points. Offer to go deeper on any of them instead of covering everything now."
+    ),
+    "closing": (
+        "The user is wrapping up. Reply with one short, warm sentence. Do not re-answer earlier "
+        "questions or introduce new information."
+    ),
+}
+
+
 def build_context_messages(
     memory_sheet:     str,
     project_summary:  str,
@@ -62,9 +111,16 @@ def build_context_messages(
     recent_insights:  list[str]       = (),
     conflicted_facts: frozenset[str]  = frozenset(),
     last_session:     str             = "",
+    intent:           str             = "question",
 ) -> list[dict]:
     messages = []
 
+    # First system message: style defaults + anti-fabrication always present;
+    # a custom conversation prompt is appended after them (overrides on conflict)
+    # instead of replacing them, then the file notice last.
+    parts = [STYLE_BLOCK, ANTI_FABRICATION]
+    if system_prompt:
+        parts.append(CUSTOM_PROMPT_BRIDGE + "\n" + system_prompt.rstrip())
     if file_names:
         if file_ids:
             files_list  = "\n".join(f"  - {name} (id={fid})" for name, fid in zip(file_names, file_ids))
@@ -85,19 +141,8 @@ def build_context_messages(
             )
         else:
             file_notice = f"The user has attached these files: {', '.join(file_names)}. Use file tools to read or edit them."
-        content = system_prompt.rstrip() + "\n\n" + file_notice if system_prompt else file_notice
-        messages.append({"role": "system", "content": content})
-    elif system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    else:
-        content = (
-            "If information is not present in your current context (not in memory, not in conversation history): "
-            "say so directly and concisely. Never fabricate answers, invent logs, or guess at content that should come from files or prior sessions. "
-            "NEVER say 'Memory updated', 'Saved to memory', or any variant. "
-            "Memory is only saved when the system displays a green confirmation card with Accept/Dismiss buttons — that is the only real memory save path. "
-            "Without that card, nothing is persisted. Do not simulate or pretend to save memory."
-        )
-        messages.append({"role": "system", "content": content})
+        parts.append(file_notice)
+    messages.append({"role": "system", "content": "\n\n".join(parts)})
 
     if last_session:
         messages.append({"role": "user",      "content": f"[LAST SESSION]\n{last_session}"})
@@ -146,6 +191,10 @@ def build_context_messages(
         )
         messages.append({"role": "user",      "content": f"[FILE CONTEXT]\n{joined}"})
         messages.append({"role": "assistant", "content": "Understood, I will reference these documents in my response."})
+
+    hint = DEPTH_HINTS.get(intent, "")
+    if hint:
+        messages.append({"role": "system", "content": hint})
 
     return messages
 

@@ -398,6 +398,7 @@ async def generate_stream(
         graph_facts=graph_facts, active_goals=active_goals,
         recent_insights=recent_insights,
         conflicted_facts=conflicted_facts, last_session=last_session,
+        intent=intent,
     ) + [user_msg]
 
     # Inject active tools' behavioral rules once (de-duped), as a single block at
@@ -625,7 +626,9 @@ async def generate_stream(
                 try:
                     await set_cached_response(
                         message, payload,
-                        model=current_model,
+                        # key must mirror the read side (model_override or ""), not the
+                        # routed model — otherwise auto-routed requests can never hit
+                        model=cache_model,
                         history_tail=history_tail,
                         system_prompt=cache_sysprompt,
                     )
