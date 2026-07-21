@@ -71,3 +71,7 @@ backend/tests/latch/RUNLOG.md
 backend/tests/latch/rich_full_logs/
 backend/tests/latch/*.jsonl
 backend/tests/latch/scores*.txt
+
+# Timestamped .env backups (contain live secrets — repo is public)
+.env.bak.*
+.env.*.bak
