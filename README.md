@@ -1,4 +1,4 @@
-# NIM AI Gateway
+# Multi-User AI Memory Platform
 
 [![CI](https://github.com/ymr-gif/ai-workspace/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ymr-gif/ai-workspace/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ymr-gif/ai-workspace)](https://github.com/ymr-gif/ai-workspace/releases)
@@ -406,7 +406,7 @@ See `.env.example` for all variables. Commonly changed:
 ## Project Structure
 
 ```
-ai-api/
+ai-workspace/
 ├── backend/
 │   ├── api/                  route handlers (chat, files, conversations, memory, graph, admin, …)
 │   ├── llm/

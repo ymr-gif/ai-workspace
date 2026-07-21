@@ -114,7 +114,7 @@ Last updated: 2026-07-04 (full-surface verification green 2026-07-03 — every d
 |-----|-------|
 | ~~Pattern detection~~ | ~~No recurring question/behavior detection to trigger proactive actions~~ ✅ |
 | ~~User-defined scheduled agents~~ | ~~User can't define "check X every week and summarize"~~ ✅ |
-| Goal / task tracking | No persistent goal list the AI maintains on behalf of user |
+| ~~Goal / task tracking~~ | ~~No persistent goal list the AI maintains on behalf of user~~ ✅ `UserGoal` model + `[ACTIVE GOALS]` context block + Goals panel (Impl #13) |
 | ~~Event-driven triggers~~ | ~~No webhook/event system (file upload → trigger AI action)~~ ✅ |
 | ~~Autonomous summarization push~~ | ~~Daily/weekly digest not yet user-configurable~~ ✅ |
 
