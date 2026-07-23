@@ -26,8 +26,12 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 
 BASE_URL = os.getenv("VERIFY_BASE_URL", "http://localhost:8000").rstrip("/")
-SEED_USER = (os.getenv("VERIFY_USER", "user"), os.getenv("VERIFY_USER_PW", "user-secret"))
-SEED_ADMIN = (os.getenv("VERIFY_ADMIN", "admin"), os.getenv("VERIFY_ADMIN_PW", "admin-secret"))
+# Usernames may keep sane defaults; passwords have NO literal default. The old admin-secret/
+# user-secret pair was rotated 2026-07-22 and the live values live outside the repo — a missing
+# var must skip the live/optional tier with a named reason (see pytest_collection_modifyitems
+# below), never fall through to a confusing 401 from a dead default.
+SEED_USER = (os.getenv("VERIFY_USER", "user"), os.getenv("VERIFY_USER_PW"))
+SEED_ADMIN = (os.getenv("VERIFY_ADMIN", "admin"), os.getenv("VERIFY_ADMIN_PW"))
 
 
 # ── reachability probe (cached once per session) ────────────────────────────────
@@ -52,8 +56,17 @@ def pytest_collection_modifyitems(config, items):
     run_infra = os.getenv("RUN_INFRA", "").lower() in ("1", "true", "yes")
     run_live = os.getenv("RUN_LIVE_NIM", "").lower() in ("1", "true", "yes")
 
+    # Seeded passwords have no literal default (rotated 2026-07-22) — missing either one is
+    # itself a missing prerequisite for the live/optional tier, same as the stack being down.
+    missing_pw_vars = [name for name, (_, pw) in
+                        (("VERIFY_USER_PW", SEED_USER), ("VERIFY_ADMIN_PW", SEED_ADMIN)) if not pw]
+
     skip_infra = pytest.mark.skip(reason="infra tier off (set RUN_INFRA=1 with Postgres/Redis/Neo4j reachable)")
     skip_live = pytest.mark.skip(reason="live tier off (set RUN_LIVE_NIM=1 with VERIFY_BASE_URL reachable)")
+    skip_no_pw = pytest.mark.skip(
+        reason=f"live/optional tier needs seeded passwords — set {', '.join(missing_pw_vars)} "
+               f"(no default: the seeded accounts were rotated, see backend/CLAUDE.md)"
+    ) if missing_pw_vars else None
     skip_unreach = pytest.mark.skip(reason=f"stack not reachable at {BASE_URL}/health")
 
     for item in items:
@@ -62,6 +75,8 @@ def pytest_collection_modifyitems(config, items):
         if "live_nim" in item.keywords or "optional" in item.keywords:
             if not run_live:
                 item.add_marker(skip_live)
+            elif missing_pw_vars:
+                item.add_marker(skip_no_pw)
             elif not _stack_reachable():
                 item.add_marker(skip_unreach)
 

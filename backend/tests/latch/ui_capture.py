@@ -17,7 +17,7 @@ CLI (one cold send):
     python ui_capture.py --message "find my things" --band none_intent
 
 Import (multi-turn; new_conversation() for a fresh COLD turn, consecutive send() = WARM):
-    ui = UICapture(base="http://localhost:3000", user="user", pw="user-secret")
+    ui = UICapture(base="http://localhost:3000", user="user", pw=os.environ["VERIFY_USER_PW"])
     ui.new_conversation(); ui.send("what's on my calendar", band="positive", connector="calendar")
     ui.send("ok thanks", band="easy_neg", expect_cold=False)   # warm turn, same conv
     ui.close()
@@ -29,7 +29,7 @@ import json
 import os
 import time
 
-from agent_capture import BANDS, CONNECTORS, DEFAULT_CAPTURE   # reuse validation + schema constants
+from agent_capture import BANDS, CONNECTORS, DEFAULT_CAPTURE, DEFAULT_USER_PW   # reuse validation + schema constants
 
 UI_BASE = os.environ.get("JARVIS_UI", "http://localhost:3000")
 
@@ -50,7 +50,7 @@ def _parse_done(sse_body: str) -> dict:
 
 
 class UICapture:
-    def __init__(self, base=UI_BASE, user="user", pw="user-secret",
+    def __init__(self, base=UI_BASE, user="user", pw=DEFAULT_USER_PW,
                  capture_path=DEFAULT_CAPTURE, headless=True, timeout_ms=90000):
         from playwright.sync_api import sync_playwright   # imported here so the module loads w/o playwright
         self.capture_path = capture_path
@@ -63,6 +63,11 @@ class UICapture:
         self._login(base, user, pw)
 
     def _login(self, base, user, pw):
+        if not pw:
+            raise ValueError(
+                "no password given and VERIFY_USER_PW is not set — the seeded password was "
+                "rotated, there is no default. Export VERIFY_USER_PW or pass pw= explicitly."
+            )
         self.page.goto(base)
         self.page.fill('input[name="username"]', user)
         self.page.fill('input[name="password"]', pw)
@@ -147,11 +152,13 @@ def _cli():
     ap.set_defaults(expect_cold=None)
     ap.add_argument("--base", default=UI_BASE)
     ap.add_argument("--user", default="user")
-    ap.add_argument("--pw", default="user-secret")
+    ap.add_argument("--pw", default=DEFAULT_USER_PW, help="password (env VERIFY_USER_PW; no default)")
     ap.add_argument("--capture", default=DEFAULT_CAPTURE)
     ap.add_argument("--note", default="")
     ap.add_argument("--headed", action="store_true", help="show the browser window")
     a = ap.parse_args()
+    if not a.pw:
+        ap.error("--pw not given and VERIFY_USER_PW not set — seeded password was rotated, there is no default")
 
     ui = UICapture(base=a.base, user=a.user, pw=a.pw, capture_path=a.capture, headless=not a.headed)
     try:

@@ -21,7 +21,7 @@ CLI (one send; prints the conv_id so a shell agent can continue the session):
   python agent_capture.py --message "get that document" --band weak_real --connector drive --conv <id> --expect-warm
 
 Import (multi-turn, incl. the warm-leak case):
-  cap  = LatchCapture(base="http://localhost:8000", user="user", pw="user-secret")
+  cap  = LatchCapture(base="http://localhost:8000", user="user", pw=os.environ["VERIFY_USER_PW"])
   conv = cap.send("what's on my calendar", band="positive", connector="calendar")  # cold latch
   cap.send("ok thanks", band="easy_neg", conv_id=conv, expect_cold=False)          # warm turn → leak?
 
@@ -46,10 +46,13 @@ DEFAULT_BASE    = os.environ.get("JARVIS_BASE", "http://localhost:8000")
 DEFAULT_CAPTURE = os.environ.get("LATCH_CAPTURE", "latch_capture.jsonl")
 BANDS           = ["positive", "weak_real", "none_intent", "tie", "easy_neg"]
 CONNECTORS      = ["drive", "calendar", "gmail"]
+# No literal password default — the old admin-secret/user-secret pair was rotated 2026-07-22.
+# Set VERIFY_USER_PW (same var conftest.py's live tier uses) or pass pw=/--pw explicitly.
+DEFAULT_USER_PW = os.environ.get("VERIFY_USER_PW")
 
 
 class LatchCapture:
-    def __init__(self, base=DEFAULT_BASE, user="user", pw="user-secret", token=None,
+    def __init__(self, base=DEFAULT_BASE, user="user", pw=DEFAULT_USER_PW, token=None,
                  capture_path=DEFAULT_CAPTURE, timeout=90.0):
         self.base         = base.rstrip("/")
         self.capture_path = capture_path
@@ -58,6 +61,11 @@ class LatchCapture:
         self.token        = token or self._login(user, pw)
 
     def _login(self, user, pw):
+        if not pw:
+            raise ValueError(
+                "no password given and VERIFY_USER_PW is not set — the seeded password was "
+                "rotated, there is no default. Export VERIFY_USER_PW or pass pw= explicitly."
+            )
         r = httpx.post(f"{self.base}/auth/token",
                        data={"username": user, "password": pw}, timeout=self.timeout)
         r.raise_for_status()
@@ -143,10 +151,12 @@ def _cli():
     ap.set_defaults(expect_cold=None)
     ap.add_argument("--base", default=DEFAULT_BASE)
     ap.add_argument("--user", default="user")
-    ap.add_argument("--pw", default="user-secret")
+    ap.add_argument("--pw", default=DEFAULT_USER_PW, help="password (env VERIFY_USER_PW; no default)")
     ap.add_argument("--capture", default=DEFAULT_CAPTURE)
     ap.add_argument("--note", default="")
     a = ap.parse_args()
+    if not a.pw:
+        ap.error("--pw not given and VERIFY_USER_PW not set — seeded password was rotated, there is no default")
 
     cap  = LatchCapture(base=a.base, user=a.user, pw=a.pw, capture_path=a.capture)
     conv = cap.send(a.message, band=a.band, connector=a.connector, conv_id=a.conv,

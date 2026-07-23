@@ -16,11 +16,17 @@ relative paths and `PYTHONPATH=../..` assume it. Graphify-first if you read code
 1. Do NOT tune `INTENT_THRESHOLDS` / `FLOOR_THRESHOLD` or add a margin gate. Collect + measure only;
    the fork decision is human-gated — hand the numbers back.
 2. Connectors are OAuth'd under **`admin`** (not `user`). Anything that must actually latch uses
-   `--user admin --pw admin-secret`, else `decision` stays `none`. Score-band traffic can use any user.
-3. Use the seeded throwaway accounts (`admin`/`admin-secret`, `user`/`user-secret`) — never real data.
+   `--user admin --pw "$VERIFY_ADMIN_PW"`, else `decision` stays `none`. Score-band traffic can use
+   any user.
+3. Use the seeded throwaway accounts (`admin`/`user`) — never real data. **Passwords have no
+   default** (the old pair was rotated 2026-07-22); export `VERIFY_ADMIN_PW` / `VERIFY_USER_PW`
+   first (same vars `conftest.py`'s live tier uses) — every script below falls back to those env
+   vars and errors with a named-var message if neither the env var nor `--pw` is given.
 
-**0. Prereqs — stack must be running**
+**0. Prereqs — stack must be running, and the seeded passwords must be exported**
 ```bash
+export VERIFY_ADMIN_PW=...   # from your credential store — never hardcode this
+export VERIFY_USER_PW=...
 curl -s -o /dev/null -w 'api %{http_code}\n' localhost:8000/health    # want 200
 ```
 Not 200? → `(cd ../../../docker && docker compose up -d)`, wait ~20s, recheck.
@@ -28,7 +34,7 @@ Not 200? → `(cd ../../../docker && docker compose up -d)`, wait ~20s, recheck.
 **1. Go/no-go — confirm a real flip + a healthy embedder (before scaling)**
 ```bash
 python3 agent_capture.py --message "what files do I have in my google drive" \
-  --band positive --connector drive --user admin --pw admin-secret --capture gng.jsonl
+  --band positive --connector drive --user admin --pw "$VERIFY_ADMIN_PW" --capture gng.jsonl
 (cd ../../../docker && docker compose logs api --since 120s) | grep latch_score | tail -1
 ```
 GREEN = a line with `"reason": "ok"` AND `"decision": "latched_drive"`.
@@ -119,7 +125,7 @@ python3 ui_capture.py --message "get that document" --band weak_real --connector
 # Layer 2 fleet: admin worker (flips+warm) + score workers, all → run.jsonl
 python3 fleet.py --capture run.jsonl --admin-target 150 --score-target 400
 # or a single Layer 1 worker:
-python3 run_collection.py --target 300 --user admin --pw admin-secret --capture run.jsonl
+python3 run_collection.py --target 300 --user admin --pw "$VERIFY_ADMIN_PW" --capture run.jsonl
 # then harvest + measure + emit eval sets:
 (cd ../../../docker && docker compose logs api) | grep latch_score > scores.txt
 PYTHONPATH=../.. python3 measure.py --capture run.jsonl --scores scores.txt --emit-evalsets ..
@@ -128,10 +134,10 @@ PYTHONPATH=../.. python3 measure.py --capture run.jsonl --scores scores.txt --em
 **Manual single sends (debugging / go-no-go):**
 ```bash
 python3 agent_capture.py --message "find my things"    --band none_intent
-python3 agent_capture.py --message "get that document" --band weak_real --connector drive --user admin --pw admin-secret
+python3 agent_capture.py --message "get that document" --band weak_real --connector drive --user admin --pw "$VERIFY_ADMIN_PW"
 # multi-turn WARM session: keep the conv id and continue it
-CONV=$(python3 agent_capture.py --message "what's on my calendar" --band positive --connector calendar --user admin --pw admin-secret)
-python3 agent_capture.py --message "ok thanks" --band easy_neg --conv "$CONV" --expect-warm --user admin --pw admin-secret
+CONV=$(python3 agent_capture.py --message "what's on my calendar" --band positive --connector calendar --user admin --pw "$VERIFY_ADMIN_PW")
+python3 agent_capture.py --message "ok thanks" --band easy_neg --conv "$CONV" --expect-warm --user admin --pw "$VERIFY_ADMIN_PW"
 ```
 `measure.py` imports the live `INTENT_THRESHOLDS`/`FLOOR_THRESHOLD` when run with the backend on the
 path (run from `backend/`, or set `PYTHONPATH=backend`); otherwise it falls back to documented

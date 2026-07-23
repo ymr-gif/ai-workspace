@@ -9,14 +9,16 @@
 #   BASE_URL=https://my-host ./smoke.sh
 #
 # Env:
-#   SMOKE_USER / SMOKE_PASS   seeded creds (default user / user-secret)
+#   SMOKE_USER   seeded username (default user)
+#   SMOKE_PASS   seeded password — REQUIRED, no default. The old admin-secret/user-secret
+#                pair was rotated 2026-07-22; the live value is not in this repo.
 #
 set -euo pipefail
 
 BASE="${1:-${BASE_URL:-http://localhost:8000}}"
 BASE="${BASE%/}"
 USER_NAME="${SMOKE_USER:-user}"
-USER_PASS="${SMOKE_PASS:-user-secret}"
+USER_PASS="${SMOKE_PASS:?SMOKE_PASS not set — seeded password was rotated, there is no default. Export SMOKE_PASS before running smoke.sh}"
 
 pass() { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 fail() { printf '  \033[31m✗ %s\033[0m\n' "$1" >&2; exit 1; }

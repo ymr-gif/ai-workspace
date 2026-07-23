@@ -25,6 +25,7 @@ import argparse
 import base64
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -38,6 +39,10 @@ import httpx
 
 RUN_TAG = "RICHFULL-" + uuid.uuid4().hex[:8]
 DOCKER_DIR = "../../../docker"
+
+# No literal password default — the old admin-secret/user-secret pair was rotated 2026-07-22.
+# Set VERIFY_ADMIN_PW (same var conftest.py's live tier uses) or pass --pw explicitly.
+DEFAULT_ADMIN_PW = os.environ.get("VERIFY_ADMIN_PW")
 LOGS_DIR = "rich_full_logs"
 
 # 1x1 red PNG
@@ -592,7 +597,7 @@ def sec_circuit_breaker(ctx):
     RED("SET", f"cb:open:{coder}", "1", "EX", "600")
     try:
         _restart_api()
-        admin.login("admin", "admin-secret")
+        admin.login("admin", ctx["args"].pw)
         # probe FIRST — the 90s in-process cooldown starts at restore (early in lifespan),
         # and a slow lifespan can nearly exhaust it before the app even serves
         code, _, done = admin.stream(f"breaker enforce {RUN_TAG}", max_tokens=1,
@@ -684,7 +689,7 @@ def sec_ui_panels(ctx):
     except Exception as e:
         raise Skip(f"playwright unavailable: {e}")
     ui = UICapture(base=ctx["admin"].base.replace(":8000", ":3000"), user="admin",
-                   pw="admin-secret", capture_path=f"{LOGS_DIR}/ui_capture.jsonl",
+                   pw=ctx["args"].pw, capture_path=f"{LOGS_DIR}/ui_capture.jsonl",
                    headless=False, timeout_ms=120000)
     page = ui.page
     shot_dir = f"{LOGS_DIR}/ui"
@@ -783,12 +788,14 @@ def main():
     ap.add_argument("--skip-destructive", action="store_true",
                     help="skip admin_sweep/cost_cap/rate_limit/circuit_breaker/re_embed/reset")
     ap.add_argument("--only", default="", help="comma-separated section names")
+    ap.add_argument("--pw", default=DEFAULT_ADMIN_PW, help="admin password (env VERIFY_ADMIN_PW; no default)")
     a = ap.parse_args()
+    if not a.pw:
+        ap.error("--pw not given and VERIFY_ADMIN_PW not set — seeded password was rotated, there is no default")
 
-    import os
     os.makedirs(LOGS_DIR, exist_ok=True)
     print(f"=== rich_full run_tag={RUN_TAG} ===", flush=True)
-    ctx = {"admin": C(a.base, "admin", "admin-secret"), "args": a}
+    ctx = {"admin": C(a.base, "admin", a.pw), "args": a}
 
     destructive = {"admin_sweep", "cost_cap", "rate_limit", "circuit_breaker",
                    "re_embed", "memory_reset_restore"}

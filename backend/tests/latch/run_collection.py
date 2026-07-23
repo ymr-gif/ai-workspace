@@ -19,8 +19,8 @@ Sizing: pick --target N or --duration 3h (or both → whichever hits first). At 
 is ~2000 rows per worker. Token cost stays bounded by lean mode.
 
 Examples:
-  python3 run_collection.py --duration 3h --user admin --pw admin-secret --capture run.jsonl
-  python3 run_collection.py --target 400 --mode sessions --user admin --pw admin-secret --capture run.jsonl
+  python3 run_collection.py --duration 3h --user admin --pw "$VERIFY_ADMIN_PW" --capture run.jsonl
+  python3 run_collection.py --target 400 --mode sessions --user admin --pw "$VERIFY_ADMIN_PW" --capture run.jsonl
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ import argparse
 import random
 import time
 
-from agent_capture import LatchCapture, BANDS, CONNECTORS, DEFAULT_CAPTURE
+from agent_capture import LatchCapture, BANDS, CONNECTORS, DEFAULT_CAPTURE, DEFAULT_USER_PW
 from prompt_bank import PROMPTS
 
 DEFAULT_WEIGHTS = {"none_intent": 0.40, "weak_real": 0.25, "tie": 0.10, "positive": 0.15, "easy_neg": 0.10}
@@ -137,7 +137,8 @@ def main():
     ap.add_argument("--session-len", type=str, default="4-8", help="turns per session, e.g. 4-8 or 5")
     ap.add_argument("--band-focus", choices=BANDS, default=None, help="collect only this band")
     ap.add_argument("--user", default="user")
-    ap.add_argument("--pw", default="user-secret")
+    ap.add_argument("--pw", default=DEFAULT_USER_PW, help="password (env VERIFY_USER_PW; no default — "
+                    "pass --pw explicitly if --user is not the default 'user' account)")
     ap.add_argument("--base", default="http://localhost:8000")
     ap.add_argument("--capture", default=DEFAULT_CAPTURE)
     ap.add_argument("--rate", type=float, default=12.0, help="sends/min (keep < 15)")
@@ -153,6 +154,8 @@ def main():
 
     if not a.target and not a.duration:
         ap.error("set --target and/or --duration")
+    if not a.pw:
+        ap.error("--pw not given and VERIFY_USER_PW not set — seeded password was rotated, there is no default")
     weights = {a.band_focus: 1.0} if a.band_focus else dict(DEFAULT_WEIGHTS)
     run(target=a.target,
         duration=_parse_duration(a.duration) if a.duration else None,

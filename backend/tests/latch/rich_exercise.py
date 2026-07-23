@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -37,6 +38,10 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import httpx
+
+# No literal password default — the old admin-secret/user-secret pair was rotated 2026-07-22.
+# Set VERIFY_ADMIN_PW (same var conftest.py's live tier uses) or pass --pw explicitly.
+DEFAULT_ADMIN_PW = os.environ.get("VERIFY_ADMIN_PW")
 
 RUN_TAG = "RICHTEST-" + uuid.uuid4().hex[:8]
 DOCKER_DIR = "../../../docker"
@@ -223,12 +228,14 @@ def main():
     ap = argparse.ArgumentParser(description="Richest-rich full-tool exerciser.")
     ap.add_argument("--base", default="http://localhost:8000")
     ap.add_argument("--user", default="admin")
-    ap.add_argument("--pw", default="admin-secret")
+    ap.add_argument("--pw", default=DEFAULT_ADMIN_PW, help="password (env VERIFY_ADMIN_PW; no default)")
     ap.add_argument("--capture", default="rich.jsonl")
     ap.add_argument("--api-only", action="store_true", help="skip the headed UI sessions")
     ap.add_argument("--ui-only", action="store_true", help="skip the API (write) sessions")
     ap.add_argument("--no-web", action="store_true", help="don't enable web_search/searxng")
     a = ap.parse_args()
+    if not a.pw:
+        ap.error("--pw not given and VERIFY_ADMIN_PW not set — seeded password was rotated, there is no default")
 
     sessions, _ = _sessions(RUN_TAG)
     print(f"=== rich_exercise run_tag={RUN_TAG} ===", flush=True)

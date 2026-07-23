@@ -22,10 +22,18 @@ After either run: harvest + measure (see README / kickoff runbook).
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 
 BANK_NOTE = "agent_capture.py CLI (one send per call; --connector required for positive/weak_real)"
+
+# No literal password default — the old admin-secret/user-secret pair was rotated 2026-07-22.
+# Built from the same VERIFY_*_PW vars conftest.py's live tier uses, only when BOTH are set;
+# otherwise --accounts is required.
+_ADMIN_PW = os.environ.get("VERIFY_ADMIN_PW")
+_USER_PW  = os.environ.get("VERIFY_USER_PW")
+DEFAULT_ACCOUNTS = f"admin:{_ADMIN_PW},user:{_USER_PW}" if (_ADMIN_PW and _USER_PW) else None
 
 
 def _brief(band: str, account: str) -> str:
@@ -102,8 +110,9 @@ def main():
     ap = argparse.ArgumentParser(description="Layer 2 — multi-worker collection fleet.")
     ap.add_argument("--briefings", action="store_true", help="print LLM-agent briefings and exit")
     ap.add_argument("--capture", default="run.jsonl")
-    ap.add_argument("--accounts", default="admin:admin-secret,user:user-secret",
-                    help="comma list of user:pw; admin-named account runs flips+warm, rest score-band")
+    ap.add_argument("--accounts", default=DEFAULT_ACCOUNTS,
+                    help="comma list of user:pw; admin-named account runs flips+warm, rest score-band "
+                         "(env VERIFY_ADMIN_PW + VERIFY_USER_PW; no default — required if either unset)")
     ap.add_argument("--admin-target", type=int, default=150)
     ap.add_argument("--score-target", type=int, default=400)
     ap.add_argument("--duration", type=str, default="", help="run every worker this long (e.g. 3h); overrides targets")
@@ -114,6 +123,9 @@ def main():
     if a.briefings:
         briefings()
         return
+    if not a.accounts:
+        ap.error("--accounts not given and VERIFY_ADMIN_PW/VERIFY_USER_PW not set — seeded passwords "
+                 "were rotated, there is no default")
     fleet(a.capture, _parse_accounts(a.accounts), a.admin_target, a.score_target, a.duration, a.rate, a.base)
 
 
