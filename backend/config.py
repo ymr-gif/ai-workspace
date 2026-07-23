@@ -199,6 +199,17 @@ NOTION_CLIENT_SECRET     = os.getenv("NOTION_CLIENT_SECRET", "")
 GITHUB_CLIENT_ID         = os.getenv("GITHUB_CLIENT_ID", "")
 GITHUB_CLIENT_SECRET     = os.getenv("GITHUB_CLIENT_SECRET", "")
 
+# ── Runtime-configurable connector exposure (QUEUE Q0.6) ──────────────────────
+# CSV of connector_type values ("google_drive,google_calendar,gmail") the UI should
+# offer an OAuth button for. Empty (default) = every connector stays stubbed. Served
+# via GET /api/integrations/available and read as config.ENABLED_CONNECTOR_TYPES at
+# request time, so flipping it + POST /admin/env/reload exposes connectors with NO
+# frontend rebuild — a Vite import.meta.env var is inlined at BUILD time and would
+# not achieve that. Does NOT deactivate existing ExternalSource rows.
+ENABLED_CONNECTOR_TYPES = [
+    t.strip() for t in os.getenv("ENABLED_CONNECTOR_TYPES", "").split(",") if t.strip()
+]
+
 # ── Home-server override (applied when LLM_BACKEND="homeserver") ───────────────
 # Placed after all base defs and before the guards so it rewrites the model/context
 # tables and is re-applied verbatim on importlib.reload (runtime toggle, no restart).

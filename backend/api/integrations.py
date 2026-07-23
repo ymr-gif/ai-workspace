@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import config
 from config import GITHUB_CLIENT_ID, GOOGLE_CLIENT_ID, NOTION_CLIENT_ID
 from core.arq_pool import get_arq_pool
 from core.db import get_db
@@ -83,6 +84,18 @@ router = APIRouter(prefix="/integrations", tags=["integrations"])
 
 
 # ── CRUD endpoints ─────────────────────────────────────────────────────────────
+
+
+@router.get("/available")
+async def available_connector_types(
+    current_user: User = Depends(get_current_user),
+):
+    """Which connector_type values the UI should offer an OAuth button for (QUEUE
+    Q0.6). Read as config.ENABLED_CONNECTOR_TYPES at request time (not imported at
+    module load) so POST /admin/env/reload flips this with no frontend rebuild — a
+    Vite import.meta.env var would be inlined at build time and could not. Empty
+    list (default) = every connector stays stubbed."""
+    return {"types": list(config.ENABLED_CONNECTOR_TYPES)}
 
 
 @router.get("", response_model=list[SourceRow])
