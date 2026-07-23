@@ -162,6 +162,7 @@ async def call_stream(
     async with llm_client.semaphore:
         for attempt in range(MAX_RETRIES + 1):
             try:
+                t0 = time.monotonic()
                 async with llm_client.client.stream(
                     "POST",
                     config.NIM_URL,
@@ -186,6 +187,23 @@ async def call_stream(
                     pending: dict[int, dict] = {}  # index → {id, name, arguments}
 
                     async for line in response.aiter_lines():
+                        # Wall-clock the whole connection. STREAM_READ_TIMEOUT above
+                        # is a PER-CHUNK timeout that resets on every token, so a model
+                        # trickling one token every N seconds streams forever under it.
+                        # This is the real ceiling on one call_stream connection. On
+                        # exceed: stop yielding and return CLEANLY — no raise (a raise
+                        # here would re-enter the except below and burn a retry on a
+                        # model that is answering, just slowly) and no record_failure
+                        # (the model did not fail; tripping the breaker on a slow-but-
+                        # healthy model is a worse bug than the one being fixed). The
+                        # caller (generate_stream) sees the __budget_exceeded__ sentinel
+                        # and turns it into a named partial-turn abort.
+                        if config.STREAM_TOTAL_TIMEOUT > 0:
+                            elapsed = time.monotonic() - t0
+                            if elapsed > config.STREAM_TOTAL_TIMEOUT:
+                                logger.warning("[nim] stream_budget_exceeded model=%s elapsed=%.1fs", model, elapsed)
+                                yield {"__budget_exceeded__": True, "elapsed": elapsed}
+                                return
                         if not line.startswith("data: "):
                             continue
                         raw = line[6:].strip()

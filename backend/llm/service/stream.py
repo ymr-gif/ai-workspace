@@ -27,6 +27,23 @@ _MAX_IDENTICAL_CALLS = 3
 # Per-tool overrides (e.g. listing tools → 1) come from Tool.max_identical_calls.
 
 logger = logging.getLogger("service")
+
+
+def _check_turn_budget(turn_start: float, token_chars: int) -> str | None:
+    """Turn-level abort check — the wall-clock + token bounds that STREAM_READ_TIMEOUT
+    (per-chunk, resets every token) cannot enforce. Reads config.* at call time (never
+    imported at module load) so /admin/env/reload applies live. 0/negative disables a
+    bound. Returns an abort reason string naming which bound fired, or None."""
+    if config.STREAM_TURN_BUDGET > 0:
+        elapsed = time.monotonic() - turn_start
+        if elapsed > config.STREAM_TURN_BUDGET:
+            return f"Response stopped — turn time budget exceeded ({config.STREAM_TURN_BUDGET}s)"
+    if config.STREAM_MAX_TURN_TOKENS > 0:
+        # Character heuristic (matches migration 032 precedent) — no extra API call.
+        est_tokens = token_chars // 4
+        if est_tokens > config.STREAM_MAX_TURN_TOKENS:
+            return f"Response stopped — output token budget exceeded ({config.STREAM_MAX_TURN_TOKENS} tok)"
+    return None
 # Phase 0 instrumentation: one JSON line per turn carrying every connector-intent score and
 # the flip/no-flip decision, so traffic can be replayed into eval sets (none_intent /
 # weak_real / tie) without re-running the model. Distinct logger name → greppable / routable
@@ -446,6 +463,13 @@ async def generate_stream(
     if _rules_block:
         base_messages[1:1] = _rules_block
 
+    # Turn clock + output-token counter — started ONCE here, before the fallback-chain
+    # loop, so three fallback attempts don't each get a fresh budget. Covers every tool
+    # iteration and every fallback model (checked at the top of each _tool_iter below,
+    # which fires on both boundaries: a new model attempt and a new tool round-trip).
+    _turn_start = time.monotonic()
+    _turn_token_chars = 0
+
     for idx, current_model in enumerate(fallback_chain):
         fallback_used  = idx > 0
         if fallback_used:
@@ -470,23 +494,57 @@ async def generate_stream(
         _drive_file_name = ""
 
         for _tool_iter in range(MAX_TOOL_ITERATIONS):
+            # Turn budget — checked between iterations (new tool round-trip or, on
+            # _tool_iter==0 of a new current_model, a new fallback attempt) so a long
+            # legitimate tool loop can still be aborted once the turn as a whole has
+            # run too long.
+            _budget_reason = _check_turn_budget(_turn_start, _turn_token_chars)
+            if _budget_reason:
+                logger.warning("[service] stream_turn_budget_exceeded reason=%s", _budget_reason)
+                yield {"type": "status", "stage": "budget", "detail": _budget_reason, "level": "error"}
+                yield {"type": "error", "message": _budget_reason}
+                return
+
             accumulated      = []
             started          = False
             tool_calls_done  = None
             stream_broke     = False
             nim_usage        = None
+            _budget_reason   = None
 
             _t_call = time.monotonic()
+            _gen = call_stream(current_model, tool_messages, request_id, model_params, None if _force_no_tools else tools)
             try:
-                async for chunk in call_stream(current_model, tool_messages, request_id, model_params, None if _force_no_tools else tools):
-                    if isinstance(chunk, dict) and "__tool_calls__" in chunk:
+                async for chunk in _gen:
+                    if isinstance(chunk, dict) and chunk.get("__budget_exceeded__"):
+                        # Per-connection cap tripped inside nim.py — the model is slow,
+                        # not failed (no record_failure was called there either).
+                        _budget_reason = f"Response stopped — connection time budget exceeded ({config.STREAM_TOTAL_TIMEOUT}s)"
+                        break
+                    elif isinstance(chunk, dict) and "__tool_calls__" in chunk:
                         tool_calls_done = chunk["__tool_calls__"]
                     elif isinstance(chunk, dict) and "__usage__" in chunk:
                         nim_usage = chunk["__usage__"]
                     elif isinstance(chunk, str):
                         started = True
                         accumulated.append(chunk)
+                        _turn_token_chars += len(chunk)
                         yield {"type": "token", "content": chunk}
+
+                        # Inline check inside the token loop itself — a single
+                        # trickling connection must not be able to outlive the turn
+                        # budget just because it hasn't hit STREAM_TOTAL_TIMEOUT yet.
+                        _inline_reason = _check_turn_budget(_turn_start, _turn_token_chars)
+                        if _inline_reason:
+                            _budget_reason = _inline_reason
+                            break
+
+                if _budget_reason:
+                    await _gen.aclose()
+                    logger.warning("[service] stream_budget_exceeded reason=%s", _budget_reason)
+                    yield {"type": "status", "stage": "budget", "detail": _budget_reason, "level": "error"}
+                    yield {"type": "error", "message": _budget_reason}
+                    return
 
                 _call_ms = int((time.monotonic() - _t_call) * 1000)
                 _short = current_model.split("/")[-1]

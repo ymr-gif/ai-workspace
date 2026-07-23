@@ -62,6 +62,15 @@ REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", 30))
 # through the circuit breaker to a faster model (deepseek). Separate from the 30s
 # connect/write budget so a slow first token never masquerades as 70B being down.
 STREAM_READ_TIMEOUT = int(os.getenv("STREAM_READ_TIMEOUT", 120))
+# Two wall-clock bounds + one output-token ceiling. STREAM_READ_TIMEOUT above is a
+# PER-CHUNK read timeout (resets on every token) — it cannot bound a model that
+# trickles one token every N seconds instead of failing outright; these three close
+# that gap. 0 (or negative) on any of them = disabled (escape hatch). Read as
+# config.X at call time in llm/nim.py / llm/service/stream.py, never `from config
+# import` — /admin/env/reload must reach them live (LLM_BACKEND invariant).
+STREAM_TOTAL_TIMEOUT   = int(os.getenv("STREAM_TOTAL_TIMEOUT", 120))      # s, one call_stream connection (llm/nim.py)
+STREAM_TURN_BUDGET     = int(os.getenv("STREAM_TURN_BUDGET", 300))        # s, whole turn incl. every tool iteration + fallback model (llm/service/stream.py)
+STREAM_MAX_TURN_TOKENS = int(os.getenv("STREAM_MAX_TURN_TOKENS", 16000))  # accumulated output tokens across the whole turn (llm/service/stream.py)
 MAX_RETRIES     = int(os.getenv("MAX_RETRIES", 3))
 FALLBACK_ORDER  = ["reasoning", "coder", "llama"]
 
