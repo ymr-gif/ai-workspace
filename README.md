@@ -262,9 +262,13 @@ cd docker && docker compose up -d
 | Grafana | `http://localhost:3001` |
 | Neo4j browser | `http://localhost:7474` |
 
-Default seeded accounts: `admin / admin-secret` · `user / user-secret`
+Seed the accounts with `python backend/create_user.py` (creates `admin`, `user`, `demo`). It is
+idempotent and never overwrites an existing account. Each password comes from `SEED_ADMIN_PASSWORD` /
+`SEED_USER_PASSWORD` / `SEED_DEMO_PASSWORD`, or is randomly generated and printed once if those are
+unset — there are no default passwords to look up here.
 
-> ⚠️ **Dev-only seed credentials. Change or delete these accounts before any public exposure.**
+> ⚠️ **Store the generated passwords outside this repository.** Registration is invite-gated when
+> `REQUIRE_INVITE=true`; per-user spend caps (`cost_limit_usd`) are set at seed time.
 
 ---
 

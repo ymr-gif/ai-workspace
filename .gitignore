@@ -1,6 +1,9 @@
 # Environment
-.env
-.env.local
+# Catch-all: every .env variant is ignored, .env.example is the one exception.
+# A name-by-name list let a timestamped backup holding live keys sit untracked
+# AND un-ignored on a public repo (2026-07-21) — one `git add -A` from publishing it.
+.env*
+!.env.example
 
 # Python
 .venv/
