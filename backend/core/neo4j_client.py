@@ -37,10 +37,9 @@ async def init_neo4j() -> None:
             "CREATE INDEX entity_user_id IF NOT EXISTS "
             "FOR (e:Entity) ON (e.user_id)"
         )
-        await session.run(
-            "CREATE INDEX canvas_user_id IF NOT EXISTS "
-            "FOR (n:CanvasNode) ON (n.user_id)"
-        )
+        # Canvas was removed 2026-06-09. Drop its orphan index on any existing
+        # deployment; IF EXISTS makes this a no-op once dropped.
+        await session.run("DROP INDEX canvas_user_id IF EXISTS")
 
     logger.info("[neo4j] connected to %s", NEO4J_URI)
 

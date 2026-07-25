@@ -156,57 +156,12 @@ async def _backup_user(user_id: int) -> None:
         logger.exception("[backup] graph dump failed user_id=%s", user_id)
 
 
-async def _purge_canvas_entities(user_id: int) -> int:
-    try:
-        from core.neo4j_client import get_driver
-        driver = get_driver()
-        if not driver:
-            return 0
-        async with driver.session() as session:
-            result = await session.run(
-                "MATCH (e:Entity {user_id: $uid}) "
-                "WHERE e.name =~ $pattern "
-                "DETACH DELETE e "
-                "RETURN count(e) AS cnt",
-                uid=user_id,
-                pattern="(?i).*(canvas|session node|workspace|output node|input node).*",
-            )
-            record = await result.single()
-            purged = record["cnt"] if record else 0
-        if purged > 0:
-            from llm.graph_memory import _cache_del_user
-            await _cache_del_user(user_id)
-        return purged
-    except Exception:
-        logger.exception("[reset] graph canvas purge failed user_id=%s", user_id)
-        return 0
-
-
 async def _soft_reset(user_id: int) -> dict:
-    from llm.summarizer.compact import _prune_canvas_corrections
-    from llm.graph_memory import merge_duplicate_entities, _cache_del_user
+    from llm.graph_memory import merge_duplicate_entities
 
-    pruned_count = 0
     archive_count = 0
 
     async with AsyncSessionLocal() as db:
-        mem = await db.get(UserMemory, user_id)
-        if mem and mem.content:
-            cleaned = _prune_canvas_corrections(mem.content)
-            if cleaned != mem.content:
-                db.add(UserMemoryVersion(
-                    user_id=user_id,
-                    version=mem.version,
-                    content=mem.content or "",
-                    project_summary=mem.project_summary or "",
-                ))
-                mem.content = cleaned
-                mem.version += 1
-                mem.updated_at = datetime.now(timezone.utc)
-                await db.commit()
-                pruned_count = 1
-                logger.info("[reset] pruned Canvas corrections user_id=%s", user_id)
-
         conv_result = await db.execute(
             select(Conversation).where(
                 Conversation.user_id == user_id,
@@ -237,13 +192,10 @@ async def _soft_reset(user_id: int) -> dict:
         if archive_count > 0:
             await db.commit()
 
-    graph_canvas_purged = await _purge_canvas_entities(user_id)
     graph_merged = await merge_duplicate_entities(user_id)
 
     return {
-        "corrections_pruned": pruned_count,
         "conversations_archived": archive_count,
-        "graph_canvas_purged": graph_canvas_purged,
         "graph_duplicates_merged": graph_merged,
     }
 
