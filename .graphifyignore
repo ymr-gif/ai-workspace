@@ -1,0 +1,70 @@
+# graphify corpus filter.
+# graphify prefers this file and IGNORES .gitignore entirely when it exists.
+# .gitignore hides the internal scaffolding docs (CLAUDE.md, BUGS.md, QUEUE.md,
+# plans/) because the repo is public — but those docs are the richest prose in
+# the project and the semantic pass needs them. This file re-admits them while
+# still keeping secrets, binaries, and generated noise out of the graph.
+
+# --- Secrets: never ingest ---
+.env
+.env.*
+!.env.example
+docker/searxng/settings.yml
+
+# --- VCS / tooling internals ---
+.git/
+.github/ISSUE_TEMPLATE/
+.claude/
+.cursor/
+.opencode/
+.wwebjs_cache/
+.idea/
+.vscode/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Generated / vendored ---
+graphify-out/
+**/graphify-out/
+node_modules/
+**/node_modules/
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+dist/
+build/
+.cache/
+*.pyc
+*.pyo
+*.pyd
+*.lock
+package-lock.json
+frontend/public/
+design_handoff_ultrakill_reskin/
+
+# --- User data / DB dumps / runtime storage ---
+storage/
+backend/storage/
+tests/**/storage/
+backend/tests/**/storage/
+
+# --- Logs and test telemetry (data, not knowledge) ---
+*.log
+*.jsonl
+*.sqlite3
+backend/tests/latch/rich_full_logs/
+backend/tests/latch/scores*.txt
+backend/tests/latch/RUNLOG.md
+
+# --- Binaries / media not worth vision passes ---
+*.gif
+*.mp4
+*.zip
+*.tar.gz
+*.woff
+*.woff2
+*.ttf
+*.ico
+.DS_Store
