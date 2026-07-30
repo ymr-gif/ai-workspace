@@ -1,4 +1,4 @@
-"""Browser (Playwright) twin of agent_capture.py — drives the real JARVIS UI at localhost:3000.
+"""Browser (Playwright) twin of agent_capture.py — drives the real Mnemo UI at localhost:3000.
 
 Same job, same capture schema, same downstream `measure.py` — but messages go in through the
 actual React app (login form → "Ask anything…" box → Enter) instead of a raw API call. Use this
@@ -31,7 +31,7 @@ import time
 
 from agent_capture import BANDS, CONNECTORS, DEFAULT_CAPTURE, DEFAULT_USER_PW   # reuse validation + schema constants
 
-UI_BASE = os.environ.get("JARVIS_UI", "http://localhost:3000")
+UI_BASE = os.environ.get("MNEMO_UI", "http://localhost:3000")
 
 
 def _parse_done(sse_body: str) -> dict:
