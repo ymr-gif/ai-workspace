@@ -15,9 +15,18 @@ from llm.endpoint import pick_chat_url, mark_primary_unhealthy, is_primary
 logger = logging.getLogger("nim")
 
 
-def _auth_headers() -> dict:
-    """Auth header only when a key is set — the LAN llama.cpp server needs none."""
+def _auth_headers(base_url: str | None = None) -> dict:
+    """Auth header only when a key is set — the LAN llama.cpp server needs none.
+
+    Per-endpoint: the failover primary gets LLM_PRIMARY_API_KEY (usually empty) and
+    NEVER NVIDIA_API_KEY. The primary is a self-hosted box reached over WireGuard;
+    shipping a paid NVIDIA credential to it is a leak waiting on one mistyped URL.
+    """
     headers = {"Content-Type": "application/json"}
+    if base_url is not None and is_primary(base_url):
+        if config.LLM_PRIMARY_API_KEY:
+            headers["Authorization"] = f"Bearer {config.LLM_PRIMARY_API_KEY}"
+        return headers
     if config.NVIDIA_API_KEY:
         headers["Authorization"] = f"Bearer {config.NVIDIA_API_KEY}"
     return headers
@@ -52,7 +61,7 @@ async def call(
             try:
                 response = await llm_client.client.post(
                     base_url,
-                    headers=_auth_headers(),
+                    headers=_auth_headers(base_url),
                     json=body,
                 )
 
@@ -65,15 +74,17 @@ async def call(
                         "response_text": response.text,
                         "attempt":       attempt,
                     })
+                    # ANY non-200 from the primary → demote the ENDPOINT so the next
+                    # attempt re-picks NIM, but do NOT trip the model breaker: a homelab
+                    # outage doesn't make the model unhealthy on NIM, and tripping it
+                    # would block the very fallback we're switching to. Status is not
+                    # part of the test — a 404 from a bad LLM_PRIMARY_URL must fail over
+                    # too, not return an error the caller can do nothing about.
+                    if is_primary(base_url):
+                        await mark_primary_unhealthy()
+                        continue  # no backoff for a demoted endpoint — next attempt is NIM
                     if response.status_code >= 500:
-                        # A 5xx from the primary → demote the ENDPOINT so the next
-                        # attempt re-picks NIM, but do NOT trip the model breaker: a
-                        # homelab outage doesn't make the model unhealthy on NIM, and
-                        # tripping it would block the very fallback we're switching to.
-                        if is_primary(base_url):
-                            await mark_primary_unhealthy()
-                        else:
-                            await record_failure(model)
+                        await record_failure(model)
                         continue
                     return {
                         "ok":         False,
@@ -184,7 +195,7 @@ async def call_stream(
                 async with llm_client.client.stream(
                     "POST",
                     base_url,
-                    headers=_auth_headers(),
+                    headers=_auth_headers(base_url),
                     json=body,
                     # Read = time-to-first-token / inter-token gap. Slow 70B first
                     # token must not ReadTimeout and drop us to a faster fallback.
@@ -194,9 +205,14 @@ async def call_stream(
                     if response.status_code != 200:
                         logger.warning("[nim] stream_error model=%s status=%s attempt=%d",
                                        model, response.status_code, attempt)
-                        # A 5xx from the primary → demote the ENDPOINT and retry, which
-                        # re-picks NIM. Don't trip the model breaker (see call()).
-                        primary_failed = response.status_code >= 500 and is_primary(base_url)
+                        # ANY non-200 from the primary is an ENDPOINT fault — a 404 from a
+                        # misconfigured LLM_PRIMARY_URL, a 400 from llama.cpp, a 5xx from a
+                        # dying box. Demote the ENDPOINT and retry, which re-picks NIM.
+                        # Never trip the model breaker on it: the model is not unhealthy on
+                        # NIM, and an open breaker would block the very fallback we're
+                        # switching to. Status is NOT part of this test — gating it on >=500
+                        # sent primary 4xx down the record_failure() path (see call()).
+                        primary_failed = is_primary(base_url)
                         if primary_failed:
                             await mark_primary_unhealthy()
                             if attempt < MAX_RETRIES:

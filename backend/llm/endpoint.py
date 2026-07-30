@@ -49,10 +49,11 @@ async def _get_cached() -> bool | None:
             from core.redis_client import get_redis
             val = await get_redis().get(_HEALTH_KEY)
             if val is None:
-                return None
+                return None  # Redis answered "no verdict" — authoritative, don't second-guess
             return val in (b"1", "1")
         except Exception:
-            return None
+            pass  # Redis unreachable → read the local cache _set_cached() falls back to,
+                  # otherwise the write side throttles and the read side probes every call
     entry = _local
     if entry and entry.get("until", 0) > time.monotonic():
         return entry.get("ok")

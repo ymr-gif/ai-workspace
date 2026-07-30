@@ -89,6 +89,11 @@ LLM_FAILOVER_ENABLED = os.getenv("LLM_FAILOVER_ENABLED", "false").lower() == "tr
 LLM_PRIMARY_URL      = os.getenv("LLM_PRIMARY_URL", "")          # full chat-completions URL of the preferred endpoint (e.g. http://10.8.0.2:8080/v1/chat/completions)
 LLM_HEALTH_TTL       = int(os.getenv("LLM_HEALTH_TTL", 15))      # s, cache a health verdict this long (avoids probing every request)
 LLM_HEALTH_TIMEOUT   = float(os.getenv("LLM_HEALTH_TIMEOUT", 2)) # s, probe timeout
+# Optional key for the primary. NVIDIA_API_KEY is NEVER sent to LLM_PRIMARY_URL —
+# it is a paid credential and the primary is a self-hosted box, so one mistyped URL
+# would leak it. Leave empty for a plain llama.cpp over WireGuard (needs no auth);
+# set it only if the primary was started with its own --api-key.
+LLM_PRIMARY_API_KEY  = os.getenv("LLM_PRIMARY_API_KEY", "")
 
 # ── Per-model rate limits (req / 60s) — applied only on explicit model selection
 MODEL_RATE_LIMITS: dict[str, tuple[int, int]] = {
