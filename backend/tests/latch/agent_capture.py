@@ -1,6 +1,6 @@
 """Labeled-capture wrapper for connector-intent latch data collection (Phase 0→2).
 
-Agents drive synthetic traffic through Mnemo `/chat/stream` THROUGH this wrapper, so every
+Agents drive synthetic traffic through Eidetic `/chat/stream` THROUGH this wrapper, so every
 send is tagged with its ground-truth band + intended connector. The wrapper writes one
 capture row per send (conv_id + per-conv ordinal + label) to a JSONL; the latch emits one
 `latch_score` log line per non-cached turn. `measure.py` joins the two by (conv_id, order).
@@ -42,7 +42,7 @@ import time
 
 import httpx
 
-DEFAULT_BASE    = os.environ.get("MNEMO_BASE", "http://localhost:8000")
+DEFAULT_BASE    = os.environ.get("EIDETIC_BASE", "http://localhost:8000")
 DEFAULT_CAPTURE = os.environ.get("LATCH_CAPTURE", "latch_capture.jsonl")
 BANDS           = ["positive", "weak_real", "none_intent", "tie", "easy_neg"]
 CONNECTORS      = ["drive", "calendar", "gmail"]
