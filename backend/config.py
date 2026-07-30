@@ -74,6 +74,22 @@ STREAM_MAX_TURN_TOKENS = int(os.getenv("STREAM_MAX_TURN_TOKENS", 16000))  # accu
 MAX_RETRIES     = int(os.getenv("MAX_RETRIES", 3))
 FALLBACK_ORDER  = ["reasoning", "coder", "llama"]
 
+# ── LLM endpoint failover (chat only) ────────────────────────────────────────
+# Health-gated primary→NIM selection at the call layer. Purpose: on the Oracle
+# host, prefer the homelab llama.cpp endpoint when it is up (over WireGuard) and
+# fall back to the NIM API when it is not — WITHOUT a manual env flip. Distinct
+# from LLM_BACKEND (a static operator switch) and from the model fallback chain
+# (same endpoint, different model). Disabled by default → byte-identical to today.
+# CHAT ONLY, never embeddings: falling back to a different embedder mixes two
+# vector spaces and poisons retrieval (an embedder change is a re-embed, not a
+# failover). See plans/oracle-deploy/TASK-endpoint-failover.md.
+# Read as config.X at call time in llm/endpoint.py / llm/nim.py (never `from
+# config import`) so /admin/env/reload reaches them live (LLM_BACKEND invariant).
+LLM_FAILOVER_ENABLED = os.getenv("LLM_FAILOVER_ENABLED", "false").lower() == "true"
+LLM_PRIMARY_URL      = os.getenv("LLM_PRIMARY_URL", "")          # full chat-completions URL of the preferred endpoint (e.g. http://10.8.0.2:8080/v1/chat/completions)
+LLM_HEALTH_TTL       = int(os.getenv("LLM_HEALTH_TTL", 15))      # s, cache a health verdict this long (avoids probing every request)
+LLM_HEALTH_TIMEOUT   = float(os.getenv("LLM_HEALTH_TIMEOUT", 2)) # s, probe timeout
+
 # ── Per-model rate limits (req / 60s) — applied only on explicit model selection
 MODEL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "llama":     (_int_env("RATE_LIMIT_LLAMA",     15), 60),

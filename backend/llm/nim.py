@@ -10,6 +10,7 @@ import config
 from config import MAX_RETRIES
 import llm.client as llm_client
 from llm.circuit_breaker import is_open, record_failure, record_success
+from llm.endpoint import pick_chat_url, mark_primary_unhealthy, is_primary
 
 logger = logging.getLogger("nim")
 
@@ -45,9 +46,12 @@ async def call(
 
     async with llm_client.semaphore:
         for attempt in range(MAX_RETRIES + 1):
+            # Health-gated: primary (e.g. homelab) when up, else NIM. Re-picked per
+            # attempt so a primary failure on attempt N is retried against NIM on N+1.
+            base_url = await pick_chat_url()
             try:
                 response = await llm_client.client.post(
-                    config.NIM_URL,
+                    base_url,
                     headers=_auth_headers(),
                     json=body,
                 )
@@ -62,7 +66,14 @@ async def call(
                         "attempt":       attempt,
                     })
                     if response.status_code >= 500:
-                        await record_failure(model)
+                        # A 5xx from the primary → demote the ENDPOINT so the next
+                        # attempt re-picks NIM, but do NOT trip the model breaker: a
+                        # homelab outage doesn't make the model unhealthy on NIM, and
+                        # tripping it would block the very fallback we're switching to.
+                        if is_primary(base_url):
+                            await mark_primary_unhealthy()
+                        else:
+                            await record_failure(model)
                         continue
                     return {
                         "ok":         False,
@@ -127,7 +138,12 @@ async def call(
                     "attempt":    attempt,
                     "error":      str(e),
                 })
-                await record_failure(model)
+                # Connection-level failure to the primary → fail over on next attempt,
+                # but don't trip the model breaker (see the 5xx branch above).
+                if is_primary(base_url):
+                    await mark_primary_unhealthy()
+                else:
+                    await record_failure(model)
 
             except Exception as e:
                 logger.exception("[nim] unexpected request_id=%s model=%s err=%s", request_id, model, e)
@@ -161,11 +177,13 @@ async def call_stream(
 
     async with llm_client.semaphore:
         for attempt in range(MAX_RETRIES + 1):
+            # Health-gated per attempt (primary when up, else NIM) — see call().
+            base_url = await pick_chat_url()
             try:
                 t0 = time.monotonic()
                 async with llm_client.client.stream(
                     "POST",
-                    config.NIM_URL,
+                    base_url,
                     headers=_auth_headers(),
                     json=body,
                     # Read = time-to-first-token / inter-token gap. Slow 70B first
@@ -176,12 +194,20 @@ async def call_stream(
                     if response.status_code != 200:
                         logger.warning("[nim] stream_error model=%s status=%s attempt=%d",
                                        model, response.status_code, attempt)
+                        # A 5xx from the primary → demote the ENDPOINT and retry, which
+                        # re-picks NIM. Don't trip the model breaker (see call()).
+                        primary_failed = response.status_code >= 500 and is_primary(base_url)
+                        if primary_failed:
+                            await mark_primary_unhealthy()
+                            if attempt < MAX_RETRIES:
+                                continue  # next attempt selects NIM; no backoff for a demoted endpoint
                         # transient throttle / unavailable → backoff + retry before giving up
                         if response.status_code in (429, 503) and attempt < MAX_RETRIES:
                             delay = min(30, 2 ** attempt) * (0.75 + 0.5 * random.random())
                             await asyncio.sleep(delay)
                             continue
-                        await record_failure(model)
+                        if not primary_failed:
+                            await record_failure(model)
                         return
 
                     pending: dict[int, dict] = {}  # index → {id, name, arguments}
@@ -266,11 +292,18 @@ async def call_stream(
 
             except (httpx.TimeoutException, httpx.RequestError) as e:
                 logger.warning("[nim] stream_network_error model=%s err=%s attempt=%d", model, e, attempt)
+                # Connection-level failure to the primary → fail over on next attempt.
+                primary_failed = is_primary(base_url)
+                if primary_failed:
+                    await mark_primary_unhealthy()
                 if attempt < MAX_RETRIES:
                     delay = min(30, 2 ** attempt) * (0.75 + 0.5 * random.random())
                     await asyncio.sleep(delay)
                     continue
-                await record_failure(model)
+                # Final attempt failed. Only trip the model breaker if the failing
+                # endpoint was NIM — a dead primary must not mark the model unhealthy.
+                if not primary_failed:
+                    await record_failure(model)
                 raise
 
 
