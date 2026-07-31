@@ -17,6 +17,17 @@
 
 *Keyword-routed streaming reply (fast 8B → 120B reasoning), then the agent tool loop reading an attached file — with per-reply model, token/cost meter, and retrieval-grounding badges.*
 
+## Try it live
+
+**[https://eidetic.taile6aad6.ts.net](https://eidetic.taile6aad6.ts.net)** — log in with:
+
+```
+username:  demo
+password:  eidetic-demo
+```
+
+A read-and-chat sandbox with a $1 usage cap. Registration is invite-only; the `demo` account is shared, so please don't rely on anything you save there persisting.
+
 ---
 
 ## Architecture

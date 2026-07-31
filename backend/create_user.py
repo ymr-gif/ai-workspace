@@ -25,7 +25,7 @@ from models import User
 _SEED_USERS = {
     "admin": ("SEED_ADMIN_PASSWORD", "admin", 25.0, 30),
     "user":  ("SEED_USER_PASSWORD",  "user",   5.0, 30),
-    "demo":  ("SEED_DEMO_PASSWORD",  "user",   2.0, 30),
+    "demo":  ("SEED_DEMO_PASSWORD",  "user",   1.0, 30),
 }
 
 

@@ -43,8 +43,8 @@ export default function App() {
     return (
       <div style={s.page}>
         <div style={s.box}>
-          <h2 style={s.h2}>NIM · Flight Ops</h2>
-          <div style={s.sub}>AI gateway · routing console</div>
+          <h2 style={s.h2}>Eidetic</h2>
+          <div style={s.sub}>AI memory platform · routing console</div>
           <form onSubmit={handleLogin} style={s.form}>
             <input name="username" placeholder="Username" required style={s.input} />
             <input name="password" type="password" placeholder="Password" required style={s.input} />

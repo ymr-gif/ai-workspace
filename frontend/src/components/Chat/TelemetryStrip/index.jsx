@@ -38,7 +38,7 @@ export default function TelemetryStrip({ lastTtft, linkFault, dockTab, setDockTa
   return (
     <div style={s.teleStrip}>
       {narrow && <button onClick={onToggleRail} style={s.teleBtn} title="Conversations">☰</button>}
-      <span style={s.teleBrand}>NIM · FLIGHT OPS</span>
+      <span style={s.teleBrand}>EIDETIC</span>
       <span style={s.teleItem}>
         <span style={{ ...s.teleDot, ...(linkFault ? s.teleDotBad : {}) }} />
         LINK <span style={linkFault ? s.teleBad : s.teleOk}>{linkFault ? 'FAULT' : 'NOMINAL'}</span>

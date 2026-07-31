@@ -18,7 +18,7 @@ Please remember all of this.
 ```
 
 > **Accept all memory cards.**
-> Graph extraction will queue in background — entities: NIM Gateway, FastAPI, PostgreSQL, Redis, Neo4j, React.
+> Graph extraction will queue in background — entities: Eidetic, FastAPI, PostgreSQL, Redis, Neo4j, React.
 
 ---
 
@@ -101,7 +101,7 @@ Without me telling you again: what project am I building, what's my stack, what 
 
 Memory is seeded. Close this conversation.
 
-If graph entities didn't populate, go to **Memory → Graph → Refresh**. If entity count is still 0 after ~30 seconds, send one more message mentioning specific entity names (FastAPI, Neo4j, NIM Gateway) to force another extraction pass.
+If graph entities didn't populate, go to **Memory → Graph → Refresh**. If entity count is still 0 after ~30 seconds, send one more message mentioning specific entity names (FastAPI, Neo4j, Eidetic) to force another extraction pass.
 
 ---
 
