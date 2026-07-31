@@ -1,11 +1,11 @@
-# Multi-User AI Memory Platform
+# Eidetic
 
-[![CI](https://github.com/ymr-gif/ai-workspace/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ymr-gif/ai-workspace/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/ymr-gif/ai-workspace)](https://github.com/ymr-gif/ai-workspace/releases)
+[![CI](https://github.com/ymr-gif/eidetic/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ymr-gif/eidetic/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ymr-gif/eidetic)](https://github.com/ymr-gif/eidetic/releases)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-A self-hosted AI chat platform backed by NVIDIA NIM inference. Multi-model routing, hybrid RAG, persistent graph memory, an AI agent tool loop, and five OAuth connectors (Drive, Calendar, Gmail, Notion, GitHub — UI-gated pending public deploy) — all in a single Docker Compose stack.
+**Eidetic** is a self-hosted, multi-user AI memory platform backed by NVIDIA NIM inference. Multi-model routing, hybrid RAG, persistent graph memory, an AI agent tool loop, and five OAuth connectors (Drive, Calendar, Gmail, Notion, GitHub — UI-gated pending public deploy) — all in a single Docker Compose stack.
 
 **Backend:** Python / FastAPI · **Frontend:** React / Vite · **Infra:** PostgreSQL + pgvector, Redis, Neo4j, Prometheus, Grafana
 
@@ -81,14 +81,14 @@ system prompt → graph context → graph facts → user state → active goals
 - **Behavior profile**: lightweight per-reply counters (query types, topics, tools, models used); feeds proactive insight generation
 
 ### Graph Memory (Neo4j)
-- Entity and relationship extraction by the 70B reasoning model after each reply
+- Entity and relationship extraction by the reasoning model after each reply
 - Per-user knowledge graph with a 500-entity cap; LRU eviction by `updated_at`
 - Graph query results Redis-cached (TTL 60s); cache busted on every write
 - Fulltext index `entity_name_ft` + range index `entity_user_id` created on startup
 - Batch UNWIND writes (2 round-trips regardless of entity/relation count)
 
 ### AI Agent Tool Loop
-Tools are offered on **capability alone** (connector active, env flag on, files attached, URL present) and the model decides when to call them via native function calling. Attaching file IDs forces the 70B reasoning model.
+Tools are offered on **capability alone** (connector active, env flag on, files attached, URL present) and the model decides when to call them via native function calling. Attaching file IDs forces the reasoning model.
 
 | Tool | Description |
 |---|---|
@@ -225,7 +225,7 @@ DELETE /auth/me/webhook-token   — revoke token
 |---|---|---|
 | General | `meta/llama-3.1-8b-instruct` | `MODEL_LLAMA` |
 | Coder | `deepseek-ai/deepseek-v4-flash` | `MODEL_CODER` |
-| Reasoning | `meta/llama-3.3-70b-instruct` | `MODEL_REASONING` |
+| Reasoning | `openai/gpt-oss-120b` | `MODEL_REASONING` |
 | Embedding | `nvidia/nv-embedqa-e5-v5` (1024d) | `MODEL_EMBEDDING` |
 
 Model selection priority: `per-request override > conversation lock > keyword router`
@@ -239,8 +239,8 @@ Model selection priority: `per-request override > conversation lock > keyword ro
 **Prerequisites:** Docker + Docker Compose, [NVIDIA NIM API key](https://build.nvidia.com/)
 
 ```bash
-git clone https://github.com/ymr-gif/ai-workspace.git ai-api
-cd ai-api
+git clone https://github.com/ymr-gif/eidetic.git
+cd eidetic
 cp .env.example .env
 ```
 
@@ -394,7 +394,7 @@ See `.env.example` for all variables. Commonly changed:
 | `MAX_CONCURRENT_REQUESTS` | `10` | Max parallel NIM requests (cap 50) |
 | `MODEL_LLAMA` | `meta/llama-3.1-8b-instruct` | Override general model |
 | `MODEL_CODER` | `deepseek-ai/deepseek-v4-flash` | Override coder model |
-| `MODEL_REASONING` | `meta/llama-3.3-70b-instruct` | Override reasoning model |
+| `MODEL_REASONING` | `openai/gpt-oss-120b` | Override reasoning model |
 | `MODEL_EMBEDDING` | `nvidia/nv-embedqa-e5-v5` | Changing this triggers a full re-embed |
 | `BACKUP_SCHEDULE` | `0 2 * * *` | Cron for automated DB backup |
 | `LLM_BACKEND` | `nim` | `nim` \| `homeserver` — flip to local llama.cpp stack |
@@ -410,7 +410,7 @@ See `.env.example` for all variables. Commonly changed:
 ## Project Structure
 
 ```
-ai-workspace/
+eidetic/
 ├── backend/
 │   ├── api/                  route handlers (chat, files, conversations, memory, graph, admin, …)
 │   ├── llm/
