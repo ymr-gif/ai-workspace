@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Post-deploy smoke test for the NIM AI Gateway.
+# Post-deploy smoke test for Eidetic.
 # Drives the real end-to-end path against a running stack and exits non-zero on
 # any failure — safe to run after every deploy (staging or prod).
 #

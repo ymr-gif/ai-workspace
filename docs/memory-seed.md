@@ -10,7 +10,7 @@ Paste each turn in a **new conversation**. Accept every memory card that appears
 ```
 Hey. Fresh start. I need you to remember some things about me and this project.
 
-I'm the developer of this system — the NIM AI Gateway. It's a FastAPI backend that routes chat messages to NVIDIA NIM models, with a React/Vite frontend. My full stack is: Python, FastAPI, SQLAlchemy async, PostgreSQL with pgvector, Redis, Neo4j, Docker Compose.
+I'm the developer of this system — Eidetic. It's a FastAPI backend that routes chat messages to NVIDIA NIM models, with a React/Vite frontend. My full stack is: Python, FastAPI, SQLAlchemy async, PostgreSQL with pgvector, Redis, Neo4j, Docker Compose.
 
 I prefer short, direct answers for general questions. For technical questions about this project, I want detailed answers with specifics — no hand-waving.
 
