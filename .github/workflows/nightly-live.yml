@@ -17,9 +17,11 @@ jobs:
     env:
       VERIFY_BASE_URL: ${{ secrets.VERIFY_BASE_URL }}
       RUN_LIVE_NIM: "1"
-      # Seeded-account creds so the live/optional tiers actually run (conftest skips
-      # them when unset) and smoke.sh can log in (SMOKE_PASS is required, no default).
+      # Seeded-account creds so the live/optional tiers actually run and smoke.sh can
+      # log in. conftest skips the WHOLE live/optional tier unless BOTH VERIFY_USER_PW
+      # and VERIFY_ADMIN_PW are set; SMOKE_PASS is required by smoke.sh (no default).
       VERIFY_USER_PW: ${{ secrets.VERIFY_USER_PW }}
+      VERIFY_ADMIN_PW: ${{ secrets.VERIFY_ADMIN_PW }}
       SMOKE_PASS: ${{ secrets.SMOKE_PASS }}
     steps:
       - uses: actions/checkout@v4
