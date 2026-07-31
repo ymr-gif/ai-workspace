@@ -1,6 +1,6 @@
 self.addEventListener('push', e => {
   const data = e.data?.json() || {}
-  self.registration.showNotification(data.title || 'NIM Gateway', {
+  self.registration.showNotification(data.title || 'Eidetic', {
     body: data.body || '',
     icon: '/cpu-schematic.svg',
     data: { url: data.url || '/' }

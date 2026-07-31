@@ -25,7 +25,7 @@ export default function OnboardingModal() {
           {currentStep === 0 && (
             <div>
               <div style={{ fontFamily:TERM, fontSize:'20px', color:FG3, lineHeight:1.5, marginBottom:'1rem' }}>
-                Welcome to <span style={{ color:RED, fontWeight:700 }}>NIM Gateway</span>.
+                Welcome to <span style={{ color:RED, fontWeight:700 }}>Eidetic</span>.
               </div>
               <div style={{ fontFamily:TERM, fontSize:'17px', color:FG4, lineHeight:1.5 }}>
                 Your AI-powered research assistant. Ask questions, attach files,
