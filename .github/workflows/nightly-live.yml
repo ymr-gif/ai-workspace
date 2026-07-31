@@ -34,12 +34,21 @@ jobs:
           pip install -r requirements-dev.txt
       # `exit 0` in a guard step does NOT skip later steps — gate each paid step
       # on the secret instead, so the run stays green when no stack is deployed.
-      - name: Live + optional tiers
-        if: env.VERIFY_BASE_URL != ''
-        run: pytest -m "live_nim or optional" -q
-      - name: Post-deploy smoke
+      # The public deployment is invite-gated (REQUIRE_INVITE=true) with web search
+      # off, so the full pytest live tier can't self-register throwaway users or fire
+      # web_search — it reds the job on ENVIRONMENT MISMATCH, not real regressions.
+      # So the AUTHORITATIVE nightly gate is smoke.sh (health -> login -> upload ->
+      # chat stream -> metrics), which exercises the real deployment end to end. The
+      # pytest live tier still runs for visibility but is NON-BLOCKING until the harness
+      # is adapted for an invite-gated stack — see QUEUE.md "Live-suite adaptation for
+      # the invite-gated public deployment" for the plan + options.
+      - name: Post-deploy smoke (authoritative gate)
         if: env.VERIFY_BASE_URL != ''
         run: bash scripts/smoke.sh "$VERIFY_BASE_URL"
+      - name: Live + optional tiers (informational — non-blocking)
+        if: env.VERIFY_BASE_URL != ''
+        continue-on-error: true
+        run: pytest -m "live_nim or optional" -q
       - name: Skipped notice
         if: env.VERIFY_BASE_URL == ''
         run: echo "VERIFY_BASE_URL secret not set — live tier skipped."
