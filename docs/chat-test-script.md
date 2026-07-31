@@ -20,7 +20,7 @@ graph prune · context budget allocator · retrieval re-ranking.
 What do you know about me and the project I'm building?
 ```
 
-> **Expect:** AI recalls without prompting — NIM AI Gateway, FastAPI stack, PostgreSQL + pgvector +
+> **Expect:** AI recalls without prompting — Eidetic, FastAPI stack, PostgreSQL + pgvector +
 > Redis + Neo4j, routing to three models, preference for short general answers and detailed
 > technical answers.
 > If it draws a blank, the seed didn't persist — go back and re-run `memory-seed.md`.
@@ -206,7 +206,7 @@ Start a **new conversation** (third session total).
 What project am I building and what are the two things I always do before touching a broken system?
 ```
 
-> **Expect:** AI recalls NIM AI Gateway + (1) check BUGS.md first, (2) fix docker without asking.
+> **Expect:** AI recalls Eidetic + (1) check BUGS.md first, (2) fix docker without asking.
 > From persistent memory only — no context given.
 >
 > If this passes, the full seed → test → persist loop is working correctly.
