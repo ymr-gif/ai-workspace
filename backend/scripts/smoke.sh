@@ -98,7 +98,11 @@ pass "streamed reply + complete done event"
 
 # ── 5. metrics ──────────────────────────────────────────────────────────────────
 step "5. metrics"
-curl -fsS -m 15 "$BASE/metrics" | grep -q -E '^# (HELP|TYPE)' || fail "/metrics not exposing Prometheus output"
+# Read the body fully before grepping — piping curl straight into `grep -q` lets grep
+# close the pipe on the first match, so curl aborts writing the (large) metrics body
+# with exit 23 and pipefail fails the step even though metrics ARE exposed.
+METRICS="$(curl -fsS -m 15 "$BASE/metrics")" || fail "/metrics unreachable"
+printf '%s' "$METRICS" | grep -q -E '^# (HELP|TYPE)' || fail "/metrics not exposing Prometheus output"
 pass "/metrics exposed"
 
 # ── 6. cleanup ──────────────────────────────────────────────────────────────────
