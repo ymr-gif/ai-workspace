@@ -98,11 +98,16 @@ pass "streamed reply + complete done event"
 
 # ── 5. metrics ──────────────────────────────────────────────────────────────────
 step "5. metrics"
-# Read the body fully before grepping — piping curl straight into `grep -q` lets grep
-# close the pipe on the first match, so curl aborts writing the (large) metrics body
-# with exit 23 and pipefail fails the step even though metrics ARE exposed.
+# Fetch the body, then match it WITHOUT a pipe. Piping into `grep -q` lets grep close
+# the pipe on its first match, so the producer (curl, or printf) gets SIGPIPE / a write
+# error on the large metrics body and pipefail fails the step even though /metrics is
+# exposed. A no-pipe case glob can't race. `# HELP ` / `# TYPE ` are unambiguous
+# Prometheus line prefixes.
 METRICS="$(curl -fsS -m 15 "$BASE/metrics")" || fail "/metrics unreachable"
-printf '%s' "$METRICS" | grep -q -E '^# (HELP|TYPE)' || fail "/metrics not exposing Prometheus output"
+case "$METRICS" in
+  *"# HELP "*|*"# TYPE "*) : ;;
+  *) fail "/metrics not exposing Prometheus output" ;;
+esac
 pass "/metrics exposed"
 
 # ── 6. cleanup ──────────────────────────────────────────────────────────────────
