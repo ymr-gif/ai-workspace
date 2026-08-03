@@ -41,7 +41,12 @@ export default function App() {
         method: 'POST',
         body: new URLSearchParams({ username: fd.get('username'), password: fd.get('password') }),
       })
-      if (!res.ok) { setError('Invalid credentials'); return }
+      if (!res.ok) {
+        let detail = ''
+        try { detail = (await res.json())?.detail || '' } catch { /* no JSON body */ }
+        setError(res.status === 401 ? 'Invalid credentials' : (detail || 'Invalid credentials'))
+        return
+      }
       const { access_token } = await res.json()
       localStorage.setItem('nim_token', access_token)
       setToken(access_token)

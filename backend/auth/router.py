@@ -13,6 +13,7 @@ from core.db import get_db
 from auth.schemas import Token, RegisterRequest
 from auth.security import authenticate_user, create_access_token, get_current_user, get_user, hash_password, hash_api_key
 from models import Invitation, User
+from services.demo import count_live_demo_accounts, mint_ephemeral_demo, pool_spend_usd
 
 logger      = logging.getLogger("auth")
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -30,9 +31,25 @@ async def login(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    if config.DEMO_EPHEMERAL_ENABLED and user.username == config.DEMO_SEED_USERNAME:
+        if await pool_spend_usd(db) >= config.DEMO_GLOBAL_CAP_USD:
+            raise HTTPException(
+                status_code=503,
+                detail="Demo is at capacity right now — please try again later.",
+            )
+        if config.DEMO_MAX_LIVE_ACCOUNTS > 0 and await count_live_demo_accounts(db) >= config.DEMO_MAX_LIVE_ACCOUNTS:
+            raise HTTPException(
+                status_code=503,
+                detail="Demo is at capacity right now — please try again later.",
+            )
+        user = await mint_ephemeral_demo(db)
+        logger.info("[auth] demo mint username=%s", user.username)
+    else:
+        logger.info("[auth] login success username=%s", user.username)
+
     expires = timedelta(minutes=JWT_EXPIRE_MINUTES)
     token   = create_access_token({"sub": user.username, "role": user.role}, expires_delta=expires)
-    logger.info("[auth] login success username=%s", user.username)
     return Token(access_token=token, token_type="bearer", expires_in=int(expires.total_seconds()))
 
 

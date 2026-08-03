@@ -26,7 +26,7 @@ username:  demo
 password:  eidetic-demo
 ```
 
-A read-and-chat sandbox with a $1 usage cap. Registration is invite-only; the `demo` account is shared, so please don't rely on anything you save there persisting.
+A read-and-chat sandbox. Registration is invite-only. Every login spins up its own **private, auto-expiring sandbox** — your chats, files, and memory are isolated to your session and wiped after a couple of hours idle, so don't rely on anything you save there persisting. Spend is capped ($1 per session, pooled ceiling across all demo sessions).
 
 ---
 

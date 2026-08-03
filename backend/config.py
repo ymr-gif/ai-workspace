@@ -169,6 +169,25 @@ USE_REDIS              = os.getenv("USE_REDIS", "false").lower() == "true"
 MEMORY_LOCK_BACKEND = os.getenv("MEMORY_LOCK_BACKEND", "pg").lower()
 MEMORY_LOCK_TTL     = int(os.getenv("MEMORY_LOCK_TTL", "30"))
 MEMORY_LOCK_WAIT    = int(os.getenv("MEMORY_LOCK_WAIT", "5"))
+
+# ── Ephemeral per-login demo accounts ────────────────────────────────────────
+# Default false → byte-identical to today (feature fully inert). When true,
+# every login as DEMO_SEED_USERNAME mints a fresh isolated demo_<rand> account
+# instead of authenticating the shared seed (see services/demo.py). All read
+# as config.X at call time (never `from config import`) so /admin/env/reload
+# reaches them live — same invariant as LLM_BACKEND above.
+DEMO_EPHEMERAL_ENABLED       = os.getenv("DEMO_EPHEMERAL_ENABLED", "false").lower() == "true"
+DEMO_SEED_USERNAME           = os.getenv("DEMO_SEED_USERNAME", "demo")
+DEMO_PER_ACCOUNT_CAP_USD     = float(os.getenv("DEMO_PER_ACCOUNT_CAP_USD", "1.0"))
+DEMO_PER_ACCOUNT_WINDOW_DAYS = int(os.getenv("DEMO_PER_ACCOUNT_WINDOW_DAYS", "1"))
+DEMO_GLOBAL_CAP_USD          = float(os.getenv("DEMO_GLOBAL_CAP_USD", "10.0"))
+DEMO_GLOBAL_WINDOW_HOURS     = int(os.getenv("DEMO_GLOBAL_WINDOW_HOURS", "24"))
+DEMO_IDLE_TTL_HOURS          = int(os.getenv("DEMO_IDLE_TTL_HOURS", "2"))
+DEMO_REAP_INTERVAL_MIN       = int(os.getenv("DEMO_REAP_INTERVAL_MIN", "30"))
+# Row-count guard, disabled by default — declined per-IP tracking; this is the
+# only additional throttle knob left in reserve. 0 = off.
+DEMO_MAX_LIVE_ACCOUNTS       = int(os.getenv("DEMO_MAX_LIVE_ACCOUNTS", "0"))
+
 AI_TIMEOUT             = int(os.getenv("AI_TIMEOUT", 10))
 MAX_CONCURRENT_REQUESTS = min(int(os.getenv("MAX_CONCURRENT_REQUESTS", 10)), 50)
 LOG_LEVEL              = os.getenv("LOG_LEVEL", "INFO")
