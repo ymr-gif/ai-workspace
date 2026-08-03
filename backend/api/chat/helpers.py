@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import config
 from config import MODELS
 from llm import retriever
 from llm.closing_intent import closing_score, CLOSING_THRESHOLD, _TIER2_MIN_TOKENS, _TIER2_MAX_TOKENS
@@ -17,6 +18,7 @@ from llm.retriever.policy import get_policy
 from llm.service.context import _needs_file_tools
 from llm.summarizer.salience import bump_fact_saliences, compute_salience, score_facts
 from models import Conversation, File, MemoryConflict, Message, User, UserGoal, UserMemory, UserInsight
+from services.demo import is_ephemeral_demo, pool_spend_usd
 
 from .schemas import ChatRequest
 
@@ -62,6 +64,12 @@ def _is_trivial(message: str) -> bool:
 
 
 async def _check_cost_cap(user: User, db: AsyncSession) -> None:
+    if config.DEMO_EPHEMERAL_ENABLED and is_ephemeral_demo(user.username):
+        if await pool_spend_usd(db) >= config.DEMO_GLOBAL_CAP_USD:
+            raise HTTPException(
+                status_code=402,
+                detail="Demo usage pool exhausted — resets shortly.",
+            )
     if user.cost_limit_usd is None:
         return
     q = (

@@ -13,6 +13,7 @@ from apscheduler.triggers.cron import CronTrigger
 from croniter import croniter
 from sqlalchemy import select
 
+import config
 import llm.client as llm_client
 from config import BACKUP_SCHEDULE, DATABASE_URL, DIGEST_ENABLED, DIGEST_SCHEDULE, MODELS, REDIS_URL, REQUEST_TIMEOUT
 from core.arq_pool import init_arq_pool
@@ -250,6 +251,18 @@ async def run_digest() -> None:
     logger.info("[digest] sent=%d skipped=%d", sent, skipped)
 
 
+async def run_demo_reap() -> None:
+    """Purge idle demo_* accounts. No-ops (checked at call time, not at job
+    registration) unless config.DEMO_EPHEMERAL_ENABLED — so the feature stays
+    reachable live via /admin/env/reload without a scheduler restart."""
+    if not config.DEMO_EPHEMERAL_ENABLED:
+        return
+    from services.demo import reap_idle_demos
+    async with AsyncSessionLocal() as db:
+        count = await reap_idle_demos(db)
+    logger.info("[scheduler] demo reap — purged %d idle account(s)", count)
+
+
 async def run_backup() -> None:
     """pg_dump the database directly to a gzip in the shared backups volume.
 
@@ -343,6 +356,17 @@ async def main() -> None:
         logger.info("[scheduler] backup scheduled cron=%s", BACKUP_SCHEDULE)
     except Exception as e:
         logger.warning("[scheduler] invalid backup schedule %s: %s", BACKUP_SCHEDULE, e)
+
+    # Demo-account reaper — interval read once at startup; the enable/disable
+    # check inside run_demo_reap() is live via config.DEMO_EPHEMERAL_ENABLED.
+    scheduler.add_job(
+        run_demo_reap,
+        "interval",
+        minutes = config.DEMO_REAP_INTERVAL_MIN,
+        id      = "__demo_reap__",
+    )
+    logger.info("[scheduler] demo reap scheduled every %d min (enabled=%s)",
+                config.DEMO_REAP_INTERVAL_MIN, config.DEMO_EPHEMERAL_ENABLED)
 
     # External integrations sync every 6 hours
     scheduler.add_job(
