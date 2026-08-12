@@ -76,6 +76,50 @@ npx wrangler deploy
 
 No build step; `worker.js` and `offline.js` ship as-is.
 
+## Retry behavior (added 2026-08-12)
+
+On an upstream-down status (`UPSTREAM_DOWN_STATUSES`) or a `fetch` throw, `worker.js` retries
+**once** after a ~300ms backoff before showing the offline page — added because a healthy box was
+observed briefly failing (~0.35s, not the 8s timeout) for reasons never identified; see
+`plans/cloudflare-worker/README.md` → "As built" for the incident.
+
+- **Only `GET`/`HEAD`/`OPTIONS` retry.** `POST`/`PUT`/`PATCH`/`DELETE` never do — a down-status from
+  our own nginx can mean the request already reached the app, and silently replaying a chat turn or
+  a calendar write is worse than showing the offline page once. Applies to the main proxy path and
+  to the `/__status` probe (same `fetchOrigin()` helper, same rule).
+- **Exactly one retry, fixed backoff, no escalation.** A genuinely dead box must still fail
+  reasonably fast; this does not add a second retry or a growing delay.
+- **Fresh `Request` and fresh `AbortController`/timer per attempt** — a `Request` already passed to
+  `fetch` is consumed, and sharing one controller across attempts would let aborting the first
+  poison the second.
+
+**Latency reality check, measured live:** the ~300ms backoff is the expected added cost when the
+down-signal itself arrives fast (the observed incident's failure mode). But if the origin instead
+*hangs* rather than fast-failing — observed once during a genuine full-funnel-off test, where the
+first attempt consumed the full 8s `CONNECT_TIMEOUT_MS` before the retry's second attempt failed
+fast — total latency before the offline page was **~8.8s**, and the theoretical worst case (both
+attempts hang the full timeout) is **~16.3s**. That's worse than the pre-retry 8s ceiling for a
+truly dead box. The task spec is deliberately unconditional (retry on any down-signal, no
+duration-based skip, no escalating backoff), so this is an accepted tradeoff, not a bug — flagged
+here for whoever revisits this.
+
+## Testing
+
+```bash
+cd edge
+npm test
+```
+
+Plain vitest (no miniflare/workerd pool) — `worker.js`'s only Workers-specific dependency is
+`fetch`/`Request`/`Response`/`AbortController`/`Headers`, all native in Node 18+, so tests stub
+global `fetch` directly rather than spinning up a full Workers runtime. Covers: a fake fetch that
+fails once then succeeds (never shows the offline page); fails twice (offline page, exactly one
+retry — no more); a `POST` that fails once (offline page, **exactly one** upstream attempt — guards
+the no-replay rule); the `/__status` probe surviving a single blip; and a slow-body response
+completing untouched (guards the abort-timer-only-bounds-headers property). Each of the last two
+guarantees was verified to actually fail when the corresponding code is broken, not just pass
+trivially.
+
 ## Verify
 
 ```bash
@@ -131,7 +175,10 @@ time differs meaningfully from the funnel's.
 
 - Free plan: 100k requests/day, 10ms CPU/request — proxying is I/O, not CPU-bound, so this is not a
   real constraint at demo traffic.
-- Adds one network hop (~20-60ms) versus hitting the funnel directly.
+- Adds one network hop versus hitting the funnel directly; the plan's original "~20-60ms" estimate
+  is still unverified from a real browser — every measurement so far has come from this dev
+  sandbox, whose own network path to Cloudflare dominates the number and isn't representative of a
+  real visitor's route.
 - New origin means a fresh `localStorage` per browser — sessions from the old `ts.net` URL do not
   carry over.
 - `last_seen` writes are throttled to once per 5 minutes (KV free tier: 1000 writes/day) via an
