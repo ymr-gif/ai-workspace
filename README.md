@@ -19,7 +19,7 @@
 
 ## Try it live
 
-**[https://eidetic.taile6aad6.ts.net](https://eidetic.taile6aad6.ts.net)** — log in with:
+**[https://eidetic.work](https://eidetic.work)** — log in with:
 
 ```
 username:  demo
@@ -27,6 +27,8 @@ password:  eidetic-demo
 ```
 
 A read-and-chat sandbox. Registration is invite-only. Every login spins up its own **private, auto-expiring sandbox** — your chats, files, and memory are isolated to your session and wiped after a couple of hours idle, so don't rely on anything you save there persisting. Spend is capped ($1 per session, pooled ceiling across all demo sessions).
+
+Eidetic runs on a home server, so it is not a 24/7 service. If the box is down you will get a status page telling you when it was last seen, rather than a dead link.
 
 ---
 

@@ -1,0 +1,16 @@
+name = "eidetic"
+main = "src/worker.js"
+compatibility_date = "2026-08-11"
+workers_dev = true
+
+[vars]
+ORIGIN = "https://eidetic.taile6aad6.ts.net"
+CONNECT_TIMEOUT_MS = "8000"
+
+[[routes]]
+pattern = "eidetic.work"
+custom_domain = true
+
+[[kv_namespaces]]
+binding = "STATE"
+id = "282b3a98fb8b4cc6bdca26385ec5ef6e"

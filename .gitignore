@@ -20,6 +20,9 @@ dist/
 build/
 .cache/
 
+# Cloudflare Worker (edge/) — local miniflare/wrangler state, not source
+.wrangler/
+
 # Storage (user uploads + DB dumps — contain user data, never commit)
 backend/storage/files/
 backend/storage/backups/

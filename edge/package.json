@@ -1,0 +1,14 @@
+{
+  "name": "eidetic-edge",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cloudflare Worker edge fallback in front of the Eidetic Tailscale Funnel",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "4.86.0"
+  }
+}
