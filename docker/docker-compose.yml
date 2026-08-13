@@ -43,6 +43,17 @@ services:
       - ../backend/storage:/app/backend/storage
     tmpfs:
       - /tmp/prom_multiproc
+    # Pinned public resolvers for outbound (NIM, embedding, OAuth, etc.) DNS.
+    # A container's resolv.conf is written once at creation; leaving it to
+    # inherit the host's resolver meant a host DNS change (router swap, VPN,
+    # Tailscale MagicDNS toggle) silently broke every outbound call in every
+    # container that outlived the change, surfacing as "nim/embedding error"
+    # with an empty detail — looks exactly like a NIM outage, isn't one. Fixed
+    # public IPs never drift. Container-name resolution (postgres/redis/neo4j
+    # via Docker's embedded 127.0.0.11) is untouched by this — see docker/CLAUDE.md.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     networks:
       - backend
 
@@ -127,6 +138,10 @@ services:
         condition: service_healthy
     volumes:
       - ../backend/storage:/app/backend/storage
+    # Pinned public resolvers — see the `api` service above for why.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     networks:
       - backend
 
@@ -160,6 +175,10 @@ services:
       REDIS_URL: redis://redis:6379
     depends_on:
       - redis
+    # Pinned public resolvers — see the `api` service above for why.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     networks:
       - backend
 
@@ -188,6 +207,10 @@ services:
         condition: service_healthy
     volumes:
       - ../backend/storage:/app/backend/storage
+    # Pinned public resolvers — see the `api` service above for why.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     networks:
       - backend
 
@@ -235,6 +258,11 @@ services:
       - SEARXNG_SECRET=changeme-replace-in-prod
     volumes:
       - ./searxng:/etc/searxng:rw
+    # Pinned public resolvers — see the `api` service above for why. searxng
+    # fetches the open web (search engines), so it needs outbound DNS too.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     networks:
       - backend
 
