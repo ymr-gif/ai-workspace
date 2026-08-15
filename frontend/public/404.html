@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eidetic — not found</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --ground: #0a0b0d;
+    --panel: #121417;
+    --border: #23262b;
+    --text: #e6e8eb;
+    --text-dim: #8b9099;
+    --accent: #e0a640;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--ground);
+    color: var(--text);
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+    padding: 24px;
+  }
+  .card {
+    max-width: 560px;
+    width: 100%;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 32px;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 2px 8px;
+    margin-bottom: 20px;
+  }
+  h1 {
+    font-size: 20px;
+    line-height: 1.5;
+    font-weight: 500;
+    margin: 0 0 8px;
+    color: var(--text);
+  }
+  p {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text-dim);
+    margin: 0 0 4px;
+  }
+  .footer {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+  }
+  a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <span class="badge">not found</span>
+    <h1>There's no page at this address.</h1>
+    <p>Eidetic is up and running — this path just doesn't lead anywhere. Check the link, or
+    head back and start over.</p>
+    <div class="footer">
+      <a href="/">Back to Eidetic</a>
+    </div>
+  </div>
+</body>
+</html>

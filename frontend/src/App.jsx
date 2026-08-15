@@ -14,6 +14,32 @@ const s = {
   eye:   { position:'absolute', right:'0.55rem', background:'none', border:'none', color:'#8ba3bd', cursor:'pointer', padding:'0.2rem', display:'flex', alignItems:'center', lineHeight:0 },
 }
 
+const nf = {
+  page:   { display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'#0a0b0d', padding:'24px', fontFamily:'ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace' },
+  card:   { maxWidth:'560px', width:'100%', background:'#121417', border:'1px solid #23262b', borderRadius:'8px', padding:'32px' },
+  badge:  { display:'inline-block', fontSize:'12px', letterSpacing:'0.08em', textTransform:'uppercase', color:'#e0a640', border:'1px solid #e0a640', borderRadius:'3px', padding:'2px 8px', marginBottom:'20px' },
+  h1:     { fontSize:'20px', lineHeight:1.5, fontWeight:500, margin:'0 0 8px', color:'#e6e8eb' },
+  p:      { fontSize:'14px', lineHeight:1.6, color:'#8b9099', margin:'0 0 4px' },
+  footer: { marginTop:'24px', paddingTop:'20px', borderTop:'1px solid #23262b', fontSize:'13px' },
+  link:   { color:'#e0a640', textDecoration:'none' },
+}
+
+function NotFound() {
+  return (
+    <div style={nf.page}>
+      <div style={nf.card}>
+        <span style={nf.badge}>not found</span>
+        <h1 style={nf.h1}>There&rsquo;s no page at this address.</h1>
+        <p style={nf.p}>Eidetic is up and running &mdash; this path just doesn&rsquo;t lead anywhere.
+          Check the link, or head back and start over.</p>
+        <div style={nf.footer}>
+          <a href="/" style={nf.link}>Back to Eidetic</a>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function EyeIcon({ off }) {
   return off ? (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -32,6 +58,10 @@ export default function App() {
   const [token, setToken] = useState(localStorage.getItem('nim_token') || '')
   const [error, setError] = useState('')
   const [showPw, setShowPw] = useState(false)
+
+  if (window.location.pathname !== '/') {
+    return <NotFound />
+  }
 
   async function handleLogin(e) {
     e.preventDefault()
