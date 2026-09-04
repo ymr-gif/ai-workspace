@@ -2,10 +2,10 @@
 # Split out of ci.yml (2026-07-06) so quota/deploy failures never touch the CI badge.
 name: Nightly Live
 
+# Manual-only. The scheduled run exercises live third-party endpoints, so a
+# provider outage turns into a red X on the default branch; run it on demand.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 6 * * *"
 
 defaults:
   run:
